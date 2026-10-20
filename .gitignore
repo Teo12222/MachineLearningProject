@@ -1,0 +1,12 @@
+
+# local agent/tooling state
+.omo/
+
+build
+
+roboenv.egg-info
+
+__pycache__
+
+robotnik_arm_task/configs
+robotnik_arm_task/models
