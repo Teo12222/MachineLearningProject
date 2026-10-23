@@ -5,6 +5,7 @@ import os
 # Headless mode and step cap for CI / direct runs
 headless = os.environ.get("ROBOENV_HEADLESS", "").strip().lower() in ("1", "true", "yes")
 max_steps = int(os.environ.get("ROBOENV_MAX_STEPS", "40000"))
+out_path = os.environ.get("ROBOENV_OUT", "episode.npz")
 
 import matplotlib
 if headless:
@@ -23,7 +24,8 @@ from robotnik_arm_control import (
 # TARGET SPECIFICATION
 # Fixed 3D Cartesian coordinates for the Kinova end-effector in the world frame:
 # [X (forward/meters), Y (lateral/meters), Z (height/meters)]
-TARGET_EE_POS = np.array([0.0, 3.1, 0.5])
+_target_str = os.environ.get("ROBOENV_TARGET", "0.0,1.1,0.5")
+TARGET_EE_POS = np.array([float(v) for v in _target_str.split(",")])
 
 # Fixed gripper finger configuration (angles in radians, held fixed during simulation):
 # [finger_1, finger_tip_1, finger_2, finger_tip_2, finger_3, finger_tip_3]
@@ -167,10 +169,14 @@ def main():
     qd_mes_all = []
     q_d_all = []
     qd_d_all = []
+    base_bearing_all = []
+    wheel_cmds_all = []
+    torque_arm_all = []
 
     # --------------------------------------------------------------------------
     # Main Simulation Loop
     # --------------------------------------------------------------------------
+    stop_message = None
     while True:
         # Measure current states
         base_pos = np.array(sim.GetBasePosition())
@@ -251,6 +257,9 @@ def main():
         current_desired_qd = np.concatenate((wheel_cmds, qd_des_arm, np.zeros(6)))
         q_d_all.append(current_desired_q)
         qd_d_all.append(current_desired_qd)
+        base_bearing_all.append(base_bearing)
+        wheel_cmds_all.append(wheel_cmds)
+        torque_arm_all.append(torque_arm)
 
         if not headless:
             time.sleep(0.001)
@@ -269,6 +278,21 @@ def main():
     print(f"Final Finger Angles          : {np.round(q_mes[11:17], 4)}")
     print(f"Max Finger Deviation (rad)   : {np.max(np.abs(q_mes[11:17] - target_finger_angles)):.6f}")
     print("==================================================================")
+
+    np.savez(
+        out_path,
+        time=np.array(time_all),
+        base_pos=np.array(base_pos_all),
+        base_bearing=np.array(base_bearing_all),
+        q_mes=np.array(q_mes_all),
+        qd_mes=np.array(qd_mes_all),
+        wheel_cmds=np.array(wheel_cmds_all),
+        torque_arm=np.array(torque_arm_all),
+        ee_pos=np.array(ee_pos_all),
+        target=TARGET_EE_POS,
+        final_error=np.linalg.norm(TARGET_EE_POS - ee_pos),
+        stop_message=str(stop_message),
+    )
 
     if headless:
         print(f"Headless run finished at t={current_time:.2f}s")
