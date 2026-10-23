@@ -169,6 +169,7 @@ def main():
     qd_mes_all = []
     q_d_all = []
     qd_d_all = []
+    # Added these three for visualisation only - no needed for the model
     base_bearing_all = []
     wheel_cmds_all = []
     torque_arm_all = []
