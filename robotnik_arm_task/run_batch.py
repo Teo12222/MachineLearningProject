@@ -103,13 +103,13 @@ def run_episode(idx, target, args, script_dir):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--n", type=int, default=5, help="number of episodes")
+    parser.add_argument("--n", type=int, default=300, help="number of episodes")
     parser.add_argument("--seed", type=int, default=0, help="seed for the target sampler")
-    parser.add_argument("--out-dir", default="data", help="folder for the episode files and index.csv")
-    parser.add_argument("--workers", type=int, default=1, help="episodes to run in parallel")
+    parser.add_argument("--out-dir", default="data_pilot", help="folder for the episode files and index.csv")
+    parser.add_argument("--workers", type=int, default=16, help="episodes to run in parallel")
     parser.add_argument("--timeout", type=float, default=180.0, help="seconds before one episode is killed")
     parser.add_argument("--script", default="robotnik_arm_task.py", help="episode script to run")
-    parser.add_argument("--start", type=int, default=0, help="first episode index (use to extend a dataset)")
+    parser.add_argument("--start", type=int, default=50, help="first episode index (use to extend a dataset)")
     args = parser.parse_args()
 
     script_dir = str(Path(__file__).resolve().parent)
