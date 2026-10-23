@@ -16,7 +16,7 @@ import os
 import subprocess
 import sys
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import numpy as np
@@ -36,9 +36,26 @@ def sample_target(seed, idx):
     """Target for episode idx. Seeded per episode, so it never depends on how many episodes are requested."""
     rng = np.random.default_rng([seed, idx])
     angle = rng.uniform(-np.pi, np.pi)
-    radius = rng.uniform(*RADIUS_RANGE)
+    # sqrt of a uniform r^2 gives targets uniform over the annulus area (plain uniform r crowds the inner edge)
+    radius = np.sqrt(rng.uniform(RADIUS_RANGE[0] ** 2, RADIUS_RANGE[1] ** 2))
     z = rng.uniform(*HEIGHT_RANGE)
     return np.array([radius * np.cos(angle), radius * np.sin(angle), z])
+
+
+def read_episode(row, out_file):
+    """Fill final_error, sim_time and outcome in row from a saved episode file."""
+    with np.load(out_file) as data:
+        message = str(data["stop_message"])
+        row["final_error"] = f"{float(data['final_error']):.5f}"
+        row["sim_time"] = f"{float(data['time'][-1]):.2f}"
+    if message.startswith(SUCCESS_PREFIX):
+        row["outcome"] = "reached"
+    elif message.startswith("Target not reachable"):
+        row["outcome"] = "stalled"
+    elif message.startswith("Reached step cap"):
+        row["outcome"] = "step_cap"
+    else:
+        row["outcome"] = "other"
 
 
 def run_episode(idx, target, args, script_dir):
@@ -47,7 +64,12 @@ def run_episode(idx, target, args, script_dir):
     row = {"episode": idx, "x": f"{target[0]:.4f}", "y": f"{target[1]:.4f}", "z": f"{target[2]:.4f}",
            "status": "", "outcome": "", "final_error": "", "sim_time": "", "wall_time": "", "file": out_file.name}
     if out_file.exists():
+        # Still read the file, so episodes finished by an interrupted run can be added to the index
         row["status"] = "skipped_exists"
+        try:
+            read_episode(row, out_file)
+        except Exception:
+            row["outcome"] = "unreadable"
         return row
 
     env = dict(os.environ)
@@ -74,19 +96,8 @@ def run_episode(idx, target, args, script_dir):
         row["file"] = ""
         return row
 
-    data = np.load(out_file)
-    message = str(data["stop_message"])
     row["status"] = "ok"
-    row["final_error"] = f"{float(data['final_error']):.5f}"
-    row["sim_time"] = f"{float(data['time'][-1]):.2f}"
-    if message.startswith(SUCCESS_PREFIX):
-        row["outcome"] = "reached"
-    elif message.startswith("Target not reachable"):
-        row["outcome"] = "stalled"
-    elif message.startswith("Reached step cap"):
-        row["outcome"] = "step_cap"
-    else:
-        row["outcome"] = "other"
+    read_episode(row, out_file)
     return row
 
 
@@ -111,13 +122,15 @@ def main():
     t0 = time.time()
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
         futures = [pool.submit(run_episode, idx, tgt, args, script_dir) for idx, tgt in jobs]
-        for done, fut in enumerate(futures, start=1):
+        # Print in completion order, so one slow episode doesn't hold back the progress output
+        for done, fut in enumerate(as_completed(futures), start=1):
             row = fut.result()
             rows.append(row)
             print(f"[{done}/{len(jobs)}] ep {row['episode']:04d} target=({row['x']}, {row['y']}, {row['z']}) "
                   f"-> {row['status']} {row['outcome']} err={row['final_error']} wall={row['wall_time']}s", flush=True)
 
-    # Merge with any existing index: one row per episode, newest result wins, "skipped" rows never overwrite
+    # Merge with any existing index: one row per episode, newest result wins.
+    # "skipped" rows only fill gaps (episodes an interrupted run finished but never indexed).
     index_path = Path(args.out_dir) / "index.csv"
     merged = {}
     if index_path.exists():
@@ -125,7 +138,7 @@ def main():
             for r in csv.DictReader(f):
                 merged[int(r["episode"])] = r
     for r in rows:
-        if r["status"] != "skipped_exists":
+        if r["status"] != "skipped_exists" or r["episode"] not in merged:
             merged[r["episode"]] = r
     with open(index_path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=INDEX_FIELDS)
