@@ -10,3 +10,7 @@ __pycache__
 
 robotnik_arm_task/configs
 robotnik_arm_task/models
+
+# trained weights and comparison outputs (regenerated locally, not submitted)
+robotnik_arm_task/checkpoints
+robotnik_arm_task/compare_out

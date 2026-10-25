@@ -1,0 +1,262 @@
+"""Run the expert and the learned policy on the same target and plot them together.
+
+Usage (from the robotnik_arm_task folder, inside your roboenv environment):
+    python compare.py                             # default target (0, 1.1, 0.5)
+    python compare.py --target 1.5,-0.8,0.6
+    python compare.py --episode 292               # target + stored expert run of data_pilot/ep_0292.npz
+    python compare.py --test-set                  # policy on every test episode's target, results table
+
+--target: the expert (robotnik_arm_task.py) runs headless while the policy (robotnik_arm_policy_task.py) runs in the
+PyBullet GUI so you can watch it. Press 'q' in the PyBullet window to end the policy run early.
+--episode: the expert is not rerun; its run is read from the saved episode file. The policy runs in the GUI.
+--test-set: the policy runs headless on the target of every test episode (same split as train.py), several at once,
+and is compared with the stored expert runs: per-episode table, averages and success rates, plus a plot of the
+final error per episode (saved as test_set_final_error.png).
+If the policy has no model loaded or its run fails, only the expert is plotted.
+Episode files and the plots (.png) are written to --out-dir.
+"""
+import argparse
+import os
+import subprocess
+import sys
+from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+from bc_data import split_episodes
+
+EXPERT_SCRIPT = "robotnik_arm_task.py"
+POLICY_SCRIPT = "robotnik_arm_policy_task.py"
+EXPERT_TIMEOUT = 180.0  # s, the headless expert takes a few seconds per episode
+POLICY_TIMEOUT = 300.0  # s, a failing policy can run until the 40000-step cap
+SUCCESS_TOLERANCE = 0.01  # m, the task scripts' REACH_TOLERANCE (shown as the success line in the test-set plot)
+
+
+def load_npz(path):
+    """All arrays of a saved episode file, as a dict."""
+    with np.load(path) as data:
+        return {k: data[k] for k in data.files}
+
+
+def outcome(data):
+    """Short outcome label from an episode's stop message (same categories as run_batch.py)."""
+    message = str(data["stop_message"])
+    if message.startswith("Target reached"):
+        return "reached"
+    if message.startswith("Target not reachable"):
+        return "stalled"
+    if message.startswith("Reached step cap"):
+        return "step_cap"
+    return "other"
+
+
+def run_episode(script, target, out_file, headless, script_dir, timeout=None, quiet=False):
+    """Run one episode script on target and return its saved data, or None if it produced no result.
+
+    quiet hides the script's own output (used when many episodes run at once).
+    """
+    # A file left over from an earlier run must not be mistaken for this one
+    out_file.unlink(missing_ok=True)
+    env = dict(os.environ)
+    env["ROBOENV_TARGET"] = ",".join(f"{v:.6f}" for v in target)
+    env["ROBOENV_OUT"] = str(out_file)
+    if headless:
+        env["ROBOENV_HEADLESS"] = "1"
+    else:
+        env.pop("ROBOENV_HEADLESS", None)
+
+    if not quiet:
+        print(f"\n---- {script} ({'headless' if headless else 'GUI'}) ----", flush=True)
+    try:
+        proc = subprocess.run([sys.executable, script], cwd=script_dir, env=env, timeout=timeout,
+                              capture_output=quiet)
+    except subprocess.TimeoutExpired:
+        print(f"{script} ({out_file.name}): timed out after {timeout:.0f} s")
+        return None
+    if proc.returncode != 0 or not out_file.exists():
+        print(f"{script} ({out_file.name}): no result (exit code {proc.returncode})")
+        return None
+    return load_npz(out_file)
+
+
+def plot_runs(runs, target, out_dir):
+    """Plot every run in runs (list of (label, data, color)) on shared axes and save the figures to out_dir."""
+    figures = {}
+
+    # 1. Cartesian end-effector coordinates
+    fig = plt.figure(figsize=(10, 8))
+    coords = ["X", "Y", "Z"]
+    for idx in range(3):
+        plt.subplot(3, 1, idx + 1)
+        for label, data, color in runs:
+            plt.plot(data["time"], data["ee_pos"][:, idx], label=f"{label} EE {coords[idx]}", color=color)
+        plt.axhline(y=target[idx], color="r", linestyle="--", label=f"Target EE {coords[idx]}")
+        plt.ylabel(f"{coords[idx]} Position (m)")
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+    plt.xlabel("Time (s)")
+    plt.suptitle("End-Effector Cartesian Position Reaching")
+    plt.tight_layout()
+    figures["ee_position"] = fig
+
+    # 2. Cartesian distance error
+    fig = plt.figure(figsize=(8, 4))
+    for label, data, color in runs:
+        plt.plot(data["time"], np.linalg.norm(target - data["ee_pos"], axis=1), label=label, color=color)
+    plt.xlabel("Time (s)")
+    plt.ylabel("Error (m)")
+    plt.title("Cartesian End-Effector Reaching Error")
+    plt.grid(True, alpha=0.3)
+    plt.legend()
+    plt.tight_layout()
+    figures["ee_error"] = fig
+
+    # 3. Arm joint positions
+    fig = plt.figure(figsize=(10, 8))
+    for i in range(7):
+        plt.subplot(4, 2, i + 1)
+        for label, data, color in runs:
+            plt.plot(data["time"], data["q_mes"][:, 4 + i], label=f"{label} J{i+1}", color=color)
+        plt.ylabel(f"J{i+1} (rad)")
+        plt.legend(loc="upper right")
+        plt.grid(True, alpha=0.3)
+    plt.xlabel("Time (s)")
+    plt.suptitle("Arm Joint Position Profiles")
+    plt.tight_layout()
+    figures["arm_joints"] = fig
+
+    for name, fig in figures.items():
+        fig.savefig(out_dir / f"{name}.png", dpi=120)
+    plt.show()
+
+
+def run_test_set(data_dir, out_dir, script_dir, workers):
+    """Run the policy headless on every test episode's target and compare it with the stored expert runs."""
+    _, _, test_ids = split_episodes(data_dir)
+    run_dir = out_dir / "test_set"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    experts = {i: load_npz(data_dir / f"ep_{i:04d}.npz") for i in test_ids}
+
+    print(f"Running the policy headless on {len(test_ids)} test targets, {workers} at a time ...", flush=True)
+    policies = {}
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        jobs = {i: pool.submit(run_episode, POLICY_SCRIPT, experts[i]["target"], run_dir / f"ep_{i:04d}.npz",
+                               True, script_dir, POLICY_TIMEOUT, True)
+                for i in test_ids}
+        for done, i in enumerate(test_ids, start=1):
+            policies[i] = jobs[i].result()
+            label = outcome(policies[i]) if policies[i] is not None else "no result"
+            print(f"  [{done}/{len(test_ids)}] episode {i}: {label}", flush=True)
+
+    # Per-episode table, same layout as the test table of train.py. A missing policy result counts as a failure.
+    pol_err, exp_err, pol_time, exp_time = [], [], [], []
+    print(f"\nTest set: {len(test_ids)} episodes, policy vs expert in simulation")
+    print(f"{'episode':>8} {'policy err (m)':>15} {'expert err (m)':>15} {'policy time (s)':>16} "
+          f"{'expert time (s)':>16}  policy outcome")
+    for i in test_ids:
+        e, p = experts[i], policies[i]
+        exp_err.append(float(e["final_error"]))
+        exp_time.append(float(e["time"][-1]))
+        pol_err.append(float(p["final_error"]) if p is not None else np.nan)
+        pol_time.append(float(p["time"][-1]) if p is not None else np.nan)
+        print(f"{i:8d} {pol_err[-1]:15.4f} {exp_err[-1]:15.4f} {pol_time[-1]:16.2f} {exp_time[-1]:16.2f}  "
+              f"{outcome(p) if p is not None else 'no result'}")
+    print(f"{'average':>8} {np.nanmean(pol_err):15.4f} {np.mean(exp_err):15.4f} {np.nanmean(pol_time):16.2f} "
+          f"{np.mean(exp_time):16.2f}   (mean of the per-episode values)")
+
+    n = len(test_ids)
+    pol_reached = sum(p is not None and outcome(p) == "reached" for p in policies.values())
+    exp_reached = sum(outcome(e) == "reached" for e in experts.values())
+    print(f"\nSuccess rate: policy {pol_reached}/{n} ({100 * pol_reached / n:.1f}%), "
+          f"expert {exp_reached}/{n} ({100 * exp_reached / n:.1f}%)")
+    print(f"Policy episode files: {run_dir}")
+
+    # Final error per test episode, policy next to expert. Log scale: expert errors are mm, policy errors can be m.
+    pos = np.arange(n)
+    width = 0.4
+    fig, ax = plt.subplots(figsize=(14, 5))
+    ax.bar(pos - width / 2, exp_err, width, label="Expert", color="b")
+    ax.bar(pos + width / 2, pol_err, width, label="Policy", color="tab:orange")   # nan (no result) is left empty
+    ax.axhline(SUCCESS_TOLERANCE, color="gray", linestyle="--", linewidth=1,
+               label=f"Success threshold ({SUCCESS_TOLERANCE * 100:.0f} cm)")
+    ax.set_yscale("log")
+    # Label the powers of ten as plain distances (1 mm, 1 cm, 10 cm, 1 m, ...) instead of 10^-3, 10^-2, ...
+    # Only ticks inside the plotted range are set, so the axis is not stretched to show them all.
+    tick_labels = {0.0001: "0.1 mm", 0.001: "1 mm", 0.01: "1 cm", 0.1: "10 cm", 1: "1 m", 10: "10 m", 100: "100 m"}
+    low, high = ax.get_ylim()
+    shown = [t for t in tick_labels if low <= t <= high]
+    ax.set_yticks(shown, [tick_labels[t] for t in shown])
+    ax.minorticks_off()   # hide the unlabelled ticks between the powers of ten
+    ax.set_xticks(pos, [str(i) for i in test_ids], rotation=90, fontsize=7)
+    ax.set_xlabel("Test episode")
+    ax.set_ylabel("Final EE error (log scale)")
+    ax.set_title(f"Final end-effector error per test episode - policy reached {pol_reached}/{n}, "
+                 f"expert {exp_reached}/{n}")
+    ax.grid(True, axis="y", alpha=0.3)
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(out_dir / "test_set_final_error.png", dpi=120)
+    plt.show()
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--target", default="0.0,1.1,0.5", help="target EE position x,y,z (m)")
+    mode.add_argument("--episode", type=int, help="use the target and stored expert run of this saved episode")
+    mode.add_argument("--test-set", action="store_true", help="run the policy on all test episodes (table + error plot)")
+    parser.add_argument("--data-dir", default="data_pilot", help="episode folder, relative to this script")
+    parser.add_argument("--workers", type=int, default=16, help="policy runs in parallel for --test-set")
+    parser.add_argument("--out-dir", default="compare_out", help="folder for the episode files and plots")
+    args = parser.parse_args()
+
+    script_dir = str(Path(__file__).resolve().parent)
+    data_dir = Path(script_dir) / args.data_dir
+    out_dir = Path(args.out_dir).resolve()
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    if args.test_set:
+        run_test_set(data_dir, out_dir, script_dir, args.workers)
+        return
+
+    if args.episode is not None:
+        # Stored expert run: no need to simulate the expert again
+        expert = load_npz(data_dir / f"ep_{args.episode:04d}.npz")
+        target = expert["target"]
+        if args.episode not in split_episodes(data_dir)[2]:
+            print(f"Note: episode {args.episode} is not a test episode, so the model may have trained on it")
+        policy = run_episode(POLICY_SCRIPT, target, out_dir / "policy.npz", False, script_dir)
+    else:
+        target = np.array([float(v) for v in args.target.split(",")])
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            # Expert runs headless in the background while the policy runs in the GUI
+            expert_job = pool.submit(run_episode, EXPERT_SCRIPT, target, out_dir / "expert.npz", True, script_dir,
+                                     EXPERT_TIMEOUT)
+            policy = run_episode(POLICY_SCRIPT, target, out_dir / "policy.npz", False, script_dir)
+            expert = expert_job.result()
+
+    runs = []
+    if expert is not None:
+        runs.append(("Expert", expert, "b"))
+    if policy is not None:
+        runs.append(("Policy", policy, "tab:orange"))
+    else:
+        print("\nPolicy produced no result: plotting the expert only")
+    if not runs:
+        print("Neither run produced a result, nothing to plot")
+        return
+
+    print("\n==================================================================")
+    print(f"Target: {target}")
+    for label, data, _ in runs:
+        print(f"{label:<7}| final error {float(data['final_error']):.4f} m | sim time {data['time'][-1]:.2f} s "
+              f"| {data['stop_message']}")
+    print("==================================================================")
+
+    plot_runs(runs, target, out_dir)
+
+
+if __name__ == "__main__":
+    main()

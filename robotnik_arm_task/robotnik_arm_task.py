@@ -298,7 +298,7 @@ def main():
     if headless:
         print(f"Headless run finished at t={current_time:.2f}s")
         return
-
+    '''
     # --------------------------------------------------------------------------
     # Plotting Performance
     # --------------------------------------------------------------------------
@@ -346,7 +346,7 @@ def main():
     plt.suptitle('Arm Joint Position Profiles')
     plt.tight_layout()
     plt.show()
-
+    '''
 
 if __name__ == '__main__':
     main()
