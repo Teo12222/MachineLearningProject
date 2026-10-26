@@ -31,6 +31,58 @@ Look there for the current state of each model instead of this file.
 - Run with `pixi run python <script>` from `robotnik_arm_task/`. In PyCharm, scripts that import torch set
   `KMP_DUPLICATE_LIB_OK` themselves (needed on Windows).
 
+## Who does what
+
+Numbers refer to the steps in the plan below. Everyone tunes the hyperparameters of their own models (on validation
+only), runs several seeds for their final candidates, records everything in `results/`, and writes the report sections
+for their own work as they go.
+
+**Matteo: pipeline, split networks, integration**
+1. **27 Oct, critical path:** expert fixes 1-5, recollect 1,000-1,500 episodes, results recording, retrain the
+   world-frame baseline (`mlp_worldframe`), then robot-frame inputs (6) and retrain. If it slips: expert fixes, new
+   data and results recording first, robot-frame the next day. Until subsampling exists, train the baselines on a
+   uniform subsample (e.g. every 10th frame) and note it in their results.
+2. **Then, shared improvements on master:** adaptive subsampling (7), episode cleaning (8), `decode_outputs()` (10),
+   faster training + `--seed` (11), quick test subset in `compare.py`.
+3. **Then:** multi-model / split networks (15): base and arm networks, "arrived" flag, parking-pose prediction,
+   starting the arm early.
+4. **Once the ideas have results:** combine the winning ideas into the final model (components as switches),
+   ablations (23), start-pose test (24).
+5. **Report:** introduction, data collection (26), pipeline and evaluation methodology, split-network results, README,
+   and the final edit of the whole report.
+
+**Kris: temporal models, data, camera**
+1. Temporal data (14): past-frame windows, then the RNN (LSTM / GRU).
+2. Learning curve (17), which decides whether to extend the dataset; more low-height targets (18).
+3. Noise injection, DART (19); DAgger (21) optional.
+4. Camera extension (final section of the plan), once the final model works.
+5. **Report:** temporal models, data experiments, the offline vs closed-loop discussion, camera extension.
+
+**Jamie: outputs, architecture, comparisons**
+1. Gravity-residual torques (12) and `(v, w)` outputs (13).
+2. Shallow vs deep networks (16), plus efficiency (parameters, inference time).
+3. Low priority: other model families (tree models, building on the `DecisionTree` branch) and RANSAC preprocessing (9).
+4. **Report:** architecture results, efficiency, comparison with other model families, plus:
+   - the **overall results table** (22) and keeping all tables/figures consistent (same units, names, seeds format);
+   - the **conclusion** (limitations of the method and experiments, how they could be improved);
+   - the **contribution statement** (draft from what everyone did, checked by all).
+
+**Phases**
+
+| Phase | Matteo | Kris and Jamie |
+|---|---|---|
+| 1. Critical path (27 Oct) | New data, results recording, both baselines | Read the plan, set up branches, start the code for your first idea; report outline |
+| 2. Ideas | Shared improvements, then split networks; merge master fixes into branches | Experiments + tuning on the new data, robot-frame baseline as the starting point; write method sections as you go |
+| 3. Combine and test | Combine winners, ablations | Seeds, ablation runs, generalisation / robustness tests (on all three machines) |
+| 4. Report (before the 6 Nov deadline) | Final edit, README, introduction/methodology polish, buffer | Own results and discussion sections; Jamie: results table, conclusion, contribution statement; proofreading |
+
+**Ground rules**
+- `bc_data.py` is the most shared file (features, subsampling, `decode_outputs`): Matteo owns it on `master`; keep
+  branch changes there small or in separate functions to avoid merge conflicts.
+- Model names include the branch (e.g. `temporal_gru_s0`, `split_arrived_s1`) so results files never clash.
+- Report: ~1.5 pages of method + results per person, plus shared introduction, conclusion and tables (6 pages max).
+- Short daily check-in: what's merged, what's blocking, which results are in `results/`.
+
 ## Plan
 
 ### 0. Expert fixes (first: they change the training data)
