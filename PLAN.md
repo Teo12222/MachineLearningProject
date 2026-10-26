@@ -1,0 +1,255 @@
+# Project plan: behaviour cloning for the Robotnik arm task
+
+COMP0245 assignment: train a PyTorch model that copies the expert controller, i.e. outputs the wheel commands
+(4) and arm torques (7) from the robot state and the target. Report + code due **6 Nov**.
+
+## Files
+
+The shared pipeline lives on `master`, in `robotnik_arm_task/`:
+
+| File | What it does |
+|---|---|
+| `robotnik_arm_task.py`, `robotnik_arm_control.py` | The expert (simulation + controllers); saves one `.npz` per episode |
+| `run_batch.py` | Runs the expert on many random targets in parallel to collect data |
+| `data_pilot/` | 350 expert episodes (all reach the target), listed in `index.csv` |
+| `bc_data.py` | Model inputs/outputs, episode loading, train/val/test split by episode (fixed seed) |
+| `bc_model.py` | Baseline MLP (3 x 256) with its normalisation stored inside, plus save/load |
+| `train.py` | Trains, keeps the epoch with the lowest **validation** loss, then tests it offline on the test episodes. `--no-test`, `--test-only` |
+| `robotnik_arm_policy_task.py` | Same simulation as the expert, but the trained model drives the robot (`ROBOENV_POLICY` picks the checkpoint) |
+| `compare.py` | Expert vs model: `--target x,y,z`, `--episode N`, or `--test-set` (success rate + final error on all test targets) |
+
+**Results:** every model's numbers are in `results/<model>.csv` (one file per model; see "Recording results" below).
+Look there for the current state of each model instead of this file.
+
+## How we work
+
+- `master` = data collection, preprocessing and the shared pipeline. Each idea gets its own **branch**.
+- **Keep the split and the evaluation identical on every branch** (`split_episodes` with the default seed, same
+  test set, same `compare.py`), otherwise results can't be compared in the report.
+- Fixes to shared files go to `master` first, then get merged into the branches.
+- Don't commit `checkpoints/` or `compare_out/` (already in `.gitignore`); name checkpoints after the branch.
+- Run with `pixi run python <script>` from `robotnik_arm_task/`. In PyCharm, scripts that import torch set
+  `KMP_DUPLICATE_LIB_OK` themselves (needed on Windows).
+
+## Plan
+
+### 0. Expert fixes (first: they change the training data)
+1. **`check_stop`: check "reached" before "stalled".** Currently a run already within 1 cm can be labelled
+   stalled (happened to episode 10).
+2. **Stop on reaching the target instead of the fixed 8 s minimum.** `min_time` makes the expert sit idle after
+   reaching early, adding useless frames. End the episode once the end-effector is within the tolerance (optionally
+   for a short hold time to confirm it stays there), and drop or lower the 8 s minimum.
+3. **Revisit the stall window (3 s) for both expert and policy runs.** A failing policy currently keeps going for
+   a long time before it is stopped. Use the same, shorter stop rules for both so the comparison stays fair; check
+   on the expert data that no successful expert run would be cut off (we checked: the expert never goes more than
+   1.75 s without improving).
+4. **Make the code work from any start pose** (we assume the final tests may start the cart away from (0, 0)
+   and/or rotated). Now we only make it *possible*; all training and testing stays at the (0, 0, 0) start until
+   the final evaluation (step 24), where other start poses are tested.
+   - `robotnik_arm_task.py` chooses the parking spot using the target's direction **from the origin**
+     (`arctan2(target_y, target_x)`), not from the robot. Harmless now (the cart always starts at the origin, so all
+     current data is correct), but wrong for any other start. Fix: measure from the start position,
+     `to_target = TARGET_EE_POS[:2] - init_base_pos[:2]`, and use its angle. Gives identical results for a start
+     at the origin, so it is safe to apply now.
+   - Add a start-pose option to **both** task scripts (e.g. `ROBOENV_START=x,y,yaw`, like `ROBOENV_TARGET`) so the
+     expert and the policy can be started anywhere, and pass it through `compare.py` / `run_batch.py`. When the
+     option is not set, the start stays (0, 0, 0), so data collection and current runs are unchanged.
+5. **Review other expert quirks** (e.g. the base skids sideways while turning in place): fix or document.
+
+Then **recollect the dataset** with `run_batch.py` into a new folder (models are retrained on it once results
+are recorded, see below).
+
+**Dataset size: start with 1,000-1,500 episodes, extend only if it helps.**
+- Why more than now: the model has to generalise over *targets*, and training currently sees only ~245 different
+  targets spread over a 3D region (full circle, 1-3 m out, 0.2-1.1 m high). ~1,000+ episodes cover it far more
+  densely (probably part of why low and close targets do badly now).
+- Why not 3,000 straight away: disk (~3-4 MB per episode, so ~10-12 GB for 3,000), memory (~30 million frames, ~4 GB),
+  and slower test runs. Start smaller and let the **learning curve (step 17)** decide: extend towards ~3,000 only if
+  performance is still improving with more episodes. Report this ("we stopped at N because the curve flattened").
+- Extending is cheap: each target depends only on the seed and the episode number, so
+  `run_batch.py --seed <same> --start <N> --n <more>` adds new targets without repeating old ones.
+- **Don't commit the dataset** (too big for git; the brief doesn't require submitting data). Consider saving float32
+  instead of float64 or using `np.savez_compressed` (part of the expert fixes) to cut the size.
+- At this size **subsampling (step 7) is needed**, not optional: the full data won't fit comfortably in memory.
+- **Test set:** 15% is ~150-225 test targets (more reliable success rates than 52). Keep a **fixed smaller subset**
+  (e.g. ~50 test episodes, always the same ones) for quick checks while developing, and use the **full test set for
+  the final numbers**. Only full-test-set runs write the `sim_*` columns in `results/`, so quick checks never mix
+  with reported results.
+
+### Recording results (build before retraining anything on the new dataset)
+- **One results file per model:** `robotnik_arm_task/results/<model>.csv`, named after the checkpoint (one header row
+  + one row of values). Each training run writes only its own file, so parallel runs can't overwrite each other and
+  branches never get merge conflicts (as long as model names differ per branch). The `results/` folder is committed.
+- **The seed is part of the model name** (e.g. `robotframe_s0`, `robotframe_s1`), not a separate column.
+- `train.py` fills the training and offline-test columns; `compare.py` fills the `sim_*` columns **only with
+  `--test-set`** (single `--target` / `--episode` runs are for looking, not reporting). The expert gets its own
+  `results/expert.csv` with the `sim_*` columns.
+- A small **combine step** stacks all files into one table (one row per model) and groups seeds into mean +- std.
+  Empty cells mean "not measured yet" (e.g. trained with `--no-test`), not zero.
+- **Columns:**
+
+  | Column | From | Meaning |
+  |---|---|---|
+  | `model` | `train.py` | Checkpoint name (also the file name), including the seed |
+  | `train_episodes` | `train.py` | Number of training episodes (learning curve, step 17) |
+  | `epochs`, `batch`, `lr`, `hidden`, `layers` | `train.py` | Hyperparameters used (plus any model-specific ones, see "Hyperparameter tuning") |
+  | `best_val_loss`, `best_epoch` | `train.py` | Lowest validation loss and the epoch it happened |
+  | `train_time_s`, `parameters`, `inference_ms` | `train.py` | Efficiency (`inference_ms` = one single-frame prediction, 1 thread, must be well under 1 ms) |
+  | `test_wheel_rmse`, `test_torque_rmse` | `train.py` | Offline test: mean per-episode RMSE (rad/s, N*m) |
+  | `sim_success_rate` | `compare.py --test-set` | Fraction of test targets reached within 1 cm |
+  | `sim_final_err_mean`, `sim_final_err_median` | `compare.py --test-set` | Final distance to the target (median is robust to runaway runs) |
+  | `sim_time_to_reach` | `compare.py --test-set` | Mean time to reach, successful runs only |
+
+- **Wheel RMSE is always measured on the 4 wheel speeds**, even for models that predict `(v, w)`: convert their
+  output back to 4 wheel speeds with `decode_outputs()` (step 10) first, so the column stays comparable.
+- The new dataset (1,000-1,500 episodes after the expert fixes, possibly extended later) replaces `data_pilot`; results recorded on `data_pilot`
+  are not comparable and get recomputed or deleted when we switch.
+
+Then **retrain the current world-frame baseline on the new dataset** under its own name (e.g. checkpoint
+`mlp_worldframe.pt`, so `results/mlp_worldframe.csv`), with `train.py` and `compare.py --test-set`. This is the
+reference row: the first results recorded, on the same data as every later model.
+
+### Baseline fix: robot-frame inputs (after the world-frame retrain, on master)
+6. **Robot-frame inputs** in `bc_data.py`: target (and other positions) relative to the base, in the base's own
+   frame, instead of absolute world coordinates. Needed by every branch, because the final tests may start the
+   cart away from (0, 0, 0):
+   - The current baseline uses world-frame inputs (absolute base x, y, heading and target), and every training
+     episode starts at (0, 0) facing +x, so it will very likely fail from any other start pose.
+   - On a flat floor only the target's position relative to the robot matters, and our targets already cover the
+     full circle and 1-3 m around the cart. With robot-frame inputs, random cart starts would mostly repeat
+     situations we already have, so **no extra start-pose data is needed** (teammate's point; only true with
+     robot-frame inputs).
+   - **Test it instead of collecting it, at the end** (step 24): evaluate on targets with random cart starts. The
+     robot-frame model should do as well as from the origin; the world-frame baseline should fail. Evidence for
+     the report at no data cost. Until then everything runs from (0, 0, 0).
+   - The world-frame model retrained on the new data (`mlp_worldframe`) stays as a row in the results table and is
+     kept for the start-pose test at the end (step 24); give the robot-frame model a new name so it doesn't overwrite
+     it. Robot-frame inputs become a switch for the ablation.
+
+Then **retrain the baseline** with robot-frame inputs (on the recollected data); all branches start from this.
+
+### Master: shared improvements
+7. **Adaptive subsampling** (after the split): the base/wheel data sampled densely at the start and at phase
+   switches but sparsely while driving straight; the arm data sampled densely while it moves (reach) and lightly
+   while it holds; a small floor rate everywhere (never zero). Per episode, keeping frame indices so past-frame
+   windows stay possible. Compare against uniform subsampling.
+8. **Episode cleaning:** trim the idle tail (unless step 2 removes it), filter failed episodes, sanity checks
+   (NaNs, torques at the +-30 N*m limit).
+9. **RANSAC / outlier preprocessing (experiment):** keep both raw and preprocessed data and compare models trained
+   on each. Note: the simulator is noise-free, so we expect little difference on clean data; it becomes more
+   relevant once sensor noise is added (robustness tests).
+10. **`decode_outputs()` helper** in `bc_data.py`, so the policy script doesn't change when the output format does.
+11. **Faster training (optional):** changes how quickly we get results, not what the model learns.
+   - Print the time per epoch, to see whether changes actually help.
+   - Bigger batches (e.g. 8192 instead of 2048): fewer, smoother weight updates per epoch and better use of the CPU
+     cores, so epochs finish sooner; usually needs a slightly higher learning rate (e.g. 2e-3 to 3e-3).
+   - `--seed` / `--checkpoint` options so several trainings can run at once (e.g. 4 runs x 4 threads), each saving
+     its own checkpoint. Needed later for seed repeats and ablations.
+   - Torch already uses all 16 physical cores within one run; the biggest saving is less data per epoch
+     (subsampling, step 7).
+
+### Hyperparameter tuning (for every model)
+Each model is tuned separately with sensible values before it is compared, so a model isn't judged on settings
+that only suited the baseline. Tune on the **validation** set (`best_val_loss`, and closed-loop success on a few
+validation targets if needed), never on the test set; then report the chosen settings and test results.
+- **Current hyperparameters:** epochs, batch size, learning rate, hidden size, number of layers.
+- **Other ones worth tuning:** weight decay (L2) and dropout (against overfitting), learning-rate schedule (e.g.
+  reduce on plateau or cosine), loss function (MSE vs Huber) and the weighting of wheel vs torque errors, early-stopping
+  patience, activation function (ReLU vs e.g. SiLU/Tanh), optimiser settings (e.g. Adam's betas; usually less
+  important).
+- **Model-specific ones:** history length k and frame spacing (temporal models); RNN hidden size and training
+  sequence length; subsampling rates and floor (adaptive subsampling); noise level (DART data).
+- Keep the search small (a few values per hyperparameter, most important first: learning rate, network size, batch);
+  record each tried setting as its own model name so it lands in `results/`.
+
+### Branches: model ideas (rough order)
+12. **Gravity-residual torques:** learn torque minus the gravity torque, add it back at run time (aimed at low targets).
+13. **`(v, w)` wheel outputs:** forward speed + turn rate instead of 4 wheel speeds.
+14. **Temporal data** (aimed at the early stop of turning and the phase switches). Also a discussion point: why
+    temporal data is needed (the expert has hidden state: navigation phase, accumulated joint targets).
+    - First, **past-frame windows** into the MLP: stack k frames with a spacing, sweep both.
+    - Then a **recurrent neural network (RNN)**: an LSTM or GRU (`torch.nn.LSTM` / `torch.nn.GRU`). It keeps an
+      internal memory that is updated every step, so it can learn the expert's hidden state (which phase it is in)
+      instead of us choosing a fixed window. Training uses short sequences cut from the episodes; in the policy
+      script the memory is carried from step to step and reset at the start of each episode.
+15. **Multi-model / split networks** (mirrors the expert's structure), from simple to more structured:
+    - separate **base** and **arm** networks, each with its own subsampling;
+    - base network also outputs an **"arrived" flag** (bool): while false the base drives and the arm holds; when
+      true the base stops and the arm network takes over;
+    - a model that **predicts the base's final pose** (where to park, from the target) that the base network then
+      drives to;
+    - **start the arm before the base arrives** (no expert change needed): train the arm network only on the reach
+      phase (base parked), so the pre-arrival "arm holds" data isn't needed. At run time start the arm at t = 0 and
+      give it the *predicted* final base pose instead of the current one, so it reaches as if the base had already
+      parked; switch to the real base pose once the "arrived" flag is true. This goes beyond copying the expert
+      (arm and base move together), so check: arm torques while the base drives (never in the training data),
+      re-aiming if the base parks slightly off, and stability with a stretched arm on a moving base. If it works it
+      should reach targets faster than the expert (time to reach is in `compare.py`'s table).
+16. **Shallow vs deep networks:** sweep depth and width (e.g. 1-5 layers, 64-512 units); report accuracy against
+    parameters and inference time (also covers efficiency).
+
+### New data (`run_batch.py` into new folders)
+17. **Minimum data needed:** train on 25 / 50 / 100 / 200 / 500 / all episodes and plot test performance (learning
+    curve). Also decides whether to extend the dataset towards ~3,000 episodes (see the dataset-size note after
+    the expert fixes).
+18. More low-height targets.
+19. Noise injection (DART): noisy commands applied, clean expert commands recorded as labels.
+20. **Randomised arm starting pose:** genuinely new situations that changing the target can't produce (the cart
+    start is already covered by robot-frame inputs, see 6). Randomise it and collect data for it if we want to
+    claim generalisation to new initial conditions.
+21. DAgger (optional): the expert relabels states the policy visits.
+
+### Evaluation and report
+22. **Compare all models:** one results table with every model (baseline, each branch, final), offline error and
+    closed-loop success / final error, all on the same test set.
+23. **Ablations** (done once the winning branches are combined into one final model): remove one component at a
+    time (robot-frame inputs, gravity residual, history window, adaptive subsampling, noise data, split networks),
+    retrain, and report offline error + closed-loop success for each vs the full model. This shows how much each
+    design choice contributes in combination (branch results show each idea alone; the ablation shows it still
+    helps with everything else, and reveals ideas that overlap).
+    - While combining, make each component a switch (e.g. `ROBOT_FRAME = True`, `HISTORY_FRAMES = 10`), so every
+      ablation run is a one-setting change and everything else is guaranteed identical.
+    - Same split, seeds and test set for all runs.
+    - Budget time: e.g. 5 components x 3 seeds + the full model x 3 = ~18 trainings plus a `--test-set` run each, so
+      aim to have the combined model ready several days before 6 Nov.
+24. **Experiments:**
+    - **Several seeds per model, reported as mean +- spread** (e.g. 3 seeds each, mean +- standard deviation).
+      Training is random (weight initialisation, batch order), so one run can be lucky or unlucky; a difference
+      between two models only counts as a real improvement if it is bigger than the run-to-run spread. Applies to
+      every number in the results tables (offline error, success rate, final error), including the ablations.
+      Only the training seed changes between repeats; the episode split and test set stay fixed.
+    - Generalisation: targets outside the training range, held-out directions, and **cart not starting at
+      (0, 0, 0)** (the first time other start poses are tested, using the start-pose option from 4, for the final
+      model and the world-frame baseline, see 6).
+    - Robustness (sensor noise, friction, shoves).
+    - Efficiency (parameters, inference time per step).
+25. **Analysis plots:** final error vs target height and distance (once some targets succeed).
+26. **Data collection rationale (report):** why targets are sampled as they are (radius 1-3 m, height 0.2-1.1 m,
+    full circle, uniform over the area), why one fixed start pose, how many episodes and why.
+27. **Report:** IEEE template, max 6 pages + contribution statement; code README must say what was written from
+    scratch vs adapted. Due **6 Nov**. Discussion points found so far:
+    - **Offline vs closed-loop gap:** the first (world-frame) baseline had low offline error (wheels ~0.08 rad/s,
+      torques ~0.19 N*m RMSE on the test set) but failed in closed loop: it stopped turning too early, drifted into
+      states the expert never visited, and its commands blew up. This is the behaviour-cloning "compounding error"
+      (covariate shift) problem, and it motivates the temporal models (14) and noise injection (19).
+    - **Where offline errors are largest:** torque error is highest for low targets, wheel error highest for close
+      targets (short drives, so phase switches dominate).
+
+### Low priority: other model families (comparison only)
+Purpose: show in the report why a neural network is the right choice. One or two of these in the results table is
+enough. All from scikit-learn (already installed); reuse `make_features` from `bc_data.py` so inputs are identical.
+- **Decision tree** (existing `DecisionTree` branch): interpretable, step-shaped outputs.
+- **Random forest:** many averaged trees, more accurate and stable than one tree, supports all 11 outputs at once.
+- **Gradient boosting** (`HistGradientBoostingRegressor`): often the strongest non-neural model on tabular data;
+  predicts one output at a time, so 11 models (or `MultiOutputRegressor`).
+
+Practical notes: subsample the training data first (they are slow / memory-hungry on millions of rows); they need
+their own save/load (e.g. `joblib`) and a matching variant of the two model lines in the policy script; check the
+time per prediction, since the policy must answer every 1 ms; like the single-frame MLP they have no memory of past
+frames unless stacked frames are given as inputs.
+
+### Parked (only if needed)
+- Wheel-command safety clip in the policy script.
+- `--expert-only` option for `compare.py`.
+- Silence the expert's output in `compare.py`'s parallel run.
+- Switch OpenBLAS to its pthreads build to drop the OpenMP workaround.
