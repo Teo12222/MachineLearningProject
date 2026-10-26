@@ -253,3 +253,54 @@ frames unless stacked frames are given as inputs.
 - `--expert-only` option for `compare.py`.
 - Silence the expert's output in `compare.py`'s parallel run.
 - Switch OpenBLAS to its pthreads build to drop the OpenMP workaround.
+
+### Final extension (once the final model is done): camera input instead of the target position
+The final policy no longer gets `TARGET_EE_POS` from the simulator: a depth camera on the robot finds the target (the
+red sphere) instead. Closer to a real robot, which wouldn't be told the target's coordinates. Start this only once the
+main model works and the ablations are running. In the report it is an **extension** on top of the main solution (the
+brief's model input includes the target), not a replacement.
+
+**Design: two models in a chain**
+1. **Perception model (new):** camera image(s) in, estimated target position out.
+2. **The finished policy (unchanged):** robot state + the *estimated* target in, wheel commands + torques out, exactly
+   as now. It already knows how to reach a given target, so it **does not need retraining**. Optional refinement:
+   fine-tune it on estimated targets so it tolerates small estimation errors.
+
+**Sensor**
+- A depth (RGB-D) camera: depth gives the distance directly, so the target's 3D position can be recovered (with RGB
+  only, distance would have to be guessed from the sphere's size). `simulation_and_control` already provides
+  `GetCameraImageFromLink(...)` (RGB, depth, segmentation mask from a camera on any robot link); example:
+  `tests/eye_in_hand_camera.py` in RoboEnv.
+- **Field of view:** targets are all around the robot, and the expert never demonstrates "look around until you find
+  it" (it turns towards the target only because it knows where it is), so search behaviour can't be learned by
+  imitation. Solve it with sensors: e.g. **four cameras on the base** (front, back, left, right) so one snapshot
+  covers 360 degrees.
+- **Don't use PyBullet's segmentation mask** to find the target: it labels the target's pixels exactly, which is
+  essentially being given the answer. Use colour (RGB) + depth.
+
+**See the target once, at the start**
+- The target never moves, so it only has to be seen once, at t = 0. After that the robot knows its own pose
+  (`base_pos`, `base_bearing`), so the target's position relative to the robot is updated every step from the robot's
+  own movement, with no new images.
+- This removes most camera problems: occlusion by the arm during the reach doesn't matter, and only one snapshot (no
+  10-30 Hz rendering) is needed.
+- It fits the robot-frame inputs (step 6): a camera on the robot sees the target relative to the robot, so
+  perception can output the target directly in the robot's frame.
+
+**Perception model: build and train**
+- **Classical reference first (no learning):** find the red pixels, read their depth, convert to a 3D point with the
+  camera's intrinsics and its known pose on the robot. Shows how good a learned model would need to be to be worth it.
+- **Learned version:** a small CNN in PyTorch, image(s) in, target position out. Training data is cheap: place the
+  target at random, render the snapshot and save it with the true target position as the label. No expert runs
+  needed, so thousands of examples are quick to generate. Store images small (e.g. 128x128).
+- Optional realism: add noise to the depth image and test how robust the estimate is (fits the robustness tests).
+
+**End-to-end (not recommended before the deadline)**
+- A CNN mapping images straight to commands. Strictly harder than the main problem (which already struggles in
+  closed loop with the exact target), needs far more data and training, makes the dataset much bigger, and failures
+  are hard to diagnose.
+
+**Evaluation** (same test set)
+- **Perception error:** estimated vs true target position, in cm.
+- **Closed-loop success** of the full chain vs the same policy given the true target. If success drops, the two
+  numbers show whether perception or the policy is to blame.
