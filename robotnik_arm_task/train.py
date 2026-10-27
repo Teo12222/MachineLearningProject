@@ -18,7 +18,7 @@ import numpy as np
 import torch
 from torch import nn
 
-from bc_data import split_episodes, load_episode, load_episodes
+from bc_data import split_episodes, load_episode, load_episodes, decode_outputs
 from bc_model import MLP, save_model, load_model
 
 # Paths are relative to this file, so the script works from any working directory
@@ -97,8 +97,12 @@ sq_err_sum, n_frames = np.zeros(len(OUTPUT_NAMES)), 0
 print(f"\nTest set: {len(test_ids)} episodes, RMSE between model and expert commands")
 print(f"{'episode':>8} {'wheels (rad/s)':>15} {'torques (N*m)':>14}")
 for i in test_ids:
-    x, y = load_episode(Path(DATA_DIR) / f"ep_{i:04d}.npz")
-    err = best.predict(x) - y
+    path = Path(DATA_DIR) / f"ep_{i:04d}.npz"
+    x, _ = load_episode(path)
+    # Scored on the decoded commands against the expert's own, so every output format is measured the same way
+    d = np.load(path)
+    wheel_pred, torque_pred = decode_outputs(best.predict(x))
+    err = np.concatenate([wheel_pred - d["wheel_cmds"], torque_pred - d["torque_arm"]], axis=-1)
     wheel_rmse.append(np.sqrt(np.mean(err[:, :4] ** 2)))
     torque_rmse.append(np.sqrt(np.mean(err[:, 4:] ** 2)))
     sq_err_sum += (err ** 2).sum(axis=0)

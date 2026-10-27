@@ -18,7 +18,7 @@ from simulation_and_control import pb, MotorCommands, PinWrapper
 from robotnik_arm_control import StopCriteria, check_stop, configure_gripper_fingers, quaternion2bearing
 
 import torch
-from bc_data import make_features
+from bc_data import make_features, decode_outputs
 from bc_model import load_model
 
 
@@ -172,9 +172,8 @@ def main():
         # ----------------------------------------------------------------------
         # TODO: run the model on (base_pos, base_bearing, q_mes[4:11], qd_mes[4:11], TARGET_EE_POS)
         x = make_features(base_pos, base_bearing, q_mes[4:11], qd_mes[4:11], TARGET_EE_POS)
-        y = model.predict(x)
-        wheel_cmds = y[:4]
-        torque_arm = np.clip(y[4:11], -30.0, 30.0)  # same torque limit the expert uses
+        wheel_cmds, torque_arm = decode_outputs(model.predict(x))
+        torque_arm = np.clip(torque_arm, -30.0, 30.0)  # same torque limit the expert uses
 
         # ----------------------------------------------------------------------
         # 3. Gripper / Finger Control (Fingers locked at fixed configuration)

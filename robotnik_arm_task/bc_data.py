@@ -26,6 +26,17 @@ def make_labels(wheel_cmds, torque_arm):
     return np.concatenate([wheel_cmds, torque_arm], axis=-1).astype(np.float32)
 
 
+def decode_outputs(y):
+    """Model output back to robot commands: (4 wheel commands in rad/s, 7 arm torques in N*m).
+
+    The inverse of make_labels. Works for one frame or a whole episode (one row per frame).
+    Everything that runs or scores a model (policy script, offline test) goes through this, so a new output
+    format (e.g. (v, w) instead of 4 wheel speeds) only changes make_labels and this function.
+    """
+    y = np.asarray(y)
+    return y[..., :4], y[..., 4:11]
+
+
 def load_episode(path):
     """Inputs and labels for every frame of one saved episode."""
     d = np.load(path)
