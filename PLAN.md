@@ -38,7 +38,7 @@ only), runs several seeds for their final candidates, records everything in `res
 for their own work as they go.
 
 **Matteo: pipeline, split networks, integration**
-1. **27 Oct, critical path:** expert fixes 1-5, recollect 1,000-1,500 episodes, results recording, retrain the
+1. **27 Oct, critical path:** expert fixes 1-6, recollect 1,000-1,500 episodes, results recording, retrain the
    world-frame baseline (`mlp_worldframe`), then robot-frame inputs (6) and retrain. If it slips: expert fixes, new
    data and results recording first, robot-frame the next day. Until subsampling exists, train the baselines on a
    uniform subsample (e.g. every 10th frame) and note it in their results.
@@ -107,6 +107,11 @@ for their own work as they go.
      expert and the policy can be started anywhere, and pass it through `compare.py` / `run_batch.py`. When the
      option is not set, the start stays (0, 0, 0), so data collection and current runs are unchanged.
 5. **Review other expert quirks** (e.g. the base skids sideways while turning in place): fix or document.
+6. **Log the expert's hidden state** in the `.npz`: navigation phase (`base_state.phase`), the "arrived" flag
+   (`base_state.done`) and the arm joint reference (`q_des_arm`). These are the only things the expert carries over
+   between steps that affect its commands and can't be rebuilt from saved data (time is already saved, the parking
+   spot can be recomputed). Not model inputs: labels for the "arrived" flag (15) and ground truth to check whether
+   the RNN (14) learned the phase. Only before recollecting, otherwise it costs another full collection.
 
 Then **recollect the dataset** with `run_batch.py` into a new folder (models are retrained on it once results
 are recorded, see below).
@@ -177,6 +182,17 @@ reference row: the first results recorded, on the same data as every later model
    - The world-frame model retrained on the new data (`mlp_worldframe`) stays as a row in the results table and is
      kept for the start-pose test at the end (step 24); give the robot-frame model a new name so it doesn't overwrite
      it. Robot-frame inputs become a switch for the ablation.
+   - **Form of the robot-frame inputs (switch, compare both):** Cartesian (target dx, dy, dz in the base frame) vs
+     polar (horizontal distance to the target, bearing error as sin/cos, target height). Polar matches the expert's
+     own decision variables (it turns until the bearing error is small, drives until the distance is small), which
+     should help around the phase switches where the world-frame baseline failed, and especially helps tree models.
+     - The bearing must be sin/cos, not a raw angle (no jump at +-pi).
+     - Distance and bearing alone are not enough for the arm: keep the target height and the 3D target relative to
+       the end effector either way.
+     - The expert steers to the parking spot, which depends on the target height and the start-to-target line: keep
+       the target height, or use the distance and bearing to the parking spot instead.
+     - A switch in `make_features` (`bc_data.py`, e.g. `ROBOT_FRAME_POLAR`), Cartesian by default. Jamie runs the
+       comparison on their branch and records both in `results/`.
 
 Then **retrain the baseline** with robot-frame inputs (on the recollected data); all branches start from this.
 
@@ -199,6 +215,15 @@ Then **retrain the baseline** with robot-frame inputs (on the recollected data);
      its own checkpoint. Needed later for seed repeats and ablations.
    - Torch already uses all 16 physical cores within one run; the biggest saving is less data per epoch
      (subsampling, step 7).
+   - **Early stopping:** `train.py` already keeps the epoch with the lowest validation loss (done; describe it as
+     early stopping in the report). Add a patience (stop after N epochs without improvement) to save time.
+   - Print the training loss averaged over the epoch (now the last batch only), so the train/val gap shows
+     over- or underfitting.
+
+**Feature checks from the preprocessing slides** (small, on `make_features`):
+- Arm joints without limits (`has_limits` is false) can wrap: encode them as sin/cos, like the heading.
+- Add the base velocity (linear + turn rate, from consecutive poses): not an input now, unlike the arm velocities.
+- Min-max instead of z-score scaling for bounded quantities (joint angles, +-30 N*m torques): quick comparison.
 
 ### Hyperparameter tuning (for every model)
 Each model is tuned separately with sensible values before it is compared, so a model isn't judged on settings
@@ -207,8 +232,9 @@ validation targets if needed), never on the test set; then report the chosen set
 - **Current hyperparameters:** epochs, batch size, learning rate, hidden size, number of layers.
 - **Other ones worth tuning:** weight decay (L2) and dropout (against overfitting), learning-rate schedule (e.g.
   reduce on plateau or cosine), loss function (MSE vs Huber) and the weighting of wheel vs torque errors, early-stopping
-  patience, activation function (ReLU vs e.g. SiLU/Tanh), optimiser settings (e.g. Adam's betas; usually less
-  important).
+  patience, activation function (ReLU vs e.g. SiLU/Tanh), optimiser (Adam vs AdamW; Adam's betas usually less
+  important), weight initialisation (PyTorch default vs He/Kaiming for ReLU; still compared over seeds, see 24:
+  the initialisation is random either way).
 - **Model-specific ones:** history length k and frame spacing (temporal models); RNN hidden size and training
   sequence length; subsampling rates and floor (adaptive subsampling); noise level (DART data).
 - Keep the search small (a few values per hyperparameter, most important first: learning rate, network size, batch);
@@ -227,7 +253,7 @@ validation targets if needed), never on the test set; then report the chosen set
 15. **Multi-model / split networks** (mirrors the expert's structure), from simple to more structured:
     - separate **base** and **arm** networks, each with its own subsampling;
     - base network also outputs an **"arrived" flag** (bool): while false the base drives and the arm holds; when
-      true the base stops and the arm network takes over;
+      true the base stops and the arm network takes over (imbalanced classes: use a weighted loss);
     - a model that **predicts the base's final pose** (where to park, from the target) that the base network then
       drives to;
     - **start the arm before the base arrives** (no expert change needed): train the arm network only on the reach
@@ -245,7 +271,8 @@ validation targets if needed), never on the test set; then report the chosen set
     curve). Also decides whether to extend the dataset towards ~3,000 episodes (see the dataset-size note after
     the expert fixes).
 18. More low-height targets.
-19. Noise injection (DART): noisy commands applied, clean expert commands recorded as labels.
+19. Noise injection (DART): noisy commands applied, clean expert commands recorded as labels. Chosen instead of
+    plain input-noise augmentation, whose labels would be wrong for the perturbed states.
 20. **Randomised arm starting pose:** genuinely new situations that changing the target can't produce (the cart
     start is already covered by robot-frame inputs, see 6). Randomise it and collect data for it if we want to
     claim generalisation to new initial conditions.
@@ -255,7 +282,8 @@ validation targets if needed), never on the test set; then report the chosen set
 22. **Compare all models:** one results table with every model (baseline, each branch, final), offline error and
     closed-loop success / final error, all on the same test set.
 23. **Ablations** (done once the winning branches are combined into one final model): remove one component at a
-    time (robot-frame inputs, gravity residual, history window, adaptive subsampling, noise data, split networks),
+    time (robot-frame inputs, robot-frame polar vs Cartesian, gravity residual, history window, adaptive subsampling,
+    noise data, split networks),
     retrain, and report offline error + closed-loop success for each vs the full model. This shows how much each
     design choice contributes in combination (branch results show each idea alone; the ablation shows it still
     helps with everything else, and reveals ideas that overlap).
@@ -286,6 +314,12 @@ validation targets if needed), never on the test set; then report the chosen set
       (covariate shift) problem, and it motivates the temporal models (14) and noise injection (19).
     - **Where offline errors are largest:** torque error is highest for low targets, wheel error highest for close
       targets (short drives, so phase switches dominate).
+    - **Model selection methodology:** chosen on validation loss (best-epoch checkpoint), never training loss
+      (rewards memorising) or the test set. No k-fold: enough episodes for a reliable fixed split, k-fold would
+      multiply every training and closed-loop test; seed repeats give the error bars instead.
+    - **Preprocessing, following the lecture pipeline:** clean (episode cleaning, RANSAC), scale (z-score from training
+      data only), engineer (sin/cos angles, robot-frame inputs, velocities), balance (adaptive subsampling around
+      phase switches), format (sequences for the RNN). Timestamp alignment doesn't apply: one synchronous sim loop.
 
 ### Low priority: other model families (comparison only)
 Purpose: show in the report why a neural network is the right choice. One or two of these in the results table is
@@ -340,7 +374,8 @@ brief's model input includes the target), not a replacement.
   perception can output the target directly in the robot's frame.
 
 **Perception model: build and train**
-- **Classical reference first (no learning):** find the red pixels, read their depth, convert to a 3D point with the
+- **Classical reference first (no learning):** RANSAC to fit and remove the floor plane (where the slides use it:
+  3D spatial noise), then find the red pixels, read their depth, convert to a 3D point with the
   camera's intrinsics and its known pose on the robot. Shows how good a learned model would need to be to be worth it.
 - **Learned version:** a small CNN in PyTorch, image(s) in, target position out. Training data is cheap: place the
   target at random, render the snapshot and save it with the true target position as the label. No expert runs
