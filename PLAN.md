@@ -37,32 +37,41 @@ Numbers refer to the steps in the plan below. Everyone tunes the hyperparameters
 only), runs several seeds for their final candidates, records everything in `results/`, and writes the report sections
 for their own work as they go.
 
-**Matteo: pipeline, split networks, integration**
-1. **27 Oct, critical path:** expert fixes 1-6, recollect 1,000-1,500 episodes, results recording, retrain the
-   world-frame baseline (`mlp_worldframe`), then robot-frame inputs (6) and retrain. If it slips: expert fixes, new
-   data and results recording first, robot-frame the next day. Until subsampling exists, train the baselines on a
+**Matteo: pipeline, input features, split networks, integration**
+1. **27 Oct, critical path:** expert fixes 1-6, recollect 1,000-1,500 episodes (in the background), results
+   recording + `train.py --name`, retrain the world-frame baseline (`mlp_worldframe`), then robot-frame inputs (6)
+   and retrain. If it slips: expert fixes, new data and results recording first, robot-frame the next day. Until subsampling exists, train the baselines on a
    uniform subsample (e.g. every 10th frame) and note it in their results.
-2. **Then, shared improvements on master:** adaptive subsampling (7), episode cleaning (8), `decode_outputs()` (10),
-   faster training + `--seed` (11), quick test subset in `compare.py`.
-3. **Then:** multi-model / split networks (15): base and arm networks, "arrived" flag, parking-pose prediction,
+2. **Then:** quick test subset in `compare.py` (fixed ~50 test episodes, early: everyone uses it). The other shared
+   improvements on master are Kris's.
+3. **Input features** (all in `bc_data.py`, which Matteo owns anyway): robot-frame polar vs Cartesian (6) and the
+   feature checks from the preprocessing slides (after 11).
+4. **Then:** multi-model / split networks (15): base and arm networks, "arrived" flag, parking-pose prediction,
    starting the arm early.
-4. **Once the ideas have results:** combine the winning ideas into the final model (components as switches),
+5. **Once the ideas have results:** combine the winning ideas into the final model (components as switches),
    ablations (23), start-pose test (24).
-5. **Report:** introduction, data collection (26), pipeline and evaluation methodology, split-network results, README,
-   and the final edit of the whole report.
+6. Camera extension (final section of the plan), shared with Kris: whoever is free once the final model works.
+7. **Report:** introduction, data collection (26), pipeline and evaluation methodology, input features, split-network
+   results, README, and the final edit of the whole report.
 
-**Kris: temporal models, data, camera**
-1. Temporal data (14): past-frame windows, then the RNN (LSTM / GRU).
-2. Learning curve (17), which decides whether to extend the dataset; more low-height targets (18).
-3. Noise injection, DART (19); DAgger (21) optional.
-4. Camera extension (final section of the plan), once the final model works.
-5. **Report:** temporal models, data experiments, the offline vs closed-loop discussion, camera extension.
+**Kris: shared improvements, temporal models, data, camera**
+1. **Shared improvements on master** (coordinate with Matteo, who owns `bc_data.py`): first `decode_outputs()` (10,
+   needed early by Jamie's `(v, w)` outputs), then adaptive subsampling (7; the past-frame windows need its frame
+   indices) and episode cleaning (8). Faster training + `--seed` (11) last: seed repeats only start once the main
+   improvements are done.
+2. Temporal data (14): past-frame windows, then the RNN (LSTM / GRU).
+3. Learning curve (17), which decides whether to extend the dataset; more low-height targets (18).
+4. Noise injection, DART (19); randomised arm starting pose (20) and DAgger (21) optional.
+5. Robustness tests (24: sensor noise, friction, shoves), on the final model.
+6. Camera extension (final section of the plan), shared with Matteo: whoever is free once the final model works.
+7. **Report:** shared improvements (subsampling, cleaning), temporal models, data experiments, robustness, the
+   offline vs closed-loop discussion, camera extension (with Matteo).
 
-**Jamie: outputs, architecture, comparisons**
+**Jamie: outputs, results and report tables**
 1. Gravity-residual torques (12) and `(v, w)` outputs (13).
-2. Shallow vs deep networks (16), plus efficiency (parameters, inference time).
-3. Low priority: other model families (tree models, building on the `DecisionTree` branch) and RANSAC preprocessing (9).
-4. **Report:** architecture results, efficiency, comparison with other model families, plus:
+2. Analysis plots (25); low priority: RANSAC preprocessing (9).
+3. One shallow vs deep check (16) on the final model, at the end.
+4. **Report:** output-format results, shallow vs deep check and efficiency, plus:
    - the **overall results table** (22) and keeping all tables/figures consistent (same units, names, seeds format);
    - the **conclusion** (limitations of the method and experiments, how they could be improved);
    - the **contribution statement** (draft from what everyone did, checked by all).
@@ -72,7 +81,7 @@ for their own work as they go.
 | Phase | Matteo | Kris and Jamie |
 |---|---|---|
 | 1. Critical path (27 Oct) | New data, results recording, both baselines | Read the plan, set up branches, start the code for your first idea; report outline |
-| 2. Ideas | Shared improvements, then split networks; merge master fixes into branches | Experiments + tuning on the new data, robot-frame baseline as the starting point; write method sections as you go |
+| 2. Ideas | Input features, then split networks; merge master fixes into branches | Experiments + tuning on the new data, robot-frame baseline as the starting point; write method sections as you go |
 | 3. Combine and test | Combine winners, ablations | Seeds, ablation runs, generalisation / robustness tests (on all three machines) |
 | 4. Report (before the 6 Nov deadline) | Final edit, README, introduction/methodology polish, buffer | Own results and discussion sections; Jamie: results table, conclusion, contribution statement; proofreading |
 
@@ -89,12 +98,18 @@ for their own work as they go.
 1. **`check_stop`: check "reached" before "stalled".** Currently a run already within 1 cm can be labelled
    stalled (happened to episode 10).
 2. **Stop on reaching the target instead of the fixed 8 s minimum.** `min_time` makes the expert sit idle after
-   reaching early, adding useless frames. End the episode once the end-effector is within the tolerance (optionally
-   for a short hold time to confirm it stays there), and drop or lower the 8 s minimum.
-3. **Revisit the stall window (3 s) for both expert and policy runs.** A failing policy currently keeps going for
-   a long time before it is stopped. Use the same, shorter stop rules for both so the comparison stays fair; check
-   on the expert data that no successful expert run would be cut off (we checked: the expert never goes more than
-   1.75 s without improving).
+   reaching early, adding useless frames (every pilot episode lasts at least 8 s). **Decided:** drop `min_time`
+   and end the episode the moment the end-effector is within the 1 cm tolerance, no hold time: reaching the target
+   is all the data we need.
+3. **Fix the stall rule** (3 s window now). **Decided:**
+   - **Expert:** keep a stall check, but only once the base has arrived (as now), with a shorter window (e.g. 2 s;
+     we checked: the expert never goes more than 1.75 s without improving, so no successful run is cut off).
+   - **Policy: no stall check, only a maximum time.** The policy is checked from t = 0 (`check_stop(..., True)` in
+     the policy script), and while the base turns in place the EE distance can go well over 2 s without improving,
+     so a stall rule could stop a run that would have succeeded. A time cap is simple and can't do that. Pilot expert
+     runs take 8-15.7 s (median 10.8 s, with the 8 s minimum), so e.g. **30 s** (about 2x the longest) is generous;
+     anything not reached by then counts as a failure. It also replaces the 40,000-step cap (40 s) for policy runs,
+     so a failing policy no longer runs for long.
 4. **Make the code work from any start pose** (we assume the final tests may start the cart away from (0, 0)
    and/or rotated). Now we only make it *possible*; all training and testing stays at the (0, 0, 0) start until
    the final evaluation (step 24), where other start poses are tested.
@@ -104,17 +119,32 @@ for their own work as they go.
      `to_target = TARGET_EE_POS[:2] - init_base_pos[:2]`, and use its angle. Gives identical results for a start
      at the origin, so it is safe to apply now.
    - Add a start-pose option to **both** task scripts (e.g. `ROBOENV_START=x,y,yaw`, like `ROBOENV_TARGET`) so the
-     expert and the policy can be started anywhere, and pass it through `compare.py` / `run_batch.py`. When the
+     expert and the policy can be started anywhere, and pass it through `compare.py` / `run_batch.py` (needs a
+     way to reset the base pose before the loop, e.g. PyBullet's `resetBasePositionAndOrientation`). When the
      option is not set, the start stays (0, 0, 0), so data collection and current runs are unchanged.
 5. **Review other expert quirks** (e.g. the base skids sideways while turning in place): fix or document.
 6. **Log the expert's hidden state** in the `.npz`: navigation phase (`base_state.phase`), the "arrived" flag
    (`base_state.done`) and the arm joint reference (`q_des_arm`). These are the only things the expert carries over
    between steps that affect its commands and can't be rebuilt from saved data (time is already saved, the parking
    spot can be recomputed). Not model inputs: labels for the "arrived" flag (15) and ground truth to check whether
-   the RNN (14) learned the phase. Only before recollecting, otherwise it costs another full collection.
+   the RNN (14) learned the phase. Also save the **start pose** (base x, y, yaw at t = 0): always (0, 0, 0) for
+   now, but once `ROBOENV_START` exists the parking spot can't be recomputed without it. Only before recollecting,
+   otherwise it costs another full collection.
+
+**Only the expert fixes have to come before recollecting.** Input features are built by `make_features` when
+episodes are loaded, not when they are recorded, and everything they need is already saved (`base_pos`,
+`base_bearing`, `q_mes`, `qd_mes`, `ee_pos`, `time`, `target`): robot-frame inputs, polar vs Cartesian, sin/cos
+joints, base velocity, scaling can all change later on the same data. The quick test subset is taken from the new
+test split, so it comes after the data.
 
 Then **recollect the dataset** with `run_batch.py` into a new folder (models are retrained on it once results
 are recorded, see below).
+- Pass `--start 0` (the default is 50; `data_pilot` uses episodes 0-349) and a new `--out-dir` (the default is
+  `data_pilot`).
+- It is quick: the pilot took ~2.5 s wall time per episode with 16 workers, so 1,500 episodes is a few minutes. Run
+  it in the background while building results recording.
+- Then point the scripts at the new folder: `DATA_DIR` in `train.py` and the `--data-dir` default in `compare.py`
+  (both `data_pilot` now).
 
 **Dataset size: start with 1,000-1,500 episodes, extend only if it helps.**
 - Why more than now: the model has to generalise over *targets*, and training currently sees only ~245 different
@@ -138,6 +168,9 @@ are recorded, see below).
   + one row of values). Each training run writes only its own file, so parallel runs can't overwrite each other and
   branches never get merge conflicts (as long as model names differ per branch). The `results/` folder is committed.
 - **The seed is part of the model name** (e.g. `robotframe_s0`, `robotframe_s1`), not a separate column.
+- **`train.py` needs a `--name` option now:** it always saves to `checkpoints/mlp_baseline.pt`, so `mlp_worldframe`
+  and the robot-frame model can't be told apart. Add `--name` (checkpoint + results file) with results recording;
+  `--seed` stays with step 11.
 - `train.py` fills the training and offline-test columns; `compare.py` fills the `sim_*` columns **only with
   `--test-set`** (single `--target` / `--episode` runs are for looking, not reporting). The expert gets its own
   `results/expert.csv` with the `sim_*` columns.
@@ -188,11 +221,12 @@ reference row: the first results recorded, on the same data as every later model
      should help around the phase switches where the world-frame baseline failed, and especially helps tree models.
      - The bearing must be sin/cos, not a raw angle (no jump at +-pi).
      - Distance and bearing alone are not enough for the arm: keep the target height and the 3D target relative to
-       the end effector either way.
+       the end effector either way. `ee_pos` is not a model input yet: pass it to `make_features` (it is saved in
+       the `.npz`, and the policy script already computes it every step).
      - The expert steers to the parking spot, which depends on the target height and the start-to-target line: keep
        the target height, or use the distance and bearing to the parking spot instead.
-     - A switch in `make_features` (`bc_data.py`, e.g. `ROBOT_FRAME_POLAR`), Cartesian by default. Jamie runs the
-       comparison on their branch and records both in `results/`.
+     - A switch in `make_features` (`bc_data.py`, e.g. `ROBOT_FRAME_POLAR`), Cartesian by default. Matteo runs the
+       comparison and records both in `results/`.
 
 Then **retrain the baseline** with robot-frame inputs (on the recollected data); all branches start from this.
 
@@ -263,7 +297,8 @@ validation targets if needed), never on the test set; then report the chosen set
       (arm and base move together), so check: arm torques while the base drives (never in the training data),
       re-aiming if the base parks slightly off, and stability with a stretched arm on a moving base. If it works it
       should reach targets faster than the expert (time to reach is in `compare.py`'s table).
-16. **Shallow vs deep networks:** sweep depth and width (e.g. 1-5 layers, 64-512 units); report accuracy against
+16. **Shallow vs deep check (once, at the end):** no full sweep. Once the final model works, train one shallower and
+    one deeper variant of it (e.g. 1 and 5 layers) to show the chosen size is reasonable; report accuracy against
     parameters and inference time (also covers efficiency).
 
 ### New data (`run_batch.py` into new folders)
@@ -321,7 +356,7 @@ validation targets if needed), never on the test set; then report the chosen set
       data only), engineer (sin/cos angles, robot-frame inputs, velocities), balance (adaptive subsampling around
       phase switches), format (sequences for the RNN). Timestamp alignment doesn't apply: one synchronous sim loop.
 
-### Low priority: other model families (comparison only)
+### Low priority: other model families (comparison only, unassigned: only if time is left at the end)
 Purpose: show in the report why a neural network is the right choice. One or two of these in the results table is
 enough. All from scikit-learn (already installed); reuse `make_features` from `bc_data.py` so inputs are identical.
 - **Decision tree** (existing `DecisionTree` branch): interpretable, step-shaped outputs.
