@@ -21,6 +21,8 @@ The shared pipeline lives on `master`, in `robotnik_arm_task/`:
 **Results:** every model's numbers are in `results/<model>.csv` (one file per model; see "Recording results" below).
 Look there for the current state of each model instead of this file.
 
+**Progress:** what has been done so far, commit by commit, is in the "Progress log" at the end of this file.
+
 ## How we work
 
 - `master` = data collection, preprocessing and the shared pipeline. Each idea gets its own **branch**.
@@ -231,7 +233,8 @@ reference row: the first results recorded, on the same data as every later model
 Then **retrain the baseline** with robot-frame inputs (on the recollected data); all branches start from this.
 
 ### Master: shared improvements
-7. **Adaptive subsampling** (after the split): the base/wheel data sampled densely at the start and at phase
+7. **Adaptive subsampling** (**done**: `afafe7a`, `bd71ddc`, see the progress log; the comparison against uniform is
+   still to run) (after the split): the base/wheel data sampled densely at the start and at phase
    switches but sparsely while driving straight; the arm data sampled densely while it moves (reach) and lightly
    while it holds; a small floor rate everywhere (never zero). Per episode, keeping frame indices so past-frame
    windows stay possible. Compare against uniform subsampling.
@@ -241,6 +244,7 @@ Then **retrain the baseline** with robot-frame inputs (on the recollected data);
    on each. Note: the simulator is noise-free, so we expect little difference on clean data; it becomes more
    relevant once sensor noise is added (robustness tests).
 10. **`decode_outputs()` helper** in `bc_data.py`, so the policy script doesn't change when the output format does.
+    (**done**: `96f3ca3`, see the progress log)
 11. **Faster training (optional):** changes how quickly we get results, not what the model learns.
    - Print the time per epoch, to see whether changes actually help.
    - Bigger batches (e.g. 8192 instead of 2048): fewer, smoother weight updates per epoch and better use of the CPU
@@ -426,3 +430,52 @@ brief's model input includes the target), not a replacement.
 - **Perception error:** estimated vs true target position, in cm.
 - **Closed-loop success** of the full chain vs the same policy given the true target. If success drops, the two
   numbers show whether perception or the policy is to blame.
+
+## Progress log
+
+Commits on `master` with what they changed, newest first. Add a row with every commit. Kris's commits stay local until
+his master improvements (7, 8, 10) are done, then they are pushed together and Matteo merges.
+
+| Commit | Date | Who | Step | Pushed |
+|---|---|---|---|---|
+| `bd71ddc` | 28 Oct | Kris | 7 | no |
+| `afafe7a` | 28 Oct | Kris | 7 | no |
+| `96f3ca3` | 27 Oct | Kris | 10 | no |
+
+**`bd71ddc` Add SUBSAMPLE switch for training frames in `train.py`**
+- `SUBSAMPLE` (`None`, `"uniform"` or `"adaptive"`) and `KEEP_FRAC` (default 0.1), next to `EPOCHS` / `BATCH` / `LR`.
+  Default `None` = all frames, so training is unchanged until someone switches it on.
+- Validation is always subsampled **uniformly** with the same `KEEP_FRAC`, so runs with different modes are judged on
+  the same frames (comparable `best_val_loss`). The test set still uses every frame.
+- Checked: 2-epoch runs in all three modes train, save and test end to end; subsampled runs take ~6 s instead of ~29 s
+  on `data_pilot`.
+
+**`afafe7a` Add uniform and adaptive frame subsampling to `bc_data.py`**
+- `subsample_indices(wheel_cmds, torque_arm, keep_frac, mode, floor=0.3, smooth=50, seed)` returns the sorted frame
+  indices to keep from one episode. Indices (not copies), so the temporal models (14) can still look up past frames in
+  the full episode.
+  - `"uniform"`: evenly spaced frames.
+  - `"adaptive"`: frames drawn at random, weighted by how much the expert's commands change around each frame (smoothed
+    over 50 ms, so the frames around a jump count too). Chance of a frame being kept =
+    `floor * uniform + (1 - floor) * change score`, so 30% of the kept frames are spread over the whole episode and no
+    part is left out. Wheels and torques get half of the change score each (torques change far more often and would
+    otherwise drown out the few wheel switches). Seeded per episode `(seed, episode id)`, so repeatable.
+- `load_episodes(..., keep_frac=None, mode="adaptive", seed=0)`: `None` keeps every frame (existing callers unchanged).
+- Why change-based and not phase rules: on the pilot data 90% of the wheel-command change happens in ~10% of the frames
+  (~3 jumps per episode), but the torques change over ~44% of the frames, almost as much while driving as while
+  reaching, so "sample the arm lightly while it holds" would drop useful torque data.
+- Checked on 50 pilot episodes: exact 10% kept, sorted, no repeats, repeatable; frames within 50 ms of a wheel switch are
+  kept ~4.5x more densely than uniform; largest gap between kept frames 128 ms median (160 ms max).
+- Note: adaptive also oversamples torque chatter, e.g. the arm wiggle near joint limits; the expert fix for the wiggle
+  should be in before the recollection.
+- Still to do: the comparison (uniform vs adaptive at the same `KEEP_FRAC`: validation loss, per-phase offline error,
+  closed-loop success).
+
+**`96f3ca3` Add `decode_outputs()` to turn model outputs back into robot commands**
+- `decode_outputs(y)` in `bc_data.py` returns `(wheel_cmds[4], torque_arm[7])` from the model output: the inverse of
+  `make_labels`, for one frame or a whole episode. A new output format (e.g. `(v, w)`, step 13) only changes
+  `make_labels` and `decode_outputs`.
+- `robotnik_arm_policy_task.py` runs the model through it (the +-30 N*m torque clip comes after decoding).
+- `train.py`'s offline test now scores the decoded commands against the expert's saved `wheel_cmds` / `torque_arm`
+  instead of the training labels, so every output format is measured on the same 4 wheel speeds and 7 torques.
+  Results on the current format are unchanged (checked on a test episode).
