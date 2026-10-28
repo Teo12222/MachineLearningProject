@@ -28,6 +28,8 @@ CHECKPOINT = SCRIPT_DIR / "checkpoints" / "mlp_baseline.pt"
 EPOCHS = 20
 BATCH = 2048
 LR = 1e-3
+SUBSAMPLE = None    # training frames: None = all, "uniform" or "adaptive" (see subsample_indices in bc_data.py)
+KEEP_FRAC = 0.1     # share of each episode kept when subsampling
 
 OUTPUT_NAMES = ["wheel FR", "wheel FL", "wheel BL", "wheel BR"] + [f"J{j}" for j in range(1, 8)]
 
@@ -42,9 +44,11 @@ torch.manual_seed(0)
 train_ids, val_ids, test_ids = split_episodes(DATA_DIR)
 
 if not args.test_only:
-    x_tr, y_tr = load_episodes(DATA_DIR, train_ids)
-    x_va, y_va = load_episodes(DATA_DIR, val_ids)
-    print(f"train frames {len(x_tr)}, val frames {len(x_va)}")
+    keep_frac = KEEP_FRAC if SUBSAMPLE else None
+    x_tr, y_tr = load_episodes(DATA_DIR, train_ids, keep_frac=keep_frac, mode=SUBSAMPLE)
+    # Validation is always subsampled uniformly, so runs with different SUBSAMPLE modes are judged on the same frames
+    x_va, y_va = load_episodes(DATA_DIR, val_ids, keep_frac=keep_frac, mode="uniform")
+    print(f"train frames {len(x_tr)}, val frames {len(x_va)} (subsampling: {SUBSAMPLE or 'off'})")
 
     model = MLP(x_tr.shape[1], y_tr.shape[1])
     model.set_normalisation(x_tr, y_tr)
