@@ -133,27 +133,37 @@ def arm_controller(dyn_model, q_pin, q_arm, qd_arm, q_des_arm, q_hold_arm, targe
 class StopCriteria:
     """Thresholds and running state for the simulation stop conditions.
 
-    Episodes end the moment the target is reached (no minimum time): frames of the expert idling at the
-    target add nothing useful to the training data, and the policy is judged by the same rule, so expert
-    and policy runs end consistently. See PLAN.md, step 0, fixes 1-3.
+    No minimum time: frames of the expert idling at the target add nothing useful to the training data.
+    Success is the first time the EE gets within reach_tolerance; the run then goes on for a fixed settle_time,
+    so the data shows the arm converging and holding at the target. The policy is judged by the same rule, so
+    expert and policy runs end consistently, and a reached run always lasts its time to reach + settle_time.
+    See PLAN.md, step 0, fixes 1-3.
     """
     reach_tolerance: float                     # m
     max_time: float                            # s, simulated time cap; 0 disables it
     stall_window: float = 2.0                  # s without meaningful improvement of the EE error; 0 disables it
     stall_improvement: float = 0.002           # m
+    settle_time: float = 1.0                   # s the run goes on after first reaching the target
     best_ee_error: float = np.inf
     best_ee_error_time: float = 0.0
+    reached_at: float = np.nan                 # s, first time within reach_tolerance; nan until then
 
 
 def check_stop(criteria, current_time, ee_dist_error, base_navigation_done):
     """Evaluate the stop conditions for the current step.
 
     Returns a message describing why the simulation should stop, or None to continue.
-    Checked in order: reached (wins over everything), time cap, stall. Reached and stall only
-    count once the base navigation is done (the arm is reaching).
+    Checked in order: reached + settled (wins over everything), time cap, stall. Reached and stall only
+    count once the base navigation is done (the arm is reaching). While settling, the time cap and the
+    stall check are skipped: the run already counts as reached.
     """
-    if base_navigation_done and ee_dist_error < criteria.reach_tolerance:
-        return f"Target reached within {criteria.reach_tolerance*1000:.0f}mm tolerance at t={current_time:.2f}s!"
+    if np.isnan(criteria.reached_at) and base_navigation_done and ee_dist_error < criteria.reach_tolerance:
+        criteria.reached_at = current_time
+    if not np.isnan(criteria.reached_at):
+        if current_time - criteria.reached_at >= criteria.settle_time:
+            return (f"Target reached within {criteria.reach_tolerance*1000:.0f}mm tolerance at "
+                    f"t={criteria.reached_at:.2f}s! Stopped {criteria.settle_time:.1f}s later")
+        return None
 
     if criteria.max_time and current_time >= criteria.max_time:
         return f"Reached time cap {criteria.max_time:.1f}s at t={current_time:.2f}s"

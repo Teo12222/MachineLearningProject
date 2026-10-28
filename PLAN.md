@@ -117,12 +117,44 @@ for their own work as they go.
    the expert and the policy alike, so a reached run can no longer be labelled stalled, and success rates of the
    expert and every model are measured the same way; (b) **no useless training data**: frames of the expert sitting
    idle at the target (up to the old 8 s minimum) taught the model nothing about reaching but made up part of every
-   short episode. Side effect: episodes end while the arm is still moving (no "settled at the target" frames).
+   short episode. (Ending right at 1 cm left the arm still moving with no "settled at the target" frames: changed
+   on 28 Oct, see the settle update below.)
    Why a time cap instead of the step cap: the limits are decided in seconds (30 s = ~2x the longest expert run), and
    a step count would silently change meaning if the simulation time step changed. `ROBOENV_MAX_STEPS` is no longer
    read (the old line is left commented out in both task scripts); use `ROBOENV_MAX_TIME` (seconds) instead.
    The outcome label in `compare.py` / `run_batch.py` follows the new stop message (`time_cap`); old "Reached step
    cap" messages (e.g. in `data_pilot`) map to `time_cap` too, so old and new episode files read the same way.
+
+   **Update (28 Oct), 1 s settle after reaching:** success is still the *first* time the EE gets within 1 cm, but
+   the run then goes on for a fixed 1 s (`StopCriteria.settle_time`) before it stops. The stop message still starts
+   with "Target reached ... at t=<time of reaching>". Same rule for the expert and the policy, so their final errors
+   are measured the same way; during that second the time cap and the stall check are skipped (the run already
+   counts as reached), and since it only starts after reaching it can't stop a policy early while the base turns.
+   Why: (a) the model sees the arm **converging and holding** at the target, which it never saw when runs ended at
+   1 cm; if the final tests don't stop the instant the EE crosses 1 cm (e.g. a fixed run time), a policy that never
+   saw "hold" could drift or keep pushing, and a policy that drifts shows it in its final error; (b) more data close
+   to the target, where the final precision comes from. Unlike the old 8 s idle tail these frames still show the
+   error going down, and there are few of them (~1,000 per episode, ~10%; adaptive subsampling (7) can thin them).
+   Pilot data (29 episodes that ran on >= 1 s after reaching): error 4.9 mm after 0.5 s, **2.5 mm after 1 s** (90%:
+   4.8 mm), 0.6 mm after 2 s. Why fixed and not "until the error stops improving": we tried that first (stop when no
+   0.5 mm improvement in 0.3 s, 2 s cap; ~1 mm final error) but it needed three settings and a separately saved
+   reach time, because the run length varied. With a fixed second, a reached run always lasts its time to reach +
+   1 s, so the sim time still measures the time to reach (minus 1 s, the same for every model) and nothing extra is
+   saved.
+
+   **Update (28 Oct), expert tolerance 5 mm, success rule stays 1 cm:** the expert now stops (after its 1 s settle)
+   at 5 mm instead of 1 cm (`REACH_TOLERANCE` in `robotnik_arm_task.py`); the
+   policy and `compare.py` keep 1 cm, the course's own tolerance (it was in the starter code), as the success rule.
+   Why: the expert clearly can do better than 1 cm (in pilot runs that kept going it got from 1 cm to 5 mm within
+   0.5 s), so the data shows a more precise final approach, while judging our models by the course's 1 cm keeps the
+   evaluation simple and not stricter than the brief. Checked on all 350 pilot targets at 5 mm + 1 s settle:
+   **349/350 reached**, final error median 1.25 mm (90%: 1.46 mm), sim time median 12.5 s (5.8-17.5 s), 4.30 M
+   frames vs 3.81 M for the pilot (~13% more, now spent approaching and holding instead of idling). The one failure,
+   episode 77 (target 0.36, -1.07, 0.50), can't get below 5.9 mm and is stopped by the stall rule (at 1 cm it reached
+   with 6.2 mm): such rare "stalled" episodes are filtered by episode cleaning (8). Consequence: the expert's
+   "reached" is stricter than the policy's, so its success rate in `results/expert.csv` is at 5 mm. The current
+   world-frame baseline reached 0/52 test targets at either tolerance, so the success rule can't be judged from the
+   policy yet; "success at 5 mm" can later be computed from saved frames without changing the stop rule.
 4. **Make the code work from any start pose** (we assume the final tests may start the cart away from (0, 0)
    and/or rotated). Now we only make it *possible*; all training and testing stays at the (0, 0, 0) start until
    the final evaluation (step 24), where other start poses are tested.
@@ -163,6 +195,19 @@ for their own work as they go.
    - **Last frame not logged:** the frame where a stop condition fires is not saved; `final_error` comes from it.
    - **`base_pos`** is PyBullet's base-link position (the sim's comment suggests the centre of mass, not the frame
      origin); expert, policy and features all use the same value, so it is consistent.
+   - **The base parks up to 8 cm / 0.05 rad off its parking spot:** drive ends within `pos_tol = 0.08` m of the goal
+     and orient within `ang_tol = 0.05` rad, with no later correction; the arm makes up the difference (test run on
+     episode 10's target: parked 7.8 cm short). So the real parking pose differs from the saved `base_goal` by up to
+     that much (matters for the parking-pose prediction in 15).
+   - **The expert's final error depends on the stop rule:** it is the error 1 s after first reaching 5 mm (~1.25 mm,
+     see the settle and tolerance updates in fixes 1-3), not at a crossing nor after the old 8 s hold. Say so in the
+     report, and don't compare `sim_final_err` with pilot-era numbers.
+   - **Phases that finish instantly have no frames:** `nav_phase` is logged after each step's update, so a target
+     almost straight ahead has no `align` frames at all (the first frame is already `drive`), and a base already facing
+     the target goes to `orient` and arrival on the same frame. Phase frame counts are uneven; keep it in mind when
+     using `nav_phase` as RNN ground truth or class labels.
+   - **`orient` mostly means "the arm is reaching":** the phase stays `orient` after arrival (all 979 reach frames in the
+     test run). The real orient-phase frames are `nav_phase == orient` and `nav_done == False`.
 6. **Log the expert's hidden state** in the `.npz`: navigation phase (`base_state.phase`), the "arrived" flag
    (`base_state.done`) and the arm joint reference (`q_des_arm`). These are the only things the expert carries over
    between steps that affect its commands and can't be rebuilt from saved data (time is already saved, the parking
@@ -205,6 +250,9 @@ are recorded, see below).
   performance is still improving with more episodes. Report this ("we stopped at N because the curve flattened").
 - Extending is cheap: each target depends only on the seed and the episode number, so
   `run_batch.py --seed <same> --start <N> --n <more>` adds new targets without repeating old ones.
+- Note: pilot episodes 0-49 have different targets from what `run_batch.py` now draws for those numbers (same angle
+  and height, smaller radius: collected before the radius range changed). Doesn't matter for the new dataset, but
+  compare new and pilot episodes only from episode 50 on.
 - **Don't commit the dataset** (too big for git; the brief doesn't require submitting data). Consider saving float32
   instead of float64 or using `np.savez_compressed` (part of the expert fixes) to cut the size.
 - At this size **subsampling (step 7) is needed**, not optional: the full data won't fit comfortably in memory.

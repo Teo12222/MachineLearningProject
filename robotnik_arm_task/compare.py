@@ -32,7 +32,8 @@ EXPERT_SCRIPT = "robotnik_arm_task.py"
 POLICY_SCRIPT = "robotnik_arm_policy_task.py"
 EXPERT_TIMEOUT = 180.0  # s, the headless expert takes a few seconds per episode
 POLICY_TIMEOUT = 300.0  # s, wall time; a failing policy runs until its 30 s simulated time cap
-SUCCESS_TOLERANCE = 0.01  # m, the task scripts' REACH_TOLERANCE (shown as the success line in the test-set plot)
+SUCCESS_TOLERANCE = 0.01  # m, the policy script's REACH_TOLERANCE (shown as the success line in the test-set plot);
+# the expert stops at a tighter 5 mm, so its "reached" is stricter than the policy's
 
 
 def load_npz(path):
@@ -181,7 +182,8 @@ def run_test_set(data_dir, out_dir, script_dir, workers):
           f"expert {exp_reached}/{n} ({100 * exp_reached / n:.1f}%)")
     print(f"Policy episode files: {run_dir}")
 
-    # Final error per test episode, policy next to expert. Log scale: expert errors are mm, policy errors can be m.
+    # Final error per test episode, policy next to expert. Log scale: expert errors are a few mm (runs go on 1 s
+    # after reaching), policy errors can be m.
     pos = np.arange(n)
     width = 0.4
     fig, ax = plt.subplots(figsize=(14, 5))
