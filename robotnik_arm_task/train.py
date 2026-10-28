@@ -18,7 +18,7 @@ import numpy as np
 import torch
 from torch import nn
 
-from bc_data import split_episodes, load_episode, load_episodes, decode_outputs
+from bc_data import split_episodes, clean_ids, load_episode, load_episodes, decode_outputs
 from bc_model import MLP, save_model, load_model
 
 # Paths are relative to this file, so the script works from any working directory
@@ -42,6 +42,8 @@ if args.no_test and args.test_only:
 
 torch.manual_seed(0)
 train_ids, val_ids, test_ids = split_episodes(DATA_DIR)
+# Bad episodes are dropped after the split, so the good ones always stay in the same set
+train_ids, val_ids, test_ids = (clean_ids(DATA_DIR, ids) for ids in (train_ids, val_ids, test_ids))
 
 if not args.test_only:
     keep_frac = KEEP_FRAC if SUBSAMPLE else None
