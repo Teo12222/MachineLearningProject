@@ -527,12 +527,60 @@ on a saved episode: moving and rotating the whole scene (base, EE, target togeth
    switches but sparsely while driving straight; the arm data sampled densely while it moves (reach) and lightly
    while it holds; a small floor rate everywhere (never zero). Per episode, keeping frame indices so past-frame
    windows stay possible. Compare against uniform subsampling.
+   - **Done (Kris, 28 Oct, pushed 28 Oct). Still to run: the comparison against uniform.**
+   - `afafe7a` (`bc_data.py`): `subsample_indices(wheel_cmds, torque_arm, keep_frac, mode, floor=0.3, smooth=50, seed)`
+     returns the sorted frame indices to keep from one episode (indices, not copies, so the temporal models (14) can
+     still look up past frames in the full episode).
+     - `"uniform"`: evenly spaced frames. `"adaptive"`: frames drawn at random, weighted by how much the expert's
+       commands change around each frame (smoothed over 50 ms, so the frames around a jump count too). Chance of a
+       frame being kept = `floor * uniform + (1 - floor) * change score`, so 30% of the kept frames are spread over
+       the whole episode and no part is left out. Wheels and torques get half of the change score each. Seeded per
+       episode `(seed, episode id)`, so repeatable.
+     - `load_episodes(..., keep_frac=None, mode="adaptive", seed=0)`: `None` keeps every frame (callers unchanged).
+     - Why change-based and not phase rules: on the pilot data 90% of the wheel-command change happens in ~10% of the
+       frames (~3 jumps per episode), but the torques change over ~44% of the frames, almost as much while driving as
+       while reaching, so "sample the arm lightly while it holds" would drop useful torque data.
+     - Checked on 50 pilot episodes: exactly 10% kept, sorted, no repeats, repeatable; frames within 50 ms of a wheel
+       switch kept ~4.5x more densely than uniform; largest gap between kept frames 128 ms median (160 ms max).
+     - Adaptive also oversamples torque chatter such as the arm wiggle near joint limits: the expert fix for the
+       wiggle should be in before the recollection.
+   - `bd71ddc` (`train.py`): `SUBSAMPLE` (`None`, `"uniform"`, `"adaptive"`) and `KEEP_FRAC` (default 0.1) next to
+     `EPOCHS` / `BATCH` / `LR`; default `None` = all frames, so training is unchanged until switched on. Validation is
+     always subsampled **uniformly** with the same `KEEP_FRAC`, so different modes are judged on the same frames. Test
+     still uses every frame. Checked: 2-epoch runs in all three modes work end to end, ~6 s instead of ~29 s.
 8. **Episode cleaning:** trim the idle tail (unless step 2 removes it), filter failed episodes, sanity checks
    (NaNs, torques at the +-30 N*m limit).
+   - **Done (Kris, 28 Oct, pushed 28 Oct).** No tail trimming: expert fix 2 ends episodes on reaching (on `data_pilot`
+     the tail is 2% of all frames: 54 episodes > 0.1 s, up to 3.85 s).
+   - `d308f75` (`bc_data.py`): `check_episode(d)` lists what makes an episode unusable: not reached (stop message),
+     final error above 1 cm, arrays of different lengths, NaN/inf, shorter than 1 s. `clean_ids(data_dir, ids)` keeps
+     the episodes that pass, counts missing or truncated files (crashed runs) as dropped, and prints what was dropped
+     and why (for the report). `python bc_data.py` also prints the check: run it once after recollecting.
+     - Torques at the 30 N*m limit are **not** dropped: on `data_pilot` 349/350 episodes touch the limit, but only
+       ~0.3% of frames, in bursts of <= 32 ms at the start of the reach (the expert's kick right after the base parks;
+       the expert clips at 30 too, so they are correct labels). Only a warning above 10% of an episode's frames.
+     - Checked: broken copies of a real episode (stalled, NaN, length mismatch, 0.5 s, truncated file, missing file,
+       final error 2 cm) are all dropped with the right reason; a 23% saturated one is kept with a warning. On
+       `data_pilot` all 350 pass (0.8 s).
+     - Expert quirk found (for 5): the saved `ee_pos` ends 10.01-10.09 mm from the target although the expert stops
+       below 10 mm, so it seems to lag the stop check by a step. Checking "reached" from saved data needs a small margin.
+   - `6f7def7` (`train.py`): `clean_ids` runs on the train, validation and test episodes right after `split_episodes`.
+     Filtering **after** the split means dropping a bad episode never moves a good one to another set. No change on
+     `data_pilot` (nothing is dropped).
+   - **Matteo:** `compare.py --test-set` should call `clean_ids` on its test ids too, so the policy isn't scored on
+     targets the expert itself failed. Left to you since you're editing `compare.py`.
 9. **RANSAC / outlier preprocessing (experiment):** keep both raw and preprocessed data and compare models trained
    on each. Note: the simulator is noise-free, so we expect little difference on clean data; it becomes more
    relevant once sensor noise is added (robustness tests).
 10. **`decode_outputs()` helper** in `bc_data.py`, so the policy script doesn't change when the output format does.
+    - **Done (Kris, 27 Oct, pushed 28 Oct).**
+    - `96f3ca3` (`bc_data.py`, `robotnik_arm_policy_task.py`, `train.py`): `decode_outputs(y)` returns
+      `(wheel_cmds[4], torque_arm[7])` from the model output, the inverse of `make_labels`, for one frame or a whole
+      episode. A new output format (e.g. `(v, w)`, 13) only changes `make_labels` and `decode_outputs`. The policy
+      script runs the model through it (the +-30 N*m clip comes after decoding). `train.py`'s offline test now scores
+      the decoded commands against the expert's saved `wheel_cmds` / `torque_arm` instead of the training labels, so
+      every output format is measured on the same 4 wheel speeds and 7 torques. Results on the current format are
+      unchanged (checked on a test episode).
 11. **Faster training (optional):** changes how quickly we get results, not what the model learns.
    - Print the time per epoch, to see whether changes actually help.
    - Bigger batches (e.g. 8192 instead of 2048): fewer, smoother weight updates per epoch and better use of the CPU

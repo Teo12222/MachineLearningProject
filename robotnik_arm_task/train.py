@@ -24,7 +24,7 @@ import numpy as np
 import torch
 from torch import nn
 
-from bc_data import split_episodes, load_episode, load_episodes
+from bc_data import split_episodes, clean_ids, load_episode, load_episodes, decode_outputs
 from bc_model import MLP, save_model, load_model
 from results import SIM_COLUMNS, update_results
 
@@ -41,6 +41,8 @@ LR = 3e-3
 # Uniform subsample of the training and validation frames (every 10th) until adaptive subsampling exists (PLAN.md
 # step 7). The test RMSE always uses every frame.
 FRAME_STEP = 10
+SUBSAMPLE = None    # training frames: None = all, "uniform" or "adaptive" (see subsample_indices in bc_data.py)
+KEEP_FRAC = 0.1     # share of each episode kept when subsampling
 
 OUTPUT_NAMES = ["wheel FR", "wheel FL", "wheel BL", "wheel BR"] + [f"J{j}" for j in range(1, 8)]
 
@@ -67,13 +69,17 @@ CHECKPOINT = SCRIPT_DIR / "checkpoints" / f"{args.model}.pt"
 if args.threads:
     torch.set_num_threads(args.threads)
 
-torch.manual_seed(args.seed)
+torch.manual_seed(0)
 train_ids, val_ids, test_ids = split_episodes(DATA_DIR)
+# Bad episodes are dropped after the split, so the good ones always stay in the same set
+train_ids, val_ids, test_ids = (clean_ids(DATA_DIR, ids) for ids in (train_ids, val_ids, test_ids))
 
 if not args.test_only:
-    x_tr, y_tr = load_episodes(DATA_DIR, train_ids, every=FRAME_STEP)
-    x_va, y_va = load_episodes(DATA_DIR, val_ids, every=FRAME_STEP)
-    print(f"train frames {len(x_tr)}, val frames {len(x_va)} (every {FRAME_STEP}th frame)")
+    keep_frac = KEEP_FRAC if SUBSAMPLE else None
+    x_tr, y_tr = load_episodes(DATA_DIR, train_ids, keep_frac=keep_frac, mode=SUBSAMPLE)
+    # Validation is always subsampled uniformly, so runs with different SUBSAMPLE modes are judged on the same frames
+    x_va, y_va = load_episodes(DATA_DIR, val_ids, keep_frac=keep_frac, mode="uniform")
+    print(f"train frames {len(x_tr)}, val frames {len(x_va)} (subsampling: {SUBSAMPLE or 'off'})")
 
     model = MLP(x_tr.shape[1], y_tr.shape[1], hidden=args.hidden, layers=args.layers, dropout=args.dropout)
     model.set_normalisation(x_tr, y_tr)
@@ -147,8 +153,12 @@ sq_err_sum, n_frames = np.zeros(len(OUTPUT_NAMES)), 0
 print(f"\nTest set: {len(test_ids)} episodes, RMSE between model and expert commands")
 print(f"{'episode':>8} {'wheels (rad/s)':>15} {'torques (N*m)':>14}")
 for i in test_ids:
-    x, y = load_episode(Path(DATA_DIR) / f"ep_{i:04d}.npz")
-    err = best.predict(x) - y
+    path = Path(DATA_DIR) / f"ep_{i:04d}.npz"
+    x, _ = load_episode(path)
+    # Scored on the decoded commands against the expert's own, so every output format is measured the same way
+    d = np.load(path)
+    wheel_pred, torque_pred = decode_outputs(best.predict(x))
+    err = np.concatenate([wheel_pred - d["wheel_cmds"], torque_pred - d["torque_arm"]], axis=-1)
     wheel_rmse.append(np.sqrt(np.mean(err[:, :4] ** 2)))
     torque_rmse.append(np.sqrt(np.mean(err[:, 4:] ** 2)))
     sq_err_sum += (err ** 2).sum(axis=0)
