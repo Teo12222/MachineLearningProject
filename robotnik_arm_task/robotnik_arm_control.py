@@ -40,7 +40,7 @@ class ArmControllerParams:
     """Tuning parameters of the arm reaching controller."""
     reach_limit: float                   # m, max EE distance from the shoulder the arm is asked to reach
     kp: float = 100.0                    # joint PD position gain
-    kd: float = 30.0                     # joint PD velocity gain
+    kd: float = 20.0                     # joint PD velocity gain (30 made the arm chatter in low poses, PLAN.md fix 5)
     max_joint_vel: float = 1.0           # rad/s
     max_q_lead: float = 0.15             # rad, max distance of the joint reference from the measured angle
     max_torque: float = 30.0             # N*m
@@ -49,7 +49,9 @@ class ArmControllerParams:
     min_ik_damping: float = 0.01
     max_ik_damping: float = 0.10
     singularity_threshold: float = 0.15
-    limit_margin: float = 0.05           # rad, joints this close to a limit are treated as saturated
+    limit_margin: float = 0.05           # rad, the joint reference is kept this far inside the limits
+    limit_band: float = 0.05             # rad, over this band above the margin a joint is slowed smoothly to a stop
+    limit_push_eps: float = 0.01         # rad/s, motion into a limit counts fully from this speed on
 
 
 def arm_controller(dyn_model, q_pin, q_arm, qd_arm, q_des_arm, q_hold_arm, target_pos, ee_pos,
@@ -92,23 +94,21 @@ def arm_controller(dyn_model, q_pin, q_arm, qd_arm, q_des_arm, q_hold_arm, targe
         if cartesian_speed > params.max_cartesian_speed:
             v_cartesian *= params.max_cartesian_speed / cartesian_speed
 
-        # Saturation-aware solve: joints at a limit that the motion would push further into are
-        # frozen, and their share of the motion is redistributed to the remaining joints.
+        # Joint-limit aware solve: a joint moving into a limit is slowed smoothly to a stop over limit_band
+        # (weight 1 -> 0), and its share of the motion goes to the other joints (weighted damped least squares).
+        # Smooth instead of an on/off freeze: a joint held at the edge used to flip between frozen and free every
+        # few steps, which kicked the torques of the whole arm (PLAN.md fix 5).
         has_limits = arm_lower < arm_upper
-        free = np.ones(7, dtype=bool)
-        qd_des_arm = np.zeros(7)
-        for _ in range(7):
-            J_free = J_arm[:, free]
-            regularized_jacobian = J_free @ J_free.T + damping**2 * np.eye(3)
-            qd_des_arm = np.zeros(7)
-            qd_des_arm[free] = J_free.T @ np.linalg.solve(regularized_jacobian, v_cartesian)
-            pushing_lower = has_limits & (q_arm <= arm_lower + params.limit_margin) & (qd_des_arm < 0)
-            pushing_upper = has_limits & (q_arm >= arm_upper - params.limit_margin) & (qd_des_arm > 0)
-            newly_blocked = (pushing_lower | pushing_upper) & free
-            if not newly_blocked.any():
-                break
-            free &= ~newly_blocked
-            qd_des_arm[:] = 0.0
+        regularized = J_arm @ J_arm.T + damping**2 * np.eye(3)
+        qd_unweighted = J_arm.T @ np.linalg.solve(regularized, v_cartesian)
+        room_lower = np.clip((q_arm - arm_lower - params.limit_margin) / params.limit_band, 0.0, 1.0)
+        room_upper = np.clip((arm_upper - params.limit_margin - q_arm) / params.limit_band, 0.0, 1.0)
+        into_lower = np.clip(-qd_unweighted / params.limit_push_eps, 0.0, 1.0)
+        into_upper = np.clip(qd_unweighted / params.limit_push_eps, 0.0, 1.0)
+        weight = np.where(has_limits, 1.0 - into_lower * (1.0 - room_lower) - into_upper * (1.0 - room_upper), 1.0)
+        weight = np.clip(weight, 0.0, 1.0)
+        regularized = (J_arm * weight) @ J_arm.T + damping**2 * np.eye(3)
+        qd_des_arm = weight * (J_arm.T @ np.linalg.solve(regularized, v_cartesian))
         max_joint_speed = np.max(np.abs(qd_des_arm))
         if max_joint_speed > params.max_joint_vel:
             qd_des_arm *= params.max_joint_vel / max_joint_speed

@@ -1,2 +1,2 @@
 model,train_episodes,epochs,batch,lr,hidden,layers,best_val_loss,best_epoch,train_time_s,parameters,inference_ms,test_wheel_rmse,test_torque_rmse,sim_success_rate,sim_final_err_mean,sim_final_err_median,sim_time_to_reach
-expert,,,,,,,,,,,,,,1,0.00130851,0.00125142,11.9936
+expert,,,,,,,,,,,,,,0.993333,0.00183652,0.00170939,12.161

@@ -222,6 +222,53 @@ for their own work as they go.
      using `nav_phase` as RNN ground truth or class labels.
    - **`orient` mostly means "the arm is reaching":** the phase stays `orient` after arrival (all 979 reach frames in the
      test run). The real orient-phase frames are `nav_phase == orient` and `nav_done == False`.
+
+   **Done (28 Oct), FIXED: the arm torques chattered** (flipped every 1 ms step, e.g. J6 between -5.5 and +10.5 N*m,
+   J2 between 19.6 and 27.2, while the joint angles barely moved). **Why it had to be fixed before training anything
+   further:** a model can't predict a torque that flips every step from the current state, so those labels are pure
+   noise (part of the ~0.2 N*m torque RMSE was unlearnable); adaptive subsampling (7) would oversample exactly these
+   frames because the torques change so much there, teaching the noise more strongly; and every model trained on it
+   would have to be retrained after a later fix, breaking the comparison between models, so it was fixed once, now,
+   before the one recollection. How common it was in the old `data_main`: in a sample of 250 episodes, heavy chatter
+   in 19 of 24 targets at 0.2-0.3 m height, 31 of 31 at 0.3-0.4 m, 10 of 65 at 0.4-0.6 m, none above 0.6 m.
+   Found by logging every controller step of one episode (580) in a copy of `arm_controller` (identical run to
+   `data_main`'s). No contacts were involved (logged). **Two separate causes:**
+   1. **Velocity gain too high for the 1 ms step in low arm poses** (e.g. episode 580): the set of frozen joints stayed
+      constant, the planned joint velocities were tiny and smooth, but the measured velocities zig-zagged every step
+      on all 7 joints and `kd * (qd_des - qd)` turned that into torque flips (a feedback loop that overreacts each
+      step). Lowering `kd` removes it.
+   2. **A joint held exactly on the edge of the joint-limit freeze** (e.g. episodes 231, 130): the reference of J2 is
+      clipped to limit + margin, so the arm holds J2 on that line (within 1e-5 rad), and the old on/off rule ("frozen if
+      within the margin and pushing into it") flipped it between frozen and free hundreds of times per reach (582 in
+      231). Each flip changed the whole joint solution at once and kicked the torques of the arm. A lower `kd` doesn't
+      help, and widening the freeze zone only moved the edge (J2 then sat on the new edge, same number of flips).
+   **Fix (`robotnik_arm_control.py`):** `kd` 30 -> 20, and the on/off freeze replaced by **smooth joint-limit weighting**
+   in the damped least-squares solve: a joint moving into a limit is slowed from weight 1 to 0 over `limit_band` =
+   0.05 rad above the margin (and only as far as it actually pushes into the limit, fully from `limit_push_eps` = 0.01
+   rad/s), its share of the motion going to the other joints. Weight 0 is the old freeze, but nothing switches
+   abruptly. Stateless (depends only on the current angles), so it adds no hidden state the model would have to guess.
+   **Tested before changing the expert** (headless expert runs, same targets each time):
+
+   | Expert version (31 targets: 580, the 5 stalls, 10 low, 15 others) | Reached | Mean time to reach | Median final error | Chatter (share of reach) | Max arm sag while driving |
+   |---|---|---|---|---|---|
+   | Old: on/off freeze, kd 30 | 26/31 | 11.62 s | 1.34 mm | 4.1% | 0.058 rad |
+   | kd 25 only | 29/31 | 11.24 s | 1.32 mm | 1.0% | 0.062 rad |
+   | Smooth weighting, kd 25 | 29/31 | 11.45 s | 2.15 mm | 0.8% | 0.062 rad |
+   | **Smooth weighting, kd 20 (chosen)** | 28/31 | 11.69 s | 2.03 mm | **0.0%** | 0.071 rad |
+
+   On 20 of the 52 lowest targets (below 0.25 m), where cause 1 lives: smooth + kd 25 still chattered heavily in 3
+   (episodes 383, 851, 580: 23-34% of the reach), smooth + kd 20 in none; both reached 20/20 with the same time
+   (12.4 s) and final error (2.1 mm). Hence kd 20, not 25. Lower gains were also tried: kd 15 settles worse (some
+   arms overshoot after reaching, episode 170 ends 15 mm off). The clean implementation was checked to give exactly
+   the tested runs (5 targets, identical torques frame by frame).
+   **Costs, accepted:** final error ~2 mm instead of ~1.3 mm (joints near a limit now slow down gradually, so the last
+   millimetres take a little longer; still well inside 5 mm), a few runs end 4-6 mm off after the settle second, and
+   slightly more arm sag while driving (0.071 vs 0.058 rad, lower damping). **Gains:** no chatter, and more targets
+   reached (738, 752 and 774 now reach; 77 and 799 still stall).
+   **Consequence:** `data_main` has to be recollected with the fixed expert (once; this is why both causes were
+   fixed together). Every result recorded before (expert, `mlp_worldframe`, `mlp_robotframe`) is on the old data:
+   the expert and `mlp_robotframe` get recomputed; `mlp_worldframe` can't be (its inputs are gone) and stays as the
+   old-data reference row, marked as such.
 6. **Log the expert's hidden state** in the `.npz`: navigation phase (`base_state.phase`), the "arrived" flag
    (`base_state.done`) and the arm joint reference (`q_des_arm`). These are the only things the expert carries over
    between steps that affect its commands and can't be rebuilt from saved data (time is already saved, the parking
@@ -264,6 +311,18 @@ data_main`, `--start 0`, so running it without options can only add missing epis
 pilot, so episodes 50-349 have the same targets as the pilot ones. Note: `data_pilot` (351 files, ~1.6 GB) is
 **committed to git**, against the "don't commit the dataset" rule; removing it (`git rm --cached`) is a team decision,
 since it stays in the history either way.
+
+**Superseded (28 Oct):** this first `data_main` had the arm torque chatter (see the fix in the expert quirks, fix 5),
+so it is recollected with the fixed expert (same command, same seed, same targets). The numbers below are for the
+first collection.
+
+**Recollected (28 Oct), the current `data_main`:** 1,000 episodes, no crashes or timeouts, 12.3 M frames; **995
+reached, 5 stalled**; final error median 1.65 mm (90%: 2.42 mm; 9 reached runs end above 5 mm after the settle
+second); sim time median 12.4 s. **Heavy chatter in 0 of 1,000 episodes** (no 100 ms window above 20 N*m per step
+in any height band; before the fix: most targets below 0.4 m). Stalled: 77, 752, 799 (close mid-height targets, the
+joint-limit dead ends from before) and two new ones, 297 and 791: far targets (~2.8 m) that got to 5.3 mm and were
+stopped by the stall rule (2 mm in 2 s) just short of 5 mm, since joints near a limit now slow down gradually. Drop
+all 5 in episode cleaning (8). 774 (the circling base) now reaches.
 
 **Result:** 1,000 episodes in 8.4 min, no crashes or timeouts, 2.8 GB, 12.1 M frames; **995 reached, 5 stalled**
 (final error median 1.25 mm, sim time median 12.2 s, max 27.2 s). The 5 stalled episodes (drop them in episode
@@ -446,6 +505,22 @@ on a saved episode: moving and rotating the whole scene (base, EE, target togeth
   gravity; (b) **split base / arm networks + "arrived" flag (15, Matteo)**: arm mistakes no longer feed the wheel
   commands, and the flag addresses the late turn -> drive switch, as do temporal inputs (14, Kris); (c) tuning
   (`tune.py`) still worth doing, but a better validation loss alone won't fix these closed-loop failures.
+- (The numbers above are on the first `data_main`, with the expert's arm chatter.)
+
+**After the expert chatter fix and recollection (28 Oct), `mlp_robotframe` retrained** (same settings):
+
+| `mlp_robotframe` | Validation loss | Test wheels | Test torques | Quick test reached | Final error (median) | Closest to parking spot (median; within 15 cm) | Closest EE error (median; best) | Wheel at clip | Total turning |
+|---|---|---|---|---|---|---|---|---|---|
+| Old data (chatter) | 0.0089 | 0.086 rad/s | 0.209 N*m | 0/50 | ~5 m | 0.76 m; 0/50 | 0.72 m; 155 mm | 65% of frames | ~610 deg |
+| **New data** | **0.0038** | 0.083 rad/s | **0.116 N*m** | 0/50 | **0.78 m** | **0.09 m; 35/50** | **0.17 m; 21 mm** (3/50 under 5 cm) | 7% | ~270 deg |
+
+- **The chatter was a large part of the torque error:** torque RMSE fell from 0.209 to 0.116 N*m and the validation
+  loss more than halved, with the same model and settings. Those were unlearnable labels.
+- **Closed loop is far better, still 0/50:** the base now gets near its parking spot in most runs (35/50 within
+  15 cm) and the arm stops sagging early (largest joint deviation in the first 6 s: median 0.062 rad, the expert's
+  level), but the base gets there late (closest approach at a median of ~20 s, the expert arrives at ~8-10 s) and
+  the arm's reach then doesn't get within 5 mm before the 30 s cap (closest median 17 cm). So the failure has moved
+  from "the arm sags and the base runs off" to "slow navigation + an imprecise reach".
 
 ### Master: shared improvements
 7. **Adaptive subsampling** (after the split): the base/wheel data sampled densely at the start and at phase
@@ -501,6 +576,11 @@ validation targets if needed), never on the test set; then report the chosen set
 **Decided (28 Oct): a `tune.py` script, after the robot-frame inputs (6).** Not before: the best settings depend on
 the inputs, and every branch starts from the robot-frame baseline, so that's the model whose tuning matters (tuning
 the world-frame model can't fix its closed-loop failure: 0/150 at a good validation loss).
+- **Workflow for every model that gets reported:** develop with the default settings and quick checks
+  (`train.py`, `compare.py --test-set --quick`); when the model is ready, **first `tune.py`, then the full test set**
+  (`compare.py --test-set`) on the tuned model, so the reported numbers are always for tuned settings and every
+  reported model went through the same procedure. No `_tuned` names: the tuned model keeps the model's normal name
+  (e.g. `mlp_robotframe_s0`); `results/tuning/<model>/` keeps the search behind it.
 - Trains a batch of settings for one model and keeps the best; the report says the settings were "selected by
   `tune.py` on the validation set".
 - **Never uses the test episodes.** Ranked by validation loss (the validation episodes already used in training).
