@@ -45,11 +45,45 @@ def load_episode(path):
     return x, y
 
 
-def load_episodes(data_dir, episode_ids):
-    """Inputs and labels of several episodes stacked into one array each."""
+def subsample_indices(wheel_cmds, torque_arm, keep_frac=0.1, mode="adaptive", floor=0.3, smooth=50, seed=0):
+    """Frame indices to keep from one episode (sorted, no repeats).
+
+    "uniform": evenly spaced frames. "adaptive": frames drawn at random, more of them where the expert's commands
+    change (phase switches, the reach). A frame's chance of being kept is floor * uniform + (1 - floor) * change
+    score, so a share `floor` of the kept frames is spread over the whole episode and no part is left out.
+    Wheels and torques get half of the change score each, so the torques (which change far more often) don't drown
+    out the few wheel switches. The change is averaged over `smooth` frames, so the frames around a jump count too.
+    seed can be a tuple, e.g. (seed, episode id), so every episode gets its own repeatable draw.
+    """
+    n = len(wheel_cmds)
+    k = max(1, min(n, round(n * keep_frac)))
+    if mode == "uniform":
+        return np.linspace(0, n - 1, k).round().astype(int)
+    if mode != "adaptive":
+        raise ValueError(f"unknown subsampling mode {mode!r}")
+
+    p = np.full(n, floor / n)
+    kernel = np.ones(min(smooth, n)) / min(smooth, n)
+    for cmds in (wheel_cmds, torque_arm):
+        change = np.r_[0.0, np.abs(np.diff(cmds, axis=0)).sum(axis=1)]
+        change = np.convolve(change, kernel, mode="same")
+        share = change / change.sum() if change.sum() > 0 else np.full(n, 1.0 / n)
+        p += (1 - floor) / 2 * share
+    rng = np.random.default_rng(seed)
+    return np.sort(rng.choice(n, size=k, replace=False, p=p / p.sum()))
+
+
+def load_episodes(data_dir, episode_ids, keep_frac=None, mode="adaptive", seed=0):
+    """Inputs and labels of several episodes stacked into one array each.
+
+    keep_frac=None keeps every frame; otherwise each episode keeps only the frames picked by subsample_indices.
+    """
     xs, ys = [], []
     for i in episode_ids:
         x, y = load_episode(Path(data_dir) / f"ep_{i:04d}.npz")
+        if keep_frac is not None:
+            keep = subsample_indices(*decode_outputs(y), keep_frac=keep_frac, mode=mode, seed=(seed, i))
+            x, y = x[keep], y[keep]
         xs.append(x)
         ys.append(y)
     return np.concatenate(xs), np.concatenate(ys)
