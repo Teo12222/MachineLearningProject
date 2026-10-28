@@ -6,13 +6,17 @@ from torch import nn
 class MLP(nn.Module):
     """Baseline behaviour-cloning network. Stores its own normalisation so it can be used in real units."""
 
-    def __init__(self, n_in, n_out, hidden=256, layers=3):
+    def __init__(self, n_in, n_out, hidden=256, layers=3, dropout=0.0):
         super().__init__()
-        self.config = dict(n_in=n_in, n_out=n_out, hidden=hidden, layers=layers)
+        self.config = dict(n_in=n_in, n_out=n_out, hidden=hidden, layers=layers, dropout=dropout)
         dims = [n_in] + [hidden] * layers
         blocks = []
         for a, b in zip(dims[:-1], dims[1:]):
             blocks += [nn.Linear(a, b), nn.ReLU()]
+            # Only added when used, so models without dropout keep the same layers (older checkpoints still load);
+            # dropout is only active in training mode (model.train()), never in predict
+            if dropout > 0:
+                blocks.append(nn.Dropout(dropout))
         blocks.append(nn.Linear(dims[-1], n_out))
         self.net = nn.Sequential(*blocks)
         # Buffers are saved with the weights but are not trained

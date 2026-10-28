@@ -83,6 +83,11 @@ def quick_test_ids(test_ids, n=50, seed=0):
     return sorted(int(i) for i in rng.choice(test_ids, size=min(n, len(test_ids)), replace=False))
 
 
+def quick_val_ids(val_ids, n=20, seed=0):
+    """Fixed subset of the validation episodes for tune.py's closed-loop check (tuning never uses test episodes)."""
+    return quick_test_ids(val_ids, n, seed)
+
+
 if __name__ == "__main__":
     # Quick check: split sizes and the shapes of a few training episodes
     train_ids, val_ids, test_ids = split_episodes("data_main")

@@ -545,8 +545,18 @@ on a saved episode: moving and rotating the whole scene (base, EE, target togeth
      early stopping in the report). Add a patience (stop after N epochs without improvement) to save time.
    - Print the training loss averaged over the epoch (now the last batch only), so the train/val gap shows
      over- or underfitting.
+   - **Done (28 Oct, Matteo, for `tune.py`; Kris hadn't started step 11):** early stopping with `--patience`
+     (default 10) and `--max-epochs` (default 100) replaces the fixed 20 epochs; the `epochs` column now records
+     where training stopped. Training loss averaged over the epoch, seconds per epoch in the printout, `--seed`
+     (default 0) and `--threads`. Still open from step 11: bigger batches / faster training (batch is in the
+     tuning space instead).
 
 **Feature checks from the preprocessing slides** (small, on `make_features`):
+**Decided (28 Oct): do these now (Matteo), before the split networks, then freeze the inputs.** Why: every model on
+every branch is trained on `make_features`' inputs, so each later change there forces everyone to retrain, re-tune
+and redo their results; settling them while the branches are just starting avoids that. **Outcome: the inputs stay
+the current 27 robot-frame inputs** (base velocity dropped, scaling left as it is, polar an ablation variant, 23);
+announce to the team that the inputs are fixed once `master` is merged.
 - Arm joints without limits (`has_limits` is false) can wrap: encode them as sin/cos, like the heading.
   **Done (28 Oct), as a safety measure:** all seven arm joint angles go in as sin/cos (27 inputs instead of 20).
   Only J1, J3, J5, J7 ("continuous" in the URDF) could wrap; J2, J4, J6 have limits, but sin/cos describes their
@@ -556,7 +566,16 @@ on a saved episode: moving and rotating the whole scene (base, EE, target togeth
   start pose is randomised (20) or a policy drifts. Checked: J1 + 2 pi gives identical inputs. `mlp_robotframe` has
   to be retrained after this change (its checkpoint expects 20 inputs).
 - Add the base velocity (linear + turn rate, from consecutive poses): not an input now, unlike the arm velocities.
+  **Decided (28 Oct): not added.** The expert's wheel commands don't depend on the base velocity (only on the pose,
+  the parking spot and its hidden phase), unlike the arm, whose PD law uses the joint velocities (so `qd` stays an
+  input). Its only value would be a hint about the hidden phase, and it is a known behaviour-cloning trap (the
+  "copycat" problem / causal confusion, de Haan et al. 2019, Wen et al. 2020): the velocity is almost exactly the
+  result of the previous wheel command, so the model can lower its loss by "keep doing what I'm doing", which looks
+  good offline (the validation loss improves) but stops it from switching phases in closed loop. The hidden phase
+  is addressed directly instead: "arrived" flag + split networks (15), temporal models (14).
 - Min-max instead of z-score scaling for bounded quantities (joint angles, +-30 N*m torques): quick comparison.
+  **Decided (28 Oct): not now.** For an MLP trained with Adam the difference is usually small and z-score is the
+  standard; the joint angles are already sin/cos (bounded). Possible later as an option once a model works.
 
 ### Hyperparameter tuning (for every model)
 Each model is tuned separately with sensible values before it is compared, so a model isn't judged on settings
@@ -576,11 +595,17 @@ validation targets if needed), never on the test set; then report the chosen set
 **Decided (28 Oct): a `tune.py` script, after the robot-frame inputs (6).** Not before: the best settings depend on
 the inputs, and every branch starts from the robot-frame baseline, so that's the model whose tuning matters (tuning
 the world-frame model can't fix its closed-loop failure: 0/150 at a good validation loss).
-- **Workflow for every model that gets reported:** develop with the default settings and quick checks
-  (`train.py`, `compare.py --test-set --quick`); when the model is ready, **first `tune.py`, then the full test set**
-  (`compare.py --test-set`) on the tuned model, so the reported numbers are always for tuned settings and every
-  reported model went through the same procedure. No `_tuned` names: the tuned model keeps the model's normal name
-  (e.g. `mlp_robotframe_s0`); `results/tuning/<model>/` keeps the search behind it.
+- **Workflow:** develop with `train.py`'s default settings and quick checks (`compare.py --test-set --quick`);
+  **only the final models are tuned** (the combined final model, and any model whose result the report depends on,
+  once they reach targets): **first `tune.py`, then the full test set** (`compare.py --test-set`) on the tuned model.
+  The other rows (baselines, branch ideas) are reported with the default settings. **Updated 28 Oct, after the first
+  tuning run** (see below): tuning every model costs ~1 h of CPU each and, while policies reach 0 targets, improved
+  only the validation loss, not closed loop (median final error 1.90 m tuned vs 0.86 m untuned); most of its offline
+  gain is cheap. So `train.py`'s defaults are now cheap development defaults from that run, the same for every
+  branch: **lr 3e-3, 256 x 3, batch 2048, early stopping (patience 10, up to 100 epochs)**, ~4 min per training, val
+  loss 0.00261 vs 0.00217 for the full search's winner. The time goes into the closed-loop failure modes instead
+  (split networks 15, gravity residual 12, temporal models 14). The tuned model keeps the model's normal name
+  (e.g. `<final>_s0`); `results/tuning/<model>_tuning.csv` keeps the search behind it.
 - Trains a batch of settings for one model and keeps the best; the report says the settings were "selected by
   `tune.py` on the validation set".
 - **Never uses the test episodes.** Ranked by validation loss (the validation episodes already used in training).
@@ -598,6 +623,86 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
   hyperparameters, only the seed differs), so the spread measures that one setting. Not done yet for the baselines.
   The baselines (`mlp_worldframe`, then the robot-frame one) also go into the report if there is space, to show the
   progression, **marked as single-seed in the table** (no seed repeats for them).
+
+**Done (28 Oct): `tune.py`**, `pixi run python tune.py --final <name>` (from `robotnik_arm_task/`). What it does:
+1. **Staged grid search** with `train.py --no-test` (no test evaluation during tuning), 4 trainings at a time
+   sharing the CPU. Related settings are tried together (all combinations within a stage), each stage starting from
+   the best setting so far (lowest validation loss); settings already trained are skipped (18 trainings; **since
+   trimmed to 14, see "Changes to `tune.py` after it" below**):
+
+   | Stage | Settings | Trainings |
+   |---|---|---|
+   | 1a optimiser | learning rate 3e-4 / 1e-3 / 3e-3 at batch 2048 | 3 |
+   | 1b batch | batch 4096 and 8192 with the best learning rate x sqrt(batch / 2048) | 2 |
+   | 2 size | hidden 128 / 256 / 512 x layers 2 / 3 / 4 | 8 new |
+   | 3 regularisation | weight decay 0 / 1e-4 x dropout 0 / 0.1 | 3 new |
+   | 4 lr re-check | the other two learning rates (scaled to the chosen batch) with the final size + regularisation | 2 |
+
+   Why staged and not the full grid (216 combinations, ~2-4.5 h per model) or a random sample: grouping settings
+   that interact (learning rate with batch, width with depth, weight decay with dropout) tests those interactions
+   fully, costs fewer runs than 24 random ones, and gives one small table per stage for the report. Batch is not
+   crossed with every learning rate: the learning rate is matched to it by the **square-root scaling rule**
+   (bigger batch -> fewer, more reliable steps -> higher learning rate; sqrt suits Adam), so a bigger batch mostly
+   changes speed. The weak point is greediness across stages (stage 1 picks the learning rate for the default
+   network), which stage 4 checks. The number of epochs is not tuned: early stopping (patience 10, at most 100)
+   ends each trial where its validation loss stops improving. Patience 10 rather than 5: safer for slowly improving
+   settings (e.g. the low learning rate), at the cost of a longer run.
+2. Ranks all trials by validation loss.
+3. Checks the best 3 in closed loop on 20 fixed **validation** episodes (`bc_data.quick_val_ids`), never test ones.
+4. Winner: most validation targets reached, then lowest median final error, then lowest validation loss.
+5. The winner's checkpoint becomes `checkpoints/<name>.pt` (copied, not retrained, so the final model is exactly the
+   one the closed-loop check chose) and its results `results/<name>.csv`, then `train.py --test-only` adds the
+   offline test columns. The trial checkpoints and results files (`<name>_t00` ... `_t23`) are deleted.
+6. Summary of all trials (settings, validation loss, best / stop epoch, training time, closed-loop numbers of the
+   top 3, which one was chosen): `results/tuning/<name>_tuning.csv`. `results.py` doesn't read that subfolder, so
+   only the final model is in the combined table. The full test set is run separately afterwards
+   (`compare.py --test-set --model <name>`). Why in this shape: tuning runs in the normal folders keep things
+   simple (no extra folder options), and deleting them at the end keeps `results/` to the models that matter.
+   Smoke-tested (staged search, 1 epoch per trial, 2 validation episodes): all 5 stages ran, 18 trainings, the
+   duplicates skipped, and it left exactly the final model and the summary (with a `stage` column). Time for a full
+   run: ~20-40 min.
+- **Loss and activation: later, as a separate test, once a model actually works** (not a `tune.py` stage, no
+  options added now). Then 4 full trainings, MSE / Huber x ReLU / SiLU, with the tuned settings. Why separate: they
+  are design choices for the method (fixed for all models so their numbers stay comparable), not per-model settings;
+  and why later: while every policy still reaches 0 targets, small differences can't be judged in closed loop.
+  **Compare them on the same measure** (offline test RMSE in real units and closed loop), never on `best_val_loss`:
+  a Huber run's validation loss is a Huber loss, not on the same scale as MSE. For an RNN (14) only the loss result
+  carries over; LSTM/GRU have their own built-in gate activations.
+- First use: `tune.py --final mlp_robotframe_tuned`, so the untuned `mlp_robotframe` stays as its own row (the
+  progression: world frame -> robot frame -> tuned robot frame).
+
+**First tuning run (28 Oct), `mlp_robotframe_tuned`** (the 18-training version described above; summary in
+`results/tuning/mlp_robotframe_tuned_tuning.csv`). Took **65 min** wall time (137 min of training, 4 at a time):
+- Stage results: lr 3e-3 best at the default size; batches 4096 / 8192 (lr scaled) both worse than 2048; size
+  512 x 3 best (512 x 4 stopped at epoch 11, unstable at lr 3e-3); **dropout 0.1 much worse** (val 0.0058-0.0063 vs
+  0.0024); weight decay 1e-4 neutral; the lr re-check (stage 4) moved the learning rate down to 3e-4 / 1e-3 for the
+  bigger network, exactly the greediness it was there to catch.
+- Chosen: lr 3e-4, 512 x 3, batch 2048, no regularisation: val 0.00217 (untuned `mlp_robotframe`: 0.00377), test
+  RMSE wheels 0.058 rad/s (0.083), torques 0.098 N*m (0.116); 545 k parameters, inference 0.11 ms.
+- **Most of the gain came from early stopping, not the settings:** the defaults trained with early stopping (44
+  epochs instead of 20) already reach val 0.00279, ~60% of the improvement.
+- **Closed loop got worse, not better:** full test set 0/150 for both, final error median **1.90 m** tuned vs
+  **0.86 m** untuned (base near the parking spot in 71/150 runs, closest EE approach median 16 cm). A lower
+  validation loss does not mean better closed-loop behaviour (the offline vs closed-loop gap again, a report point).
+  So while every policy is at 0%, tuning on validation loss can't be trusted to improve what matters; tune the
+  models that go into the report, and judge them in closed loop.
+- **Chosen model was the slowest for a noise-level difference:** t16 (lr 3e-4, 23.3 min, hit the 100-epoch cap at
+  epoch 98, not converged) beat t17 (lr 1e-3, 14.1 min, converged at epoch 58) on validation loss by 0.5% (0.00217
+  vs 0.00218), and on the closed-loop tie-break by median final error 2.05 vs 2.95 m with both at 0/20 reached, which
+  at 0% mostly reflects where the policy wandered.
+
+**Changes to `tune.py` after it (28 Oct):**
+- **(a) Time in the selection:** trials within **2%** of the best validation loss count as equally good (the
+  shortlist, at most `--top`); after the closed-loop check the winner is the one with most validation targets
+  reached, then the **fastest to train** (no longer the median final error, which is noise at 0%). Why: a 0.5%
+  validation difference isn't worth 65% more training time, and the cheaper setting is easier to repeat for seeds.
+  On the first run this would have chosen t17 (lr 1e-3, 14 min) instead of t16. `mlp_robotframe_tuned` is kept as
+  chosen by the old rule (t16) and not re-tuned: both reach 0 targets, so it makes no practical difference, and
+  only final models are tuned from now on.
+- **(b) Search kept at 18 trainings:** dropout and the bigger batches were worse in the first run, but they stay in
+  the search: only 4 extra trainings, and they may matter once a model works (e.g. dropout against overfitting with a
+  bigger network or more data). Smoke-tested with the new selection rule: all 5 stages, 18 trainings, shortlist and
+  winner as intended.
 
 ### Branches: model ideas (rough order)
 12. **Gravity-residual torques:** learn torque minus the gravity torque, add it back at run time (aimed at low targets).

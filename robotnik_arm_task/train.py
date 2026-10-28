@@ -8,8 +8,10 @@ Usage (from the robotnik_arm_task folder):
     pixi run python train.py --model mlp_robotframe # checkpoints/mlp_robotframe.pt + results/mlp_robotframe.csv
     pixi run python train.py --no-test             # train only
     pixi run python train.py --test-only           # test the saved checkpoint, no training (checkpoint is not changed)
+    pixi run python train.py --model X --lr 3e-3 --hidden 512 --dropout 0.1   # other settings (tune.py uses these)
 
 Results go to results/<model>.csv (see results.py): training columns after training, test columns after testing.
+Training stops early once the validation loss hasn't improved for --patience epochs (at most --max-epochs).
 """
 import os
 os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")   # torch + numpy each ship an OpenMP runtime on Windows
@@ -29,9 +31,13 @@ from results import SIM_COLUMNS, update_results
 # Paths are relative to this file, so the script works from any working directory
 SCRIPT_DIR = Path(__file__).resolve().parent
 DATA_DIR = SCRIPT_DIR / "data_main"
-EPOCHS = 20
+# Defaults of the training settings (all can be changed with options, see --help): cheap development defaults from
+# the first tuning run (~4 min; lr 3e-3 with the 256 x 3 network got most of the tuning gain, PLAN.md). Models that
+# go into the report are tuned with tune.py.
+MAX_EPOCHS = 100
+PATIENCE = 10
 BATCH = 2048
-LR = 1e-3
+LR = 3e-3
 # Uniform subsample of the training and validation frames (every 10th) until adaptive subsampling exists (PLAN.md
 # step 7). The test RMSE always uses every frame.
 FRAME_STEP = 10
@@ -43,12 +49,25 @@ parser.add_argument("--no-test", action="store_true", help="skip the evaluation 
 parser.add_argument("--test-only", action="store_true", help="skip training and only evaluate the saved checkpoint")
 parser.add_argument("--model", default="mlp_baseline",
                     help="model name: checkpoints/<model>.pt and results/<model>.csv (put the seed in it, e.g. _s0)")
+parser.add_argument("--lr", type=float, default=LR, help="learning rate")
+parser.add_argument("--batch", type=int, default=BATCH, help="batch size")
+parser.add_argument("--hidden", type=int, default=256, help="units per hidden layer")
+parser.add_argument("--layers", type=int, default=3, help="number of hidden layers")
+parser.add_argument("--weight-decay", type=float, default=0.0, help="L2 weight decay (AdamW)")
+parser.add_argument("--dropout", type=float, default=0.0, help="dropout after each hidden layer")
+parser.add_argument("--max-epochs", type=int, default=MAX_EPOCHS, help="upper limit on the number of epochs")
+parser.add_argument("--patience", type=int, default=PATIENCE,
+                    help="stop once the validation loss hasn't improved for this many epochs (early stopping)")
+parser.add_argument("--seed", type=int, default=0, help="training seed (weights, batch order); put it in --model too")
+parser.add_argument("--threads", type=int, help="torch CPU threads (several runs at once share the cores)")
 args = parser.parse_args()
 if args.no_test and args.test_only:
     parser.error("--no-test and --test-only together would do nothing")
 CHECKPOINT = SCRIPT_DIR / "checkpoints" / f"{args.model}.pt"
+if args.threads:
+    torch.set_num_threads(args.threads)
 
-torch.manual_seed(0)
+torch.manual_seed(args.seed)
 train_ids, val_ids, test_ids = split_episodes(DATA_DIR)
 
 if not args.test_only:
@@ -56,7 +75,7 @@ if not args.test_only:
     x_va, y_va = load_episodes(DATA_DIR, val_ids, every=FRAME_STEP)
     print(f"train frames {len(x_tr)}, val frames {len(x_va)} (every {FRAME_STEP}th frame)")
 
-    model = MLP(x_tr.shape[1], y_tr.shape[1])
+    model = MLP(x_tr.shape[1], y_tr.shape[1], hidden=args.hidden, layers=args.layers, dropout=args.dropout)
     model.set_normalisation(x_tr, y_tr)
 
     # Normalise once up front, so the training loop only indexes tensors
@@ -65,37 +84,48 @@ if not args.test_only:
     xv = (torch.from_numpy(x_va) - model.x_mean) / model.x_std
     yv = (torch.from_numpy(y_va) - model.y_mean) / model.y_std
 
-    opt = torch.optim.Adam(model.parameters(), lr=LR)
+    # AdamW: Adam with decoupled weight decay; with weight_decay 0 it is the same as Adam
+    opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     loss_fn = nn.MSELoss()
-    CHECKPOINT.parent.mkdir(exist_ok=True)
+    CHECKPOINT.parent.mkdir(parents=True, exist_ok=True)
     best_val, best_epoch = float("inf"), 0
 
     start = time.perf_counter()
-    for epoch in range(EPOCHS):
+    for epoch in range(1, args.max_epochs + 1):
+        epoch_start = time.perf_counter()
         model.train()
         perm = torch.randperm(len(xt))
-        for i in range(0, len(xt), BATCH):
-            idx = perm[i:i + BATCH]
+        loss_sum = 0.0
+        for i in range(0, len(xt), args.batch):
+            idx = perm[i:i + args.batch]
             loss = loss_fn(model(xt[idx]), yt[idx])
             opt.zero_grad()
             loss.backward()
             opt.step()
+            loss_sum += loss.item() * len(idx)
 
         model.eval()
         with torch.no_grad():
             val_loss = loss_fn(model(xv), yv).item()
-        print(f"epoch {epoch + 1:2d}  train {loss.item():.4f}  val {val_loss:.4f}")
+        # Training loss averaged over the epoch (not the last batch), so the train/val gap shows over-/underfitting
+        print(f"epoch {epoch:3d}  train {loss_sum / len(xt):.4f}  val {val_loss:.4f}  "
+              f"({time.perf_counter() - epoch_start:.1f} s)")
         if val_loss < best_val:
-            best_val, best_epoch = val_loss, epoch + 1
+            best_val, best_epoch = val_loss, epoch
             save_model(model, CHECKPOINT)
             print(f"   saved {CHECKPOINT}")
+        elif epoch - best_epoch >= args.patience:
+            print(f"   no improvement for {args.patience} epochs: stopping (best epoch {best_epoch})")
+            break
     train_time = time.perf_counter() - start
 
     # New weights: the old test and simulation results no longer apply, so they are emptied ("not measured")
+    # epochs = epochs actually run (where early stopping ended)
     update_results(
-        args.model, train_episodes=len(train_ids), epochs=EPOCHS, batch=BATCH, lr=LR,
-        hidden=model.config["hidden"], layers=model.config["layers"], best_val_loss=best_val, best_epoch=best_epoch,
+        args.model, train_episodes=len(train_ids), epochs=epoch, batch=args.batch, lr=args.lr,
+        hidden=args.hidden, layers=args.layers, best_val_loss=best_val, best_epoch=best_epoch,
         train_time_s=train_time, parameters=sum(p.numel() for p in model.parameters()), frame_step=FRAME_STEP,
+        weight_decay=args.weight_decay, dropout=args.dropout, max_epochs=args.max_epochs, patience=args.patience,
         inference_ms=None, test_wheel_rmse=None, test_torque_rmse=None, **{c: None for c in SIM_COLUMNS},
     )
 elif not CHECKPOINT.exists():
