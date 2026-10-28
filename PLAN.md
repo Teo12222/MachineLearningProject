@@ -235,7 +235,7 @@ Then **retrain the baseline** with robot-frame inputs (on the recollected data);
    switches but sparsely while driving straight; the arm data sampled densely while it moves (reach) and lightly
    while it holds; a small floor rate everywhere (never zero). Per episode, keeping frame indices so past-frame
    windows stay possible. Compare against uniform subsampling.
-   - **Done (Kris, 28 Oct, not pushed yet). Still to run: the comparison against uniform.**
+   - **Done (Kris, 28 Oct, pushed 28 Oct). Still to run: the comparison against uniform.**
    - `afafe7a` (`bc_data.py`): `subsample_indices(wheel_cmds, torque_arm, keep_frac, mode, floor=0.3, smooth=50, seed)`
      returns the sorted frame indices to keep from one episode (indices, not copies, so the temporal models (14) can
      still look up past frames in the full episode).
@@ -258,7 +258,7 @@ Then **retrain the baseline** with robot-frame inputs (on the recollected data);
      still uses every frame. Checked: 2-epoch runs in all three modes work end to end, ~6 s instead of ~29 s.
 8. **Episode cleaning:** trim the idle tail (unless step 2 removes it), filter failed episodes, sanity checks
    (NaNs, torques at the +-30 N*m limit).
-   - **Done (Kris, 28 Oct, not pushed yet).** No tail trimming: expert fix 2 ends episodes on reaching (on `data_pilot`
+   - **Done (Kris, 28 Oct, pushed 28 Oct).** No tail trimming: expert fix 2 ends episodes on reaching (on `data_pilot`
      the tail is 2% of all frames: 54 episodes > 0.1 s, up to 3.85 s).
    - `d308f75` (`bc_data.py`): `check_episode(d)` lists what makes an episode unusable: not reached (stop message),
      final error above 1 cm, arrays of different lengths, NaN/inf, shorter than 1 s. `clean_ids(data_dir, ids)` keeps
@@ -281,7 +281,7 @@ Then **retrain the baseline** with robot-frame inputs (on the recollected data);
    on each. Note: the simulator is noise-free, so we expect little difference on clean data; it becomes more
    relevant once sensor noise is added (robustness tests).
 10. **`decode_outputs()` helper** in `bc_data.py`, so the policy script doesn't change when the output format does.
-    - **Done (Kris, 27 Oct, not pushed yet).**
+    - **Done (Kris, 27 Oct, pushed 28 Oct).**
     - `96f3ca3` (`bc_data.py`, `robotnik_arm_policy_task.py`, `train.py`): `decode_outputs(y)` returns
       `(wheel_cmds[4], torque_arm[7])` from the model output, the inverse of `make_labels`, for one frame or a whole
       episode. A new output format (e.g. `(v, w)`, 13) only changes `make_labels` and `decode_outputs`. The policy
