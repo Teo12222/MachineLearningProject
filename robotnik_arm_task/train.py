@@ -5,7 +5,7 @@ and plotted (figures saved next to the checkpoint). Skip this with --no-test.
 
 Usage (from the robotnik_arm_task folder):
     pixi run python train.py                       # train, then test (model mlp_baseline)
-    pixi run python train.py --model mlp_worldframe # checkpoints/mlp_worldframe.pt + results/mlp_worldframe.csv
+    pixi run python train.py --model mlp_robotframe # checkpoints/mlp_robotframe.pt + results/mlp_robotframe.csv
     pixi run python train.py --no-test             # train only
     pixi run python train.py --test-only           # test the saved checkpoint, no training (checkpoint is not changed)
 

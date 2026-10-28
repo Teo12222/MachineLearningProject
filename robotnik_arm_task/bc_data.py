@@ -7,18 +7,31 @@ import numpy as np
 from pathlib import Path
 
 
-def make_features(base_pos, base_bearing, q_arm, qd_arm, target):
-    """Model input. Works for one frame (1-D arrays) or a whole episode (one row per frame)."""
+def to_base_frame(v_xy, base_bearing):
+    """Horizontal world-frame vectors (..., 2) expressed in the base's frame (x forward, y left)."""
+    c, s = np.cos(base_bearing), np.sin(base_bearing)
+    return np.stack([c * v_xy[..., 0] + s * v_xy[..., 1], -s * v_xy[..., 0] + c * v_xy[..., 1]], axis=-1)
+
+
+def make_features(base_pos, base_bearing, q_arm, qd_arm, target, ee_pos):
+    """Model input in the robot's frame (PLAN.md step 6). Works for one frame (1-D arrays) or a whole episode.
+
+    No absolute base pose, so the same situation gives the same inputs wherever the cart is.
+    """
     base_bearing = np.asarray(base_bearing)
+    target = np.broadcast_to(target, base_pos.shape)           # one target, copied to every frame
     return np.concatenate([
-        base_pos,                                  # base x, y, z            (3)
-        base_bearing[..., None],                   # heading in radians      (1)
-        np.sin(base_bearing)[..., None],           # heading as sin/cos, no jump at +-pi (2)
-        np.cos(base_bearing)[..., None],
-        q_arm,                                     # arm joint angles        (7)
+        to_base_frame(target[..., :2] - base_pos[..., :2], base_bearing),   # target forward, left of the base (2)
+        target[..., 2:3],                          # target height: the floor is flat, so it means the same anywhere (1)
+        to_base_frame(target[..., :2] - ee_pos[..., :2], base_bearing),     # target relative to the EE, base frame (2)
+        target[..., 2:3] - ee_pos[..., 2:3],       # ... and its height above the EE (1)
+        # Arm joint angles as sin/cos: J1, J3, J5, J7 have no limits and could wrap past +-pi (in data_main they stay
+        # within +-0.7 rad, so this is for safety, e.g. randomised arm start poses, PLAN.md step 20); all seven for
+        # simplicity                                                                        (14)
+        np.sin(q_arm),
+        np.cos(q_arm),
         qd_arm,                                    # arm joint velocities    (7)
-        np.broadcast_to(target, base_pos.shape),   # target, copied to every frame (3)
-    ], axis=-1).astype(np.float32)
+    ], axis=-1).astype(np.float32)                 # 27 inputs
 
 
 def make_labels(wheel_cmds, torque_arm):
@@ -29,7 +42,8 @@ def make_labels(wheel_cmds, torque_arm):
 def load_episode(path):
     """Inputs and labels for every frame of one saved episode."""
     d = np.load(path)
-    x = make_features(d["base_pos"], d["base_bearing"], d["q_mes"][:, 4:11], d["qd_mes"][:, 4:11], d["target"])
+    x = make_features(d["base_pos"], d["base_bearing"], d["q_mes"][:, 4:11], d["qd_mes"][:, 4:11], d["target"],
+                      d["ee_pos"])
     y = make_labels(d["wheel_cmds"], d["torque_arm"])
     return x, y
 

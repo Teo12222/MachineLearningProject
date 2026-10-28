@@ -183,10 +183,10 @@ def main():
         # ----------------------------------------------------------------------
         # 1 + 2. Learned policy: wheel velocities and arm torques from the measurements and the target
         # ----------------------------------------------------------------------
-        # TODO: run the model on (base_pos, base_bearing, q_mes[4:11], qd_mes[4:11], TARGET_EE_POS)
-        x = make_features(base_pos, base_bearing, q_mes[4:11], qd_mes[4:11], TARGET_EE_POS)
+        x = make_features(base_pos, base_bearing, q_mes[4:11], qd_mes[4:11], TARGET_EE_POS, ee_pos)
         y = model.predict(x)
-        wheel_cmds = y[:4]
+        # Safety clips to the expert's own ranges (PLAN.md, "Parked"), so one extreme output can't fling the robot away
+        wheel_cmds = np.clip(y[:4], -3.0, 3.0)      # rad/s, the expert's largest command (turning in place at 1 rad/s)
         torque_arm = np.clip(y[4:11], -30.0, 30.0)  # same torque limit the expert uses
 
         # ----------------------------------------------------------------------

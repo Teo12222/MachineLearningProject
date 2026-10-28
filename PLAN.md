@@ -401,6 +401,52 @@ reference row: the first results recorded, on the same data as every later model
 
 Then **retrain the baseline** with robot-frame inputs (on the recollected data); all branches start from this.
 
+**Done (28 Oct): robot-frame inputs, Cartesian only, replacing the world-frame ones** (`bc_data.make_features`,
+27 inputs): target forward/left of the base in the base's frame (2), target height (1), target relative to the end
+effector in the base's frame (3), arm joint angles as sin/cos (14, see "Feature checks") and velocities (7). No absolute base position or heading.
+`make_features` now also takes `ee_pos` (saved in every episode, computed every step in the policy script). Checked
+on a saved episode: moving and rotating the whole scene (base, EE, target together) changes the inputs by at most
+1.3e-7 (float32 rounding). Decisions and why:
+- **World-frame inputs removed, not kept as an option:** `mlp_worldframe`'s results are recorded (0/150 in closed
+  loop) and go into the report as they are; running it again from other start poses (24) could only show 0% again,
+  and "without robot-frame inputs" in the ablation (23) is that same recorded row. The world-frame code is in git
+  history (before this change) if ever needed. Consequence: `checkpoints/mlp_worldframe.pt` (and the old
+  `mlp_baseline.pt`, 23 inputs) can no longer be run by the policy script; their recorded results stay valid.
+- **Polar not built now, only Cartesian:** comparing them on a baseline that may still fail in closed loop is weak
+  evidence, and the winner could change once the model works. Polar (distance + bearing error as sin/cos + height)
+  becomes one of the ablation variants (23) on the combined final model, where the choice is measured properly.
+- **No parking-spot feature (yet):** the expert steers to a spot on the start-to-target line, which the model can't
+  see after the base has moved; but while driving the base is roughly on that line anyway, and the feature would
+  need the start pose remembered in the policy and builds the expert's design into the model. Try it only if the
+  robot-frame models struggle while driving.
+- Fits the camera extension: an estimated target (seen once at t = 0, turned into a world position with the base
+  pose at t = 0) simply replaces `TARGET_EE_POS`; `make_features` turns it into robot-frame inputs every step.
+
+**Result and diagnosis (28 Oct), `mlp_robotframe`** (27 inputs, batch 2048, otherwise the same settings as
+`mlp_worldframe`):
+- Offline it is the best so far: validation loss 0.0089 (world frame 0.0095), test RMSE wheels 0.086 rad/s (0.094),
+  torques 0.209 N*m (0.221). Expected to be close: from the origin both input sets hold the same information; robot
+  frame matters in closed loop and from other start poses.
+- Closed loop (quick subset, with the wheel clip): **0/50**, every run at the 30 s cap, final error 1.05-8.6 m
+  (mean 5.1 m; before the clip, mean 222 m). Closest approach to the parking spot: median 0.76 m at ~5 s; a wheel is
+  at the clip in ~65% of frames and the base turns ~610 deg in total (the expert at most ~180 deg).
+- **How it fails** (episode 558 watched in the GUI and compared frame by frame with the expert): the first ~3 s match
+  the expert almost exactly (turn in place, same heading to 0.05 rad; on the expert's own states the model gives
+  wheels 2.98 / -3.08 vs 3.0 / -3.0, torques within 0.18 N*m). Then (1) **the turn -> drive switch comes late**
+  (expert drives at 2.93 s; at 3.0 s the policy commands 0.04 vs 0.25 m/s): the hidden-phase problem, the model
+  can't see the expert's decision; and (2) **the arm slowly sags** away from its holding pose (largest joint
+  deviation 0.128 rad at 6 s vs the expert's 0.051, which never exceeds 0.06 while driving) until it loses
+  control. Once the arm is in a pose never seen in training, all inputs are unfamiliar, so the wheel commands (same
+  network) go wrong too and the base slows and backs off.
+- **Why the arm sags:** holding it still takes large torques that are mostly gravity (J2 ~18-20 N*m); a torque
+  error of a few tenths of a N*m (test RMSE ~0.2) is enough to let it drift, and the data never shows a drifted arm
+  to learn the correction from.
+- **What follows (priorities):** (a) **gravity-residual torques (12, Jamie) first**: gravity computed exactly by
+  Pinocchio for the actual pose, the network only learns the small remainder, so the arm can't sag from missed
+  gravity; (b) **split base / arm networks + "arrived" flag (15, Matteo)**: arm mistakes no longer feed the wheel
+  commands, and the flag addresses the late turn -> drive switch, as do temporal inputs (14, Kris); (c) tuning
+  (`tune.py`) still worth doing, but a better validation loss alone won't fix these closed-loop failures.
+
 ### Master: shared improvements
 7. **Adaptive subsampling** (after the split): the base/wheel data sampled densely at the start and at phase
    switches but sparsely while driving straight; the arm data sampled densely while it moves (reach) and lightly
@@ -427,6 +473,13 @@ Then **retrain the baseline** with robot-frame inputs (on the recollected data);
 
 **Feature checks from the preprocessing slides** (small, on `make_features`):
 - Arm joints without limits (`has_limits` is false) can wrap: encode them as sin/cos, like the heading.
+  **Done (28 Oct), as a safety measure:** all seven arm joint angles go in as sin/cos (27 inputs instead of 20).
+  Only J1, J3, J5, J7 ("continuous" in the URDF) could wrap; J2, J4, J6 have limits, but sin/cos describes their
+  angles just as well, and doing all seven keeps the code simple (no joint lists). Checked first: over all 12.1 M
+  frames of `data_main` the limitless joints stay within -0.67..+0.52 rad (J7 within +-0.02), nowhere near +-pi, so
+  nothing wraps in the current data. Kept anyway because it is cheap and protects against wrapping once the arm
+  start pose is randomised (20) or a policy drifts. Checked: J1 + 2 pi gives identical inputs. `mlp_robotframe` has
+  to be retrained after this change (its checkpoint expects 20 inputs).
 - Add the base velocity (linear + turn rate, from consecutive poses): not an input now, unlike the arm velocities.
 - Min-max instead of z-score scaling for bounded quantities (joint angles, +-30 N*m torques): quick comparison.
 
@@ -562,7 +615,19 @@ time per prediction, since the policy must answer every 1 ms; like the single-fr
 frames unless stacked frames are given as inputs.
 
 ### Parked (only if needed)
-- Wheel-command safety clip in the policy script.
+- Wheel-command safety clip in the policy script. **Done (28 Oct):** `np.clip(y[:4], -3.0, 3.0)` in
+  `robotnik_arm_policy_task.py`, next to the existing +-30 N*m torque clip. 3.0 rad/s is the expert's largest wheel
+  command over all of `data_main` (turning in place at its 1 rad/s limit). Why: the first robot-frame quick test
+  (0/50) showed the base getting near its parking spot (median 0.33 m, 15 of 50 within 15 cm, best EE error 2.1 cm),
+  then the wheel outputs exploding in unfamiliar states (median max ~1,700 rad/s) and flinging the robot ~47 m, so
+  final errors measured how far it flew, not how close it got. Part of the policy script, not the model: training
+  and offline test errors are unchanged, no retraining needed, and it applies equally to every model. It doesn't fix
+  the drift into unfamiliar states (compounding error), only stops one extreme output from ending the run. All
+  closed-loop results from here on use both clips; say so in the report.
+  **Alternative considered, maybe later:** bound the outputs inside the model (`limit * tanh(...)` instead of the
+  linear output layer; a sigmoid rescaled to +-limit is the same curve). Changes training and every model, and
+  frames at the expert's limit (turns in place, saturated torques) learn slowly near the bound unless the limit
+  has a margin (e.g. 10%). Reconsider as a model experiment, judged on validation + closed loop.
 - `--expert-only` option for `compare.py`.
 - Silence the expert's output in `compare.py`'s parallel run.
 - Switch OpenBLAS to its pthreads build to drop the OpenMP workaround.
