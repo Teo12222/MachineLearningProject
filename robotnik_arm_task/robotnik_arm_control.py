@@ -110,36 +110,40 @@ def arm_controller(dyn_model, q_pin, q_arm, qd_arm, q_des_arm, q_hold_arm, targe
 
 @dataclass
 class StopCriteria:
-    """Thresholds and running state for the simulation stop conditions."""
+    """Thresholds and running state for the simulation stop conditions.
+
+    Episodes end the moment the target is reached (no minimum time): frames of the expert idling at the
+    target add nothing useful to the training data, and the policy is judged by the same rule, so expert
+    and policy runs end consistently. See PLAN.md, step 0, fixes 1-3.
+    """
     reach_tolerance: float                     # m
-    max_steps: int                             # 0 disables the step cap
-    min_time: float = 8.0                      # s before reached / stalled can trigger
-    stall_window: float = 3.0                  # s without meaningful improvement of the EE error
+    max_time: float                            # s, simulated time cap; 0 disables it
+    stall_window: float = 2.0                  # s without meaningful improvement of the EE error; 0 disables it
     stall_improvement: float = 0.002           # m
     best_ee_error: float = np.inf
     best_ee_error_time: float = 0.0
 
 
-def check_stop(criteria, current_time, time_step, ee_dist_error, base_navigation_done):
+def check_stop(criteria, current_time, ee_dist_error, base_navigation_done):
     """Evaluate the stop conditions for the current step.
 
     Returns a message describing why the simulation should stop, or None to continue.
-    Stall tracking only runs once the base navigation is done (the arm is reaching).
+    Checked in order: reached (wins over everything), time cap, stall. Reached and stall only
+    count once the base navigation is done (the arm is reaching).
     """
-    if criteria.max_steps and current_time / time_step >= criteria.max_steps:
-        return f"Reached step cap {criteria.max_steps} at t={current_time:.2f}s"
+    if base_navigation_done and ee_dist_error < criteria.reach_tolerance:
+        return f"Target reached within {criteria.reach_tolerance*1000:.0f}mm tolerance at t={current_time:.2f}s!"
 
-    if base_navigation_done:
+    if criteria.max_time and current_time >= criteria.max_time:
+        return f"Reached time cap {criteria.max_time:.1f}s at t={current_time:.2f}s"
+
+    if base_navigation_done and criteria.stall_window:
         if ee_dist_error < criteria.best_ee_error - criteria.stall_improvement:
             criteria.best_ee_error = ee_dist_error
             criteria.best_ee_error_time = current_time
-        elif (current_time - criteria.best_ee_error_time > criteria.stall_window
-              and current_time > criteria.min_time):
+        elif current_time - criteria.best_ee_error_time > criteria.stall_window:
             return (f"Target not reachable: closest pose reached at t={current_time:.2f}s "
                     f"(best EE error {criteria.best_ee_error:.4f} m, current {ee_dist_error:.4f} m)")
-
-    if base_navigation_done and ee_dist_error < criteria.reach_tolerance and current_time > criteria.min_time:
-        return f"Target reached within {criteria.reach_tolerance*1000:.0f}mm tolerance at t={current_time:.2f}s!"
     return None
 
 

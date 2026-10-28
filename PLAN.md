@@ -110,6 +110,19 @@ for their own work as they go.
      runs take 8-15.7 s (median 10.8 s, with the 8 s minimum), so e.g. **30 s** (about 2x the longest) is generous;
      anything not reached by then counts as a failure. It also replaces the 40,000-step cap (40 s) for policy runs,
      so a failing policy no longer runs for long.
+
+   **Done (27 Oct), fixes 1-3:** `check_stop` checks reached -> time cap -> stall; no `min_time`; the step cap is now a
+   time cap (`ROBOENV_MAX_TIME`: expert 40 s, policy 30 s); expert stall window 2 s, policy no stall check; outcome
+   label `step_cap` renamed `time_cap`. Why: (a) **consistency**: a run is a success by one rule (within 1 cm), for
+   the expert and the policy alike, so a reached run can no longer be labelled stalled, and success rates of the
+   expert and every model are measured the same way; (b) **no useless training data**: frames of the expert sitting
+   idle at the target (up to the old 8 s minimum) taught the model nothing about reaching but made up part of every
+   short episode. Side effect: episodes end while the arm is still moving (no "settled at the target" frames).
+   Why a time cap instead of the step cap: the limits are decided in seconds (30 s = ~2x the longest expert run), and
+   a step count would silently change meaning if the simulation time step changed. `ROBOENV_MAX_STEPS` is no longer
+   read (the old line is left commented out in both task scripts); use `ROBOENV_MAX_TIME` (seconds) instead.
+   The outcome label in `compare.py` / `run_batch.py` follows the new stop message (`time_cap`); old "Reached step
+   cap" messages (e.g. in `data_pilot`) map to `time_cap` too, so old and new episode files read the same way.
 4. **Make the code work from any start pose** (we assume the final tests may start the cart away from (0, 0)
    and/or rotated). Now we only make it *possible*; all training and testing stays at the (0, 0, 0) start until
    the final evaluation (step 24), where other start poses are tested.

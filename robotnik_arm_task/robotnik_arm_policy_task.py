@@ -3,9 +3,11 @@ os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")   # torch + numpy each shi
 import numpy as np
 import time
 
-# Headless mode and step cap for CI / direct runs
+# Headless mode and simulated time cap (s) for CI / direct runs. 30 s is about 2x the longest expert
+# run: anything not reached by then counts as a failure.
 headless = os.environ.get("ROBOENV_HEADLESS", "").strip().lower() in ("1", "true", "yes")
-max_steps = int(os.environ.get("ROBOENV_MAX_STEPS", "40000"))
+# max_steps = int(os.environ.get("ROBOENV_MAX_STEPS", "40000"))   # replaced by the time cap, see PLAN.md step 0
+max_time = float(os.environ.get("ROBOENV_MAX_TIME", "30"))
 out_path = os.environ.get("ROBOENV_OUT", "policy_episode.npz")
 
 import matplotlib
@@ -34,7 +36,7 @@ TARGET_EE_POS = np.array([float(v) for v in _target_str.split(",")])
 # Set to None to use initial configuration from config/URDF, or an array of 6 angles.
 FIXED_FINGER_ANGLES = np.array([0.1, 0.1, 0.1, 0.1, 0.1, 0.1])
 
-# Stop once the EE is this close to the target (m); max iterations set via ROBOENV_MAX_STEPS
+# Stop once the EE is this close to the target (m); time cap set via ROBOENV_MAX_TIME
 REACH_TOLERANCE = 0.01
 # ==============================================================================
 
@@ -126,8 +128,10 @@ def main():
     model = load_model(os.environ.get("ROBOENV_POLICY", os.path.join(cur_dir, "checkpoints", "mlp_baseline.pt")))
     torch.set_num_threads(1)   # one sample per step: extra threads only add overhead
 
-    # Stop conditions (step cap, target reached, unreachable-target stall), see StopCriteria
-    stop_criteria = StopCriteria(reach_tolerance=REACH_TOLERANCE, max_steps=max_steps)
+    # Stop conditions (target reached, time cap), see StopCriteria. No stall check: while the base turns in
+    # place the EE error can go well over 2 s without improving, so a stall rule could cut off a run that
+    # would have succeeded.
+    stop_criteria = StopCriteria(reach_tolerance=REACH_TOLERANCE, max_time=max_time, stall_window=0.0)
 
     # Command interface
     cmd = MotorCommands()
@@ -202,9 +206,9 @@ def main():
         if qKey in keys and keys[qKey] and sim.GetPyBulletClient().KEY_WAS_TRIGGERED:
             break
 
-        # Stop criteria: maximum steps, target reached within fine tolerance, or unreachable target
-        # The policy has no navigation phase, so reached / stall checks are always active (after min_time)
-        stop_message = check_stop(stop_criteria, current_time, time_step, ee_dist_error, True)
+        # Stop criteria: target reached within fine tolerance, or time cap
+        # The policy has no navigation phase, so the reached check is always active
+        stop_message = check_stop(stop_criteria, current_time, ee_dist_error, True)
         if stop_message:
             print(stop_message)
             break

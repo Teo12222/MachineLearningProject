@@ -2,9 +2,10 @@ import numpy as np
 import time
 import os
 
-# Headless mode and step cap for CI / direct runs
+# Headless mode and simulated time cap (s) for CI / direct runs
 headless = os.environ.get("ROBOENV_HEADLESS", "").strip().lower() in ("1", "true", "yes")
-max_steps = int(os.environ.get("ROBOENV_MAX_STEPS", "40000"))
+# max_steps = int(os.environ.get("ROBOENV_MAX_STEPS", "40000"))   # replaced by the time cap, see PLAN.md step 0
+max_time = float(os.environ.get("ROBOENV_MAX_TIME", "40"))
 out_path = os.environ.get("ROBOENV_OUT", "episode.npz")
 
 import matplotlib
@@ -42,8 +43,11 @@ ARM_REACH_LIMIT = 0.85
 # default for mid heights, smaller for high targets (far above the shoulder, which sits ~0.49 m high).
 STANDOFF_Z_POINTS = [0.1, 0.5, 1.1, 1.25]
 STANDOFF_POINTS = [0.80, 0.65, 0.65, 0.35]
-# Stop once the EE is this close to the target (m); max iterations set via ROBOENV_MAX_STEPS
+# Stop once the EE is this close to the target (m); time cap set via ROBOENV_MAX_TIME
 REACH_TOLERANCE = 0.01
+# Once the base has arrived, stop if the EE error has not improved for this long (s). The expert never
+# goes more than 1.75 s without improving on a successful run, so this only ends unreachable targets.
+STALL_WINDOW = 2.0
 # ==============================================================================
 
 
@@ -154,8 +158,8 @@ def main():
     qd_des_arm = np.zeros(7)
     arm_lower = np.array(lower_limits[4:11])
     arm_upper = np.array(upper_limits[4:11])
-    # Stop conditions (step cap, target reached, unreachable-target stall), see StopCriteria
-    stop_criteria = StopCriteria(reach_tolerance=REACH_TOLERANCE, max_steps=max_steps)
+    # Stop conditions (target reached, time cap, unreachable-target stall), see StopCriteria
+    stop_criteria = StopCriteria(reach_tolerance=REACH_TOLERANCE, max_time=max_time, stall_window=STALL_WINDOW)
 
     # Command interface
     cmd = MotorCommands()
@@ -241,8 +245,8 @@ def main():
         if qKey in keys and keys[qKey] and sim.GetPyBulletClient().KEY_WAS_TRIGGERED:
             break
 
-        # Stop criteria: maximum steps, target reached within fine tolerance, or unreachable target
-        stop_message = check_stop(stop_criteria, current_time, time_step, ee_dist_error, base_navigation_done)
+        # Stop criteria: target reached within fine tolerance, time cap, or unreachable target
+        stop_message = check_stop(stop_criteria, current_time, ee_dist_error, base_navigation_done)
         if stop_message:
             print(stop_message)
             break

@@ -30,7 +30,7 @@ from bc_data import split_episodes
 EXPERT_SCRIPT = "robotnik_arm_task.py"
 POLICY_SCRIPT = "robotnik_arm_policy_task.py"
 EXPERT_TIMEOUT = 180.0  # s, the headless expert takes a few seconds per episode
-POLICY_TIMEOUT = 300.0  # s, a failing policy can run until the 40000-step cap
+POLICY_TIMEOUT = 300.0  # s, wall time; a failing policy runs until its 30 s simulated time cap
 SUCCESS_TOLERANCE = 0.01  # m, the task scripts' REACH_TOLERANCE (shown as the success line in the test-set plot)
 
 
@@ -47,8 +47,8 @@ def outcome(data):
         return "reached"
     if message.startswith("Target not reachable"):
         return "stalled"
-    if message.startswith("Reached step cap"):
-        return "step_cap"
+    if message.startswith(("Reached time cap", "Reached step cap")):   # step cap: older episode files
+        return "time_cap"
     return "other"
 
 

@@ -52,8 +52,8 @@ def read_episode(row, out_file):
         row["outcome"] = "reached"
     elif message.startswith("Target not reachable"):
         row["outcome"] = "stalled"
-    elif message.startswith("Reached step cap"):
-        row["outcome"] = "step_cap"
+    elif message.startswith(("Reached time cap", "Reached step cap")):   # step cap: older episode files
+        row["outcome"] = "time_cap"
     else:
         row["outcome"] = "other"
 
