@@ -6,13 +6,18 @@ Usage (from the robotnik_arm_task folder, inside your roboenv environment):
     python compare.py --target 1.5,-0.8,0.6 --start 0.5,0.5,1.57   # both start from another base pose
     python compare.py --episode 292               # target + stored expert run of data_main/ep_0292.npz
     python compare.py --test-set                  # policy on every test episode's target, results table
+    python compare.py --test-set --model mlp_worldframe   # the policy loads checkpoints/mlp_worldframe.pt
+    python compare.py --test-set --quick          # fixed 50 of the test episodes, for quick checks (no results written)
 
 --target: the expert (robotnik_arm_task.py) runs headless while the policy (robotnik_arm_policy_task.py) runs in the
 PyBullet GUI so you can watch it. Press 'q' in the PyBullet window to end the policy run early.
 --episode: the expert is not rerun; its run is read from the saved episode file. The policy runs in the GUI.
 --test-set: the policy runs headless on the target of every test episode (same split as train.py), several at once,
 and is compared with the stored expert runs: per-episode table, averages and success rates, plus a plot of the
-final error per episode (saved as test_set_final_error.png).
+final error per episode (saved as test_set_final_error.png). Only this mode writes results: the sim_* columns of
+results/<model>.csv and results/expert.csv (the stored expert runs on the same test episodes).
+--quick (with --test-set): only a fixed subset of 50 test episodes (bc_data.quick_test_ids), for quick checks while
+developing; prints the same table and plot but never writes results, so quick checks never mix with reported numbers.
 If the policy has no model loaded or its run fails, only the expert is plotted.
 Episode files and the plots (.png) are written to --out-dir.
 """
@@ -26,7 +31,8 @@ from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 import matplotlib.pyplot as plt
 
-from bc_data import split_episodes
+from bc_data import quick_test_ids, split_episodes
+from results import update_results
 
 EXPERT_SCRIPT = "robotnik_arm_task.py"
 POLICY_SCRIPT = "robotnik_arm_policy_task.py"
@@ -140,11 +146,33 @@ def plot_runs(runs, target, out_dir):
     plt.show()
 
 
-def run_test_set(data_dir, out_dir, script_dir, workers):
-    """Run the policy headless on every test episode's target and compare it with the stored expert runs."""
+def record_sim_results(name, runs, n):
+    """sim_* columns of results/<name>.csv from the runs on the n test episodes (None = no result, counts as failed)."""
+    reached = [r for r in runs if r is not None and outcome(r) == "reached"]
+    errors = [float(r["final_error"]) for r in runs if r is not None]
+    update_results(
+        name, sim_success_rate=len(reached) / n,
+        sim_final_err_mean=np.mean(errors) if errors else None,
+        sim_final_err_median=np.median(errors) if errors else None,
+        # Episode length: time to reach + the fixed 1 s settle, the same offset for every model and the expert
+        sim_time_to_reach=np.mean([float(r["time"][-1]) for r in reached]) if reached else None,
+    )
+
+
+def run_test_set(data_dir, out_dir, script_dir, workers, model, quick=False):
+    """Run the policy headless on every test episode's target and compare it with the stored expert runs.
+
+    quick: only the fixed quick subset, and no results are written.
+    """
     _, _, test_ids = split_episodes(data_dir)
-    run_dir = out_dir / "test_set"
+    if quick:
+        test_ids = quick_test_ids(test_ids)
+    name = "test_set_quick" if quick else "test_set"   # separate folders, so a quick run never overwrites a full one
+    run_dir = out_dir / name
     run_dir.mkdir(parents=True, exist_ok=True)
+    # Episode files of an earlier run (possibly another model or split) would otherwise sit next to this run's
+    for old in run_dir.glob("ep_*.npz"):
+        old.unlink()
     experts = {i: load_npz(data_dir / f"ep_{i:04d}.npz") for i in test_ids}
 
     print(f"Running the policy headless on {len(test_ids)} test targets, {workers} at a time ...", flush=True)
@@ -160,7 +188,7 @@ def run_test_set(data_dir, out_dir, script_dir, workers):
 
     # Per-episode table, same layout as the test table of train.py. A missing policy result counts as a failure.
     pol_err, exp_err, pol_time, exp_time = [], [], [], []
-    print(f"\nTest set: {len(test_ids)} episodes, policy vs expert in simulation")
+    print(f"\nTest set{' (quick subset)' if quick else ''}: {len(test_ids)} episodes, policy vs expert in simulation")
     print(f"{'episode':>8} {'policy err (m)':>15} {'expert err (m)':>15} {'policy time (s)':>16} "
           f"{'expert time (s)':>16}  policy outcome")
     for i in test_ids:
@@ -180,6 +208,12 @@ def run_test_set(data_dir, out_dir, script_dir, workers):
     print(f"\nSuccess rate: policy {pol_reached}/{n} ({100 * pol_reached / n:.1f}%), "
           f"expert {exp_reached}/{n} ({100 * exp_reached / n:.1f}%)")
     print(f"Policy episode files: {run_dir}")
+    if quick:
+        print("Quick subset: no results written (run the full --test-set for that)")
+    else:
+        record_sim_results(model, list(policies.values()), n)
+        record_sim_results("expert", list(experts.values()), n)
+        print(f"Results written to results/{model}.csv and results/expert.csv")
 
     # Final error per test episode, policy next to expert. Log scale: expert errors are a few mm (runs go on 1 s
     # after reaching), policy errors can be m.
@@ -201,12 +235,12 @@ def run_test_set(data_dir, out_dir, script_dir, workers):
     ax.set_xticks(pos, [str(i) for i in test_ids], rotation=90, fontsize=7)
     ax.set_xlabel("Test episode")
     ax.set_ylabel("Final EE error (log scale)")
-    ax.set_title(f"Final end-effector error per test episode - policy reached {pol_reached}/{n}, "
-                 f"expert {exp_reached}/{n}")
+    ax.set_title(f"Final end-effector error per test episode{' (quick subset)' if quick else ''} ({model}) - "
+                 f"policy reached {pol_reached}/{n}, expert {exp_reached}/{n}")
     ax.grid(True, axis="y", alpha=0.3)
     ax.legend()
     fig.tight_layout()
-    fig.savefig(out_dir / "test_set_final_error.png", dpi=120)
+    fig.savefig(out_dir / f"{name}_final_error.png", dpi=120)
     plt.show()
 
 
@@ -216,22 +250,33 @@ def main():
     mode.add_argument("--target", default="0.0,1.1,0.5", help="target EE position x,y,z (m)")
     mode.add_argument("--episode", type=int, help="use the target and stored expert run of this saved episode")
     mode.add_argument("--test-set", action="store_true", help="run the policy on all test episodes (table + error plot)")
+    parser.add_argument("--quick", action="store_true",
+                        help="with --test-set: only the fixed quick subset of 50 test episodes, no results written")
     parser.add_argument("--start", help="start pose of the base x,y,yaw (m, m, rad), --target only; "
                                          "--episode / --test-set use each episode's stored start pose")
     parser.add_argument("--data-dir", default="data_main", help="episode folder, relative to this script")
     parser.add_argument("--workers", type=int, default=16, help="policy runs in parallel for --test-set")
     parser.add_argument("--out-dir", default="compare_out", help="folder for the episode files and plots")
+    parser.add_argument("--model", default="mlp_baseline",
+                        help="model name: the policy loads checkpoints/<model>.pt, --test-set writes results/<model>.csv")
     args = parser.parse_args()
     if args.start and (args.test_set or args.episode is not None):
         parser.error("--start only works with --target")
+    if args.quick and not args.test_set:
+        parser.error("--quick only works with --test-set")
 
     script_dir = str(Path(__file__).resolve().parent)
     data_dir = Path(script_dir) / args.data_dir
     out_dir = Path(args.out_dir).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
+    # The policy script loads the checkpoint named by ROBOENV_POLICY; run_episode passes the environment on
+    checkpoint = Path(script_dir) / "checkpoints" / f"{args.model}.pt"
+    if not checkpoint.exists():
+        parser.error(f"no checkpoint {checkpoint}")
+    os.environ["ROBOENV_POLICY"] = str(checkpoint)
 
     if args.test_set:
-        run_test_set(data_dir, out_dir, script_dir, args.workers)
+        run_test_set(data_dir, out_dir, script_dir, args.workers, args.model, args.quick)
         return
 
     if args.episode is not None:

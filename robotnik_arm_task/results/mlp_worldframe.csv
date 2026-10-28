@@ -1,0 +1,2 @@
+model,train_episodes,epochs,batch,lr,hidden,layers,best_val_loss,best_epoch,train_time_s,parameters,inference_ms,test_wheel_rmse,test_torque_rmse,sim_success_rate,sim_final_err_mean,sim_final_err_median,sim_time_to_reach,frame_step
+mlp_worldframe,700,20,2048,0.001,256,3,0.00946864,20,40.5403,140555,0.0702,0.0941141,0.220835,0,329.929,342.434,,10

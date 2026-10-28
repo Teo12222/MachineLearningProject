@@ -34,13 +34,16 @@ def load_episode(path):
     return x, y
 
 
-def load_episodes(data_dir, episode_ids):
-    """Inputs and labels of several episodes stacked into one array each."""
+def load_episodes(data_dir, episode_ids, every=1):
+    """Inputs and labels of several episodes stacked into one array each.
+
+    every: crude uniform subsample (every N-th frame), a placeholder until adaptive subsampling (PLAN.md step 7).
+    """
     xs, ys = [], []
     for i in episode_ids:
         x, y = load_episode(Path(data_dir) / f"ep_{i:04d}.npz")
-        xs.append(x)
-        ys.append(y)
+        xs.append(x[::every])
+        ys.append(y[::every])
     return np.concatenate(xs), np.concatenate(ys)
 
 
@@ -55,6 +58,15 @@ def split_episodes(data_dir, seed=0, val_frac=0.15, test_frac=0.15):
     val_ids = sorted(ids[n_test:n_test + n_val])
     train_ids = sorted(ids[n_test + n_val:])
     return train_ids, val_ids, test_ids
+
+
+def quick_test_ids(test_ids, n=50, seed=0):
+    """Fixed subset of the test episodes for quick checks while developing (always the same ones for the same split).
+
+    Drawn from the current test split: if the dataset changes (e.g. extended), the split and this subset change too.
+    """
+    rng = np.random.default_rng(seed)
+    return sorted(int(i) for i in rng.choice(test_ids, size=min(n, len(test_ids)), replace=False))
 
 
 if __name__ == "__main__":

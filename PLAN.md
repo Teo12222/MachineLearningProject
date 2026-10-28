@@ -327,12 +327,44 @@ cleaning, 8):
   | `test_wheel_rmse`, `test_torque_rmse` | `train.py` | Offline test: mean per-episode RMSE (rad/s, N*m) |
   | `sim_success_rate` | `compare.py --test-set` | Fraction of test targets reached within 5 mm (same rule as the expert) |
   | `sim_final_err_mean`, `sim_final_err_median` | `compare.py --test-set` | Final distance to the target (median is robust to runaway runs) |
-  | `sim_time_to_reach` | `compare.py --test-set` | Mean time to reach, successful runs only |
+  | `sim_time_to_reach` | `compare.py --test-set` | Mean episode length of successful runs: time to reach + the fixed 1 s settle (same offset for all) |
 
 - **Wheel RMSE is always measured on the 4 wheel speeds**, even for models that predict `(v, w)`: convert their
   output back to 4 wheel speeds with `decode_outputs()` (step 10) first, so the column stays comparable.
 - The new dataset (1,000-1,500 episodes after the expert fixes, possibly extended later) replaces `data_pilot`; results recorded on `data_pilot`
   are not comparable and get recomputed or deleted when we switch.
+
+**Done (28 Oct):** `results.py` (`update_results`), `train.py --model <name>` and `compare.py --model <name>` (one option
+name in both, matching the `model` column; the plan above said `--name`). Each script only updates its own columns
+of `results/<model>.csv`, so they never overwrite each other. Details:
+- `train.py` writes the training columns after training (plus `frame_step`, see below) and **empties the old test
+  and `sim_*` columns**: they belonged to the previous weights. After testing it writes `test_wheel_rmse`,
+  `test_torque_rmse` and `inference_ms` (median of 1,000 single-frame predictions, 1 thread, as in the policy
+  script). `train_time_s` is the training loop only, `best_epoch` counts from 1.
+- `compare.py --test-set` writes the `sim_*` columns of `results/<model>.csv` and of `results/expert.csv` (the stored
+  expert runs on the same test episodes). A test episode without a policy result counts as failed;
+  `sim_time_to_reach` is the mean episode length of reached runs, so it includes the 1 s settle (the same for every
+  model and the expert; subtract 1 s in the report if an absolute time to reach is quoted).
+  `compare.py` now stops if the checkpoint doesn't exist (before, it ran the expert alone).
+- `python results.py` stacks every `results/<model>.csv` into `results_combined.csv` (next to `results/`, so it is
+  never read back as a model): one row per model, plus one "`<name>` (mean +- std, N seeds)" row per model trained
+  with several seeds (`<name>_s0`, `_s1`, ...). A setting the seeds share is shown once; a mean over only some
+  seeds is marked, e.g. `0.5 (1/2)`.
+- **Quick test subset:** `compare.py --test-set --quick` runs only a fixed 50 of the test episodes
+  (`bc_data.quick_test_ids`, drawn with a fixed seed, so everyone checks the same ones), for quick closed-loop checks
+  while developing (about a third of the time). It prints the same table and plot (`test_set_quick_final_error.png`,
+  its own `test_set_quick/` folder) but **never writes results**: only the full `--test-set` fills the `sim_*`
+  columns, so quick checks never mix with reported numbers.
+- **The test set depends on the dataset:** `split_episodes` shuffles the episode ids found in `data_main`, so if the
+  dataset changes (e.g. extended with `--start 1000` after the learning curve), the train/val/test split, and with it
+  the quick 50, change too. Then **every model's results must be recomputed** (retrain + `--test-set`), as when we
+  switched from `data_pilot`.
+- **Uniform subsample for now:** `train.py` trains and validates on every 10th frame (`FRAME_STEP = 10`, recorded
+  as the `frame_step` column), via a crude `every` argument of `load_episodes` (thinned per episode while loading,
+  so the full 12 M frames never sit in memory). Placeholder until adaptive subsampling (7) replaces it. The test
+  RMSE always uses every frame.
+- The training seed is still fixed (`torch.manual_seed(0)`) until `--seed` (11): put the seed in the model name
+  yourself (e.g. `mlp_worldframe_s0`).
 
 Then **retrain the current world-frame baseline on the new dataset** under its own name (e.g. checkpoint
 `mlp_worldframe.pt`, so `results/mlp_worldframe.csv`), with `train.py` and `compare.py --test-set`. This is the
@@ -412,6 +444,27 @@ validation targets if needed), never on the test set; then report the chosen set
   sequence length; subsampling rates and floor (adaptive subsampling); noise level (DART data).
 - Keep the search small (a few values per hyperparameter, most important first: learning rate, network size, batch);
   record each tried setting as its own model name so it lands in `results/`.
+
+**Decided (28 Oct): a `tune.py` script, after the robot-frame inputs (6).** Not before: the best settings depend on
+the inputs, and every branch starts from the robot-frame baseline, so that's the model whose tuning matters (tuning
+the world-frame model can't fix its closed-loop failure: 0/150 at a good validation loss).
+- Trains a batch of settings for one model and keeps the best; the report says the settings were "selected by
+  `tune.py` on the validation set".
+- **Never uses the test episodes.** Ranked by validation loss (the validation episodes already used in training).
+  Because a low validation loss doesn't guarantee closed-loop success (world-frame baseline), the best few are also
+  checked in closed loop on a fixed subset of **validation** episodes, not `compare.py --quick` (which uses test ones).
+- Tuning runs go to `results/tuning/<model>/` (one file per setting + a summary ranked by validation loss), so they
+  don't bury the real models; only the chosen setting is retrained under the real name and lands in `results/`.
+- Early stopping (generous max epochs + patience, stop epoch recorded) instead of tuning the number of epochs.
+- First round, random sample of ~20-30 combinations: learning rate (3e-4, 1e-3, 3e-3), hidden (128/256/512), layers
+  (2/3/4), batch (2048/8192), weight decay (0/1e-4), dropout (0/0.1). Second round if useful: Huber vs MSE, wheel vs
+  torque loss weighting, SiLU.
+- Needs the settings of `train.py` to be settable from outside (options or a `train(config)` function): coordinate
+  with Kris, who owns `--seed` and faster training (11).
+- **Seeds:** tune with seed 0 only, then retrain the chosen setting unchanged with seeds 1 and 2 (same
+  hyperparameters, only the seed differs), so the spread measures that one setting. Not done yet for the baselines.
+  The baselines (`mlp_worldframe`, then the robot-frame one) also go into the report if there is space, to show the
+  progression, **marked as single-seed in the table** (no seed repeats for them).
 
 ### Branches: model ideas (rough order)
 12. **Gravity-residual torques:** learn torque minus the gravity torque, add it back at run time (aimed at low targets).

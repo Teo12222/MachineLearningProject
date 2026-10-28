@@ -4,14 +4,18 @@ Afterwards the saved checkpoint is evaluated on the test episodes: per-episode a
 and plotted (figures saved next to the checkpoint). Skip this with --no-test.
 
 Usage (from the robotnik_arm_task folder):
-    pixi run python train.py               # train, then test
-    pixi run python train.py --no-test     # train only
-    pixi run python train.py --test-only   # test the saved checkpoint, no training (checkpoint is not changed)
+    pixi run python train.py                       # train, then test (model mlp_baseline)
+    pixi run python train.py --model mlp_worldframe # checkpoints/mlp_worldframe.pt + results/mlp_worldframe.csv
+    pixi run python train.py --no-test             # train only
+    pixi run python train.py --test-only           # test the saved checkpoint, no training (checkpoint is not changed)
+
+Results go to results/<model>.csv (see results.py): training columns after training, test columns after testing.
 """
 import os
 os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")   # torch + numpy each ship an OpenMP runtime on Windows
 
 import argparse
+import time
 from pathlib import Path
 
 import numpy as np
@@ -20,31 +24,37 @@ from torch import nn
 
 from bc_data import split_episodes, load_episode, load_episodes
 from bc_model import MLP, save_model, load_model
+from results import SIM_COLUMNS, update_results
 
 # Paths are relative to this file, so the script works from any working directory
 SCRIPT_DIR = Path(__file__).resolve().parent
 DATA_DIR = SCRIPT_DIR / "data_main"
-CHECKPOINT = SCRIPT_DIR / "checkpoints" / "mlp_baseline.pt"
 EPOCHS = 20
 BATCH = 2048
 LR = 1e-3
+# Uniform subsample of the training and validation frames (every 10th) until adaptive subsampling exists (PLAN.md
+# step 7). The test RMSE always uses every frame.
+FRAME_STEP = 10
 
 OUTPUT_NAMES = ["wheel FR", "wheel FL", "wheel BL", "wheel BR"] + [f"J{j}" for j in range(1, 8)]
 
 parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 parser.add_argument("--no-test", action="store_true", help="skip the evaluation on the test episodes")
 parser.add_argument("--test-only", action="store_true", help="skip training and only evaluate the saved checkpoint")
+parser.add_argument("--model", default="mlp_baseline",
+                    help="model name: checkpoints/<model>.pt and results/<model>.csv (put the seed in it, e.g. _s0)")
 args = parser.parse_args()
 if args.no_test and args.test_only:
     parser.error("--no-test and --test-only together would do nothing")
+CHECKPOINT = SCRIPT_DIR / "checkpoints" / f"{args.model}.pt"
 
 torch.manual_seed(0)
 train_ids, val_ids, test_ids = split_episodes(DATA_DIR)
 
 if not args.test_only:
-    x_tr, y_tr = load_episodes(DATA_DIR, train_ids)
-    x_va, y_va = load_episodes(DATA_DIR, val_ids)
-    print(f"train frames {len(x_tr)}, val frames {len(x_va)}")
+    x_tr, y_tr = load_episodes(DATA_DIR, train_ids, every=FRAME_STEP)
+    x_va, y_va = load_episodes(DATA_DIR, val_ids, every=FRAME_STEP)
+    print(f"train frames {len(x_tr)}, val frames {len(x_va)} (every {FRAME_STEP}th frame)")
 
     model = MLP(x_tr.shape[1], y_tr.shape[1])
     model.set_normalisation(x_tr, y_tr)
@@ -58,8 +68,9 @@ if not args.test_only:
     opt = torch.optim.Adam(model.parameters(), lr=LR)
     loss_fn = nn.MSELoss()
     CHECKPOINT.parent.mkdir(exist_ok=True)
-    best_val = float("inf")
+    best_val, best_epoch = float("inf"), 0
 
+    start = time.perf_counter()
     for epoch in range(EPOCHS):
         model.train()
         perm = torch.randperm(len(xt))
@@ -75,9 +86,18 @@ if not args.test_only:
             val_loss = loss_fn(model(xv), yv).item()
         print(f"epoch {epoch + 1:2d}  train {loss.item():.4f}  val {val_loss:.4f}")
         if val_loss < best_val:
-            best_val = val_loss
+            best_val, best_epoch = val_loss, epoch + 1
             save_model(model, CHECKPOINT)
             print(f"   saved {CHECKPOINT}")
+    train_time = time.perf_counter() - start
+
+    # New weights: the old test and simulation results no longer apply, so they are emptied ("not measured")
+    update_results(
+        args.model, train_episodes=len(train_ids), epochs=EPOCHS, batch=BATCH, lr=LR,
+        hidden=model.config["hidden"], layers=model.config["layers"], best_val_loss=best_val, best_epoch=best_epoch,
+        train_time_s=train_time, parameters=sum(p.numel() for p in model.parameters()), frame_step=FRAME_STEP,
+        inference_ms=None, test_wheel_rmse=None, test_torque_rmse=None, **{c: None for c in SIM_COLUMNS},
+    )
 elif not CHECKPOINT.exists():
     parser.error(f"--test-only needs a trained checkpoint, but {CHECKPOINT} does not exist")
 
@@ -109,6 +129,21 @@ wheel_rmse, torque_rmse = np.array(wheel_rmse), np.array(torque_rmse)
 channel_rmse = np.sqrt(sq_err_sum / n_frames)
 
 print(f"{'average':>8} {wheel_rmse.mean():15.4f} {torque_rmse.mean():14.4f}   (mean of the per-episode values)")
+
+# Time of one single-frame prediction, as in the policy script (1 thread, one frame per simulation step)
+torch.set_num_threads(1)
+frame = x[0]
+for _ in range(50):   # warm-up
+    best.predict(frame)
+times = []
+for _ in range(1000):
+    t0 = time.perf_counter()
+    best.predict(frame)
+    times.append(time.perf_counter() - t0)
+inference_ms = 1000 * np.median(times)
+print(f"\nInference: {inference_ms:.3f} ms per frame (median of 1000, 1 thread)")
+update_results(args.model, test_wheel_rmse=wheel_rmse.mean(), test_torque_rmse=torque_rmse.mean(),
+               inference_ms=inference_ms)
 print("\nPer-output RMSE over all test frames:")
 for name, value in zip(OUTPUT_NAMES, channel_rmse):
     unit = "rad/s" if name.startswith("wheel") else "N*m"
