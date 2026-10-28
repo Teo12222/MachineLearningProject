@@ -14,6 +14,27 @@ def quaternion2bearing(q_w, q_x, q_y, q_z):
     return base_euler[2]
 
 
+def parse_start_pose(text):
+    """Base start pose (x m, y m, yaw rad) from an "x,y,yaw" string, e.g. the ROBOENV_START variable."""
+    return np.array([float(v) for v in text.split(",")])
+
+
+def set_start_pose(sim, start_pose):
+    """Place the base at start_pose (x, y, yaw) before the first step; height, arm and fingers are unchanged.
+
+    Does nothing for the default (0, 0, 0), so runs from the origin are exactly as before.
+    """
+    if not np.any(start_pose):
+        return
+    # Raw simulator height, not GetBasePosition(), which would add sensor noise once noise_flag is on
+    pos = [float(start_pose[0]), float(start_pose[1]), float(sim.bot[0].base_position[2])]
+    ori = list(sim.pybullet_client.getQuaternionFromEuler([0.0, 0.0, float(start_pose[2])]))
+    sim.SetfloatingBasePositionAndOrientation(pos, ori)
+    # The sim uses the configured initial pose as the "previous" base state on its first step: keep it consistent
+    sim.bot[0].link_floating_base_pos, sim.bot[0].link_floating_base_ori = pos, ori
+    sim.ReceiveObservation()
+
+
 @dataclass
 class ArmControllerParams:
     """Tuning parameters of the arm reaching controller."""
@@ -166,6 +187,7 @@ class BaseControllerParams:
 @dataclass
 class BaseNavState:
     """Navigation phases: align (turn in place toward goal) -> drive -> orient (face target) -> done."""
+    PHASES = ("align", "drive", "orient")   # not a field (no annotation); saved episodes store the phase index
     phase: str = "align"
     done: bool = False
 

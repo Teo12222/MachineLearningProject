@@ -17,7 +17,8 @@ import pinocchio as pin
 from simulation_and_control import pb, MotorCommands, PinWrapper
 from robotnik_arm_control import (
     ArmControllerParams, BaseControllerParams, BaseNavState, StopCriteria,
-    arm_controller, base_controller, check_stop, configure_gripper_fingers, quaternion2bearing,
+    arm_controller, base_controller, check_stop, configure_gripper_fingers, parse_start_pose, quaternion2bearing,
+    set_start_pose,
 )
 
 
@@ -27,6 +28,9 @@ from robotnik_arm_control import (
 # [X (forward/meters), Y (lateral/meters), Z (height/meters)]
 _target_str = os.environ.get("ROBOENV_TARGET", "0.0,1.1,0.5")
 TARGET_EE_POS = np.array([float(v) for v in _target_str.split(",")])
+# Start pose of the base (x m, y m, yaw rad), e.g. ROBOENV_START=1.0,-0.5,1.57. Default: the origin facing +x,
+# which all training data uses (PLAN.md step 0, fix 4).
+START_POSE = parse_start_pose(os.environ.get("ROBOENV_START", "0,0,0"))
 
 # Fixed gripper finger configuration (angles in radians, held fixed during simulation):
 # [finger_1, finger_tip_1, finger_2, finger_tip_2, finger_3, finger_tip_3]
@@ -75,6 +79,8 @@ def main():
             anisotropicFriction=[1.0, 0.01, 1.0]
         )
     sim.bot[0].servo_motor_model.set_motor_gains(400, 30)
+    # Place the base at its start pose (does nothing for the default origin start)
+    set_start_pose(sim, START_POSE)
 
     # --------------------------------------------------------------------------
     # Gripper Fingers: Fix gripper finger configuration
@@ -114,6 +120,7 @@ def main():
     init_joint_angles = np.array(sim.GetMotorAngles(0))
     init_base_pos = np.array(sim.GetBasePosition())
     init_base_ori = np.array(sim.GetBaseOrientation())
+    init_bearing = quaternion2bearing(init_base_ori[3], init_base_ori[0], init_base_ori[1], init_base_ori[2])
 
     # Forward kinematics for initial end-effector position
     init_q_all = np.concatenate((init_base_pos, init_base_ori, init_joint_angles))
@@ -139,8 +146,11 @@ def main():
     # --------------------------------------------------------------------------
     # Standoff distance between robot base center and target, depending on target height.
     standoff = float(np.interp(TARGET_EE_POS[2], STANDOFF_Z_POINTS, STANDOFF_POINTS))
+    # Parking spot on the line from the base's start position to the target (from the world origin before, which
+    # is only right for an origin start; identical results for it)
     target_xy = TARGET_EE_POS[:2]
-    target_bearing = np.arctan2(target_xy[1], target_xy[0]) if np.linalg.norm(target_xy) > 1e-4 else 0.0
+    to_target = target_xy - init_base_pos[:2]
+    target_bearing = np.arctan2(to_target[1], to_target[0]) if np.linalg.norm(to_target) > 1e-4 else 0.0
 
     # Mobile base goal location facing the target
     base_goal_pos = target_xy - standoff * np.array([np.cos(target_bearing), np.sin(target_bearing)])
@@ -177,6 +187,10 @@ def main():
     base_bearing_all = []
     wheel_cmds_all = []
     torque_arm_all = []
+    # The expert's hidden state (not model inputs): labels for the "arrived" flag, ground truth for the RNN
+    nav_phase_all = []
+    nav_done_all = []
+    q_des_arm_all = []
 
     # --------------------------------------------------------------------------
     # Main Simulation Loop
@@ -265,6 +279,10 @@ def main():
         base_bearing_all.append(base_bearing)
         wheel_cmds_all.append(wheel_cmds)
         torque_arm_all.append(torque_arm)
+        # Values after this step's controller updates, i.e. the state that produced this frame's commands
+        nav_phase_all.append(BaseNavState.PHASES.index(base_state.phase))
+        nav_done_all.append(base_navigation_done)
+        q_des_arm_all.append(q_des_arm)
 
         if not headless:
             time.sleep(0.001)
@@ -284,19 +302,26 @@ def main():
     print(f"Max Finger Deviation (rad)   : {np.max(np.abs(q_mes[11:17] - target_finger_angles)):.6f}")
     print("==================================================================")
 
+    # Per-frame arrays as float32 (the model trains in float32 anyway): half the file size
     np.savez(
         out_path,
-        time=np.array(time_all),
-        base_pos=np.array(base_pos_all),
-        base_bearing=np.array(base_bearing_all),
-        q_mes=np.array(q_mes_all),
-        qd_mes=np.array(qd_mes_all),
-        wheel_cmds=np.array(wheel_cmds_all),
-        torque_arm=np.array(torque_arm_all),
-        ee_pos=np.array(ee_pos_all),
+        time=np.array(time_all, dtype=np.float32),
+        base_pos=np.array(base_pos_all, dtype=np.float32),
+        base_bearing=np.array(base_bearing_all, dtype=np.float32),
+        q_mes=np.array(q_mes_all, dtype=np.float32),
+        qd_mes=np.array(qd_mes_all, dtype=np.float32),
+        wheel_cmds=np.array(wheel_cmds_all, dtype=np.float32),
+        torque_arm=np.array(torque_arm_all, dtype=np.float32),
+        ee_pos=np.array(ee_pos_all, dtype=np.float32),
         target=TARGET_EE_POS,
         final_error=np.linalg.norm(TARGET_EE_POS - ee_pos),
         stop_message=str(stop_message),
+        nav_phase=np.array(nav_phase_all, dtype=np.int8),   # index into nav_phase_names
+        nav_phase_names=np.array(BaseNavState.PHASES),
+        nav_done=np.array(nav_done_all, dtype=bool),
+        q_des_arm=np.array(q_des_arm_all, dtype=np.float32),
+        start_pose=np.array([init_base_pos[0], init_base_pos[1], init_bearing]),   # measured at t = 0
+        base_goal=np.array([base_goal_pos[0], base_goal_pos[1], base_goal_bearing]),   # parking spot x, y, yaw
     )
 
     if headless:

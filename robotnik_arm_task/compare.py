@@ -3,6 +3,7 @@
 Usage (from the robotnik_arm_task folder, inside your roboenv environment):
     python compare.py                             # default target (0, 1.1, 0.5)
     python compare.py --target 1.5,-0.8,0.6
+    python compare.py --target 1.5,-0.8,0.6 --start 0.5,0.5,1.57   # both start from another base pose
     python compare.py --episode 292               # target + stored expert run of data_pilot/ep_0292.npz
     python compare.py --test-set                  # policy on every test episode's target, results table
 
@@ -52,8 +53,14 @@ def outcome(data):
     return "other"
 
 
-def run_episode(script, target, out_file, headless, script_dir, timeout=None, quiet=False):
-    """Run one episode script on target and return its saved data, or None if it produced no result.
+def stored_start(data):
+    """Start pose (x, y, yaw) of a saved episode; files from before the start-pose option all started at the origin."""
+    return data["start_pose"] if "start_pose" in data else np.zeros(3)
+
+
+def run_episode(script, target, out_file, headless, script_dir, timeout=None, quiet=False, start=(0.0, 0.0, 0.0)):
+    """Run one episode script on target from base pose start (x, y, yaw) and return its saved data, or None if it
+    produced no result.
 
     quiet hides the script's own output (used when many episodes run at once).
     """
@@ -62,6 +69,7 @@ def run_episode(script, target, out_file, headless, script_dir, timeout=None, qu
     env = dict(os.environ)
     env["ROBOENV_TARGET"] = ",".join(f"{v:.6f}" for v in target)
     env["ROBOENV_OUT"] = str(out_file)
+    env["ROBOENV_START"] = ",".join(f"{v:.6f}" for v in start)
     if headless:
         env["ROBOENV_HEADLESS"] = "1"
     else:
@@ -143,7 +151,7 @@ def run_test_set(data_dir, out_dir, script_dir, workers):
     policies = {}
     with ThreadPoolExecutor(max_workers=workers) as pool:
         jobs = {i: pool.submit(run_episode, POLICY_SCRIPT, experts[i]["target"], run_dir / f"ep_{i:04d}.npz",
-                               True, script_dir, POLICY_TIMEOUT, True)
+                               True, script_dir, POLICY_TIMEOUT, True, stored_start(experts[i]))
                 for i in test_ids}
         for done, i in enumerate(test_ids, start=1):
             policies[i] = jobs[i].result()
@@ -207,10 +215,14 @@ def main():
     mode.add_argument("--target", default="0.0,1.1,0.5", help="target EE position x,y,z (m)")
     mode.add_argument("--episode", type=int, help="use the target and stored expert run of this saved episode")
     mode.add_argument("--test-set", action="store_true", help="run the policy on all test episodes (table + error plot)")
+    parser.add_argument("--start", help="start pose of the base x,y,yaw (m, m, rad), --target only; "
+                                         "--episode / --test-set use each episode's stored start pose")
     parser.add_argument("--data-dir", default="data_pilot", help="episode folder, relative to this script")
     parser.add_argument("--workers", type=int, default=16, help="policy runs in parallel for --test-set")
     parser.add_argument("--out-dir", default="compare_out", help="folder for the episode files and plots")
     args = parser.parse_args()
+    if args.start and (args.test_set or args.episode is not None):
+        parser.error("--start only works with --target")
 
     script_dir = str(Path(__file__).resolve().parent)
     data_dir = Path(script_dir) / args.data_dir
@@ -227,14 +239,16 @@ def main():
         target = expert["target"]
         if args.episode not in split_episodes(data_dir)[2]:
             print(f"Note: episode {args.episode} is not a test episode, so the model may have trained on it")
-        policy = run_episode(POLICY_SCRIPT, target, out_dir / "policy.npz", False, script_dir)
+        policy = run_episode(POLICY_SCRIPT, target, out_dir / "policy.npz", False, script_dir,
+                             start=stored_start(expert))
     else:
         target = np.array([float(v) for v in args.target.split(",")])
+        start = np.array([float(v) for v in args.start.split(",")]) if args.start else np.zeros(3)
         with ThreadPoolExecutor(max_workers=1) as pool:
             # Expert runs headless in the background while the policy runs in the GUI
             expert_job = pool.submit(run_episode, EXPERT_SCRIPT, target, out_dir / "expert.npz", True, script_dir,
-                                     EXPERT_TIMEOUT)
-            policy = run_episode(POLICY_SCRIPT, target, out_dir / "policy.npz", False, script_dir)
+                                     EXPERT_TIMEOUT, start=start)
+            policy = run_episode(POLICY_SCRIPT, target, out_dir / "policy.npz", False, script_dir, start=start)
             expert = expert_job.result()
 
     runs = []

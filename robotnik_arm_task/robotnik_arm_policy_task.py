@@ -17,7 +17,9 @@ import matplotlib.pyplot as plt
 import pybullet as p
 import pinocchio as pin
 from simulation_and_control import pb, MotorCommands, PinWrapper
-from robotnik_arm_control import StopCriteria, check_stop, configure_gripper_fingers, quaternion2bearing
+from robotnik_arm_control import (
+    StopCriteria, check_stop, configure_gripper_fingers, parse_start_pose, quaternion2bearing, set_start_pose,
+)
 
 import torch
 from bc_data import make_features
@@ -30,6 +32,9 @@ from bc_model import load_model
 # [X (forward/meters), Y (lateral/meters), Z (height/meters)]
 _target_str = os.environ.get("ROBOENV_TARGET", "0.0,1.1,0.5")
 TARGET_EE_POS = np.array([float(v) for v in _target_str.split(",")])
+# Start pose of the base (x m, y m, yaw rad), e.g. ROBOENV_START=1.0,-0.5,1.57. Default: the origin facing +x,
+# which all training data uses (PLAN.md step 0, fix 4).
+START_POSE = parse_start_pose(os.environ.get("ROBOENV_START", "0,0,0"))
 
 # Fixed gripper finger configuration (angles in radians, held fixed during simulation):
 # [finger_1, finger_tip_1, finger_2, finger_tip_2, finger_3, finger_tip_3]
@@ -65,6 +70,8 @@ def main():
             anisotropicFriction=[1.0, 0.01, 1.0]
         )
     sim.bot[0].servo_motor_model.set_motor_gains(400, 30)
+    # Place the base at its start pose (does nothing for the default origin start)
+    set_start_pose(sim, START_POSE)
 
     # --------------------------------------------------------------------------
     # Gripper Fingers: Fix gripper finger configuration
@@ -103,6 +110,7 @@ def main():
     init_joint_angles = np.array(sim.GetMotorAngles(0))
     init_base_pos = np.array(sim.GetBasePosition())
     init_base_ori = np.array(sim.GetBaseOrientation())
+    init_bearing = quaternion2bearing(init_base_ori[3], init_base_ori[0], init_base_ori[1], init_base_ori[2])
 
     # Forward kinematics for initial end-effector position
     init_q_all = np.concatenate((init_base_pos, init_base_ori, init_joint_angles))
@@ -242,19 +250,21 @@ def main():
     print(f"Max Finger Deviation (rad)   : {np.max(np.abs(q_mes[11:17] - target_finger_angles)):.6f}")
     print("==================================================================")
 
+    # Same file format as the expert's episodes (float32 per-frame arrays)
     np.savez(
         out_path,
-        time=np.array(time_all),
-        base_pos=np.array(base_pos_all),
-        base_bearing=np.array(base_bearing_all),
-        q_mes=np.array(q_mes_all),
-        qd_mes=np.array(qd_mes_all),
-        wheel_cmds=np.array(wheel_cmds_all),
-        torque_arm=np.array(torque_arm_all),
-        ee_pos=np.array(ee_pos_all),
+        time=np.array(time_all, dtype=np.float32),
+        base_pos=np.array(base_pos_all, dtype=np.float32),
+        base_bearing=np.array(base_bearing_all, dtype=np.float32),
+        q_mes=np.array(q_mes_all, dtype=np.float32),
+        qd_mes=np.array(qd_mes_all, dtype=np.float32),
+        wheel_cmds=np.array(wheel_cmds_all, dtype=np.float32),
+        torque_arm=np.array(torque_arm_all, dtype=np.float32),
+        ee_pos=np.array(ee_pos_all, dtype=np.float32),
         target=TARGET_EE_POS,
         final_error=np.linalg.norm(TARGET_EE_POS - ee_pos),
         stop_message=str(stop_message),
+        start_pose=np.array([init_base_pos[0], init_base_pos[1], init_bearing]),   # measured at t = 0
     )
 
     if headless:

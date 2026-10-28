@@ -135,7 +135,34 @@ for their own work as they go.
      expert and the policy can be started anywhere, and pass it through `compare.py` / `run_batch.py` (needs a
      way to reset the base pose before the loop, e.g. PyBullet's `resetBasePositionAndOrientation`). When the
      option is not set, the start stays (0, 0, 0), so data collection and current runs are unchanged.
+
+   **Done (28 Oct), fix 4:** `ROBOENV_START=x,y,yaw` in both task scripts (`set_start_pose` in `robotnik_arm_control.py`
+   moves the base before the first step; it does nothing for the default origin start), `compare.py --start` (with
+   `--target`; `--episode` / `--test-set` start the policy from each stored episode's start pose, so it always
+   matches the expert run) and `run_batch.py --start-pose` (`--start` was already the first episode index). The parking
+   spot is measured from the start position. Why: the final tests may start the cart elsewhere, and we need the
+   start-pose test (24) without touching the training data: pilot episodes start at exactly (0, 0, 0), so all
+   current runs give identical results. With `--start-pose`, `run_batch.py` still draws targets around the origin
+   (not shifted to the start: the start-pose test in step 24 picks its own targets). The base height is taken from the raw sim
+   state, not `GetBasePosition()`, so sensor-noise tests (24) don't add noise to the start pose.
 5. **Review other expert quirks** (e.g. the base skids sideways while turning in place): fix or document.
+
+   **Done (28 Oct), documented, nothing changed:**
+   - **Sideways skid while turning in place:** in the pilot data the base drifts 9.3 cm (median, max 13.3 cm) during
+     its first turn in place, 11.9 cm median for turns over 90 deg. Cause: the wheels have almost no sideways friction
+     (`anisotropicFriction=[1, 0.01, 1]`). **Not changed**, because: the friction, contact and motor-gain settings are
+     the course's own (identical to RoboEnv's `tests/mobile_base_kinematic_controller.py`), so the final tests most
+     likely use them, and a policy trained on other physics would meet a different robot; a skid-steer base needs
+     low sideways friction to turn at all; the base controller's `wheel_base_width` was calibrated for it; and the
+     skid causes no failures (all 350 pilot episodes reach), since the expert re-aims at the parking spot every step.
+     If it ever matters, turning more slowly in place (expert-only) would reduce it without changing the physics.
+   - **Navigation timeout (25 s, absolute time):** after it the base counts as arrived wherever it is and the arm
+     starts reaching.
+   - **Phase after arrival:** `base_state.phase` stays `"orient"` once `done` is set (also after the timeout), so
+     the phase and the "arrived" flag are logged separately (fix 6).
+   - **Last frame not logged:** the frame where a stop condition fires is not saved; `final_error` comes from it.
+   - **`base_pos`** is PyBullet's base-link position (the sim's comment suggests the centre of mass, not the frame
+     origin); expert, policy and features all use the same value, so it is consistent.
 6. **Log the expert's hidden state** in the `.npz`: navigation phase (`base_state.phase`), the "arrived" flag
    (`base_state.done`) and the arm joint reference (`q_des_arm`). These are the only things the expert carries over
    between steps that affect its commands and can't be rebuilt from saved data (time is already saved, the parking
@@ -143,6 +170,16 @@ for their own work as they go.
    the RNN (14) learned the phase. Also save the **start pose** (base x, y, yaw at t = 0): always (0, 0, 0) for
    now, but once `ROBOENV_START` exists the parking spot can't be recomputed without it. Only before recollecting,
    otherwise it costs another full collection.
+
+   **Done (28 Oct), fix 6:** new fields in the expert's `.npz`: `nav_phase` (int8 index into `nav_phase_names` =
+   align / drive / orient), `nav_done` (the "arrived" flag), `q_des_arm` (N x 7), `start_pose` (x, y, yaw measured at
+   t = 0) and `base_goal` (parking spot x, y, yaw; saved although it could be recomputed, so nobody has to get the
+   recomputation right). Policy files get `start_pose` too. Each frame stores the state *after* that step's controller
+   update, i.e. the state that produced that frame's commands (on the arrival frame `nav_done` is already True and the
+   arm already reaches). Per-frame arrays are saved as **float32, uncompressed** (`np.savez`). Why: half the size (1.87
+   instead of 3.73 MB per pilot episode, ~2.8 GB for 1,500), and the model trains in float32 anyway (`bc_data` casts),
+   so it sees exactly the same numbers. Compression would save another ~25% (1.41 MB) but makes every load slower;
+   not worth it at this size. `target`, `final_error` and the poses stay float64; old float64 files load the same way.
 
 **Only the expert fixes have to come before recollecting.** Input features are built by `make_features` when
 episodes are loaded, not when they are recorded, and everything they need is already saved (`base_pos`,

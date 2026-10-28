@@ -4,6 +4,7 @@ Usage (from the robotnik_arm_task folder, inside your roboenv environment):
     python run_batch.py --n 5 --out-dir data_test            # tiny test
     python run_batch.py --n 50 --seed 0 --out-dir data_pilot # pilot to map the reachable region
     python run_batch.py --n 500 --seed 1 --workers 4 --out-dir data_train
+    python run_batch.py --n 50 --start-pose 1.0,-0.5,1.57 --out-dir data_start_test   # base starts elsewhere
 
 Each episode runs in its own process, so one crash or hang cannot kill the batch.
 Each target is determined by --seed and the episode number, so a batch is reproducible, and episodes whose .npz
@@ -22,7 +23,7 @@ from pathlib import Path
 import numpy as np
 
 # ---- Target sampling box: first guesses, to be checked with a pilot batch --------------------
-# Targets are drawn in polar coordinates around the robot's start (the origin).
+# Targets are drawn in polar coordinates around the origin (the robot's start unless --start-pose).
 RADIUS_RANGE = (1.0, 3.0)    # m, horizontal distance of the target from the origin
 HEIGHT_RANGE = (0.2, 1.1)    # m, inside the standoff table of robotnik_arm_task.py (0.1 .. 1.25)
 # The angle is uniform over the full circle, so targets behind the robot are included.
@@ -76,6 +77,7 @@ def run_episode(idx, target, args, script_dir):
     env["ROBOENV_HEADLESS"] = "1"
     env["ROBOENV_TARGET"] = ",".join(f"{v:.6f}" for v in target)
     env["ROBOENV_OUT"] = str(out_file)
+    env["ROBOENV_START"] = args.start_pose
     start = time.time()
     try:
         proc = subprocess.run(
@@ -110,6 +112,8 @@ def main():
     parser.add_argument("--timeout", type=float, default=180.0, help="seconds before one episode is killed")
     parser.add_argument("--script", default="robotnik_arm_task.py", help="episode script to run")
     parser.add_argument("--start", type=int, default=50, help="first episode index (use to extend a dataset)")
+    parser.add_argument("--start-pose", default="0,0,0",
+                        help="base start pose x,y,yaw (m, m, rad) for every episode; targets stay around the origin")
     args = parser.parse_args()
 
     script_dir = str(Path(__file__).resolve().parent)
