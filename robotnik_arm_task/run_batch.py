@@ -107,11 +107,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--n", type=int, default=300, help="number of episodes")
     parser.add_argument("--seed", type=int, default=0, help="seed for the target sampler")
-    parser.add_argument("--out-dir", default="data_pilot", help="folder for the episode files and index.csv")
+    parser.add_argument("--out-dir", default="data_main", help="folder for the episode files and index.csv")
     parser.add_argument("--workers", type=int, default=16, help="episodes to run in parallel")
     parser.add_argument("--timeout", type=float, default=180.0, help="seconds before one episode is killed")
     parser.add_argument("--script", default="robotnik_arm_task.py", help="episode script to run")
-    parser.add_argument("--start", type=int, default=50, help="first episode index (use to extend a dataset)")
+    parser.add_argument("--start", type=int, default=0, help="first episode index (use to extend a dataset)")
     parser.add_argument("--start-pose", default="0,0,0",
                         help="base start pose x,y,yaw (m, m, rad) for every episode; targets stay around the origin")
     args = parser.parse_args()

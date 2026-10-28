@@ -48,8 +48,8 @@ ARM_REACH_LIMIT = 0.85
 STANDOFF_Z_POINTS = [0.1, 0.5, 1.1, 1.25]
 STANDOFF_POINTS = [0.80, 0.65, 0.65, 0.35]
 # Stop once the EE is this close to the target (m); time cap set via ROBOENV_MAX_TIME.
-# 5 mm, tighter than the 1 cm success rule used to judge the policy, so the data shows a precise final approach
-# (PLAN.md step 0, tolerance update).
+# 5 mm, tighter than the course's 1 cm, so the data shows a precise final approach; the policy is judged by the same
+# 5 mm (PLAN.md step 0, tolerance update).
 REACH_TOLERANCE = 0.005
 # Once the base has arrived, stop if the EE error has not improved for this long (s). The expert never
 # goes more than 1.75 s without improving on a successful run, so this only ends unreachable targets.

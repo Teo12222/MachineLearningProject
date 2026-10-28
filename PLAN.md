@@ -142,19 +142,20 @@ for their own work as they go.
    1 s, so the sim time still measures the time to reach (minus 1 s, the same for every model) and nothing extra is
    saved.
 
-   **Update (28 Oct), expert tolerance 5 mm, success rule stays 1 cm:** the expert now stops (after its 1 s settle)
-   at 5 mm instead of 1 cm (`REACH_TOLERANCE` in `robotnik_arm_task.py`); the
-   policy and `compare.py` keep 1 cm, the course's own tolerance (it was in the starter code), as the success rule.
-   Why: the expert clearly can do better than 1 cm (in pilot runs that kept going it got from 1 cm to 5 mm within
-   0.5 s), so the data shows a more precise final approach, while judging our models by the course's 1 cm keeps the
-   evaluation simple and not stricter than the brief. Checked on all 350 pilot targets at 5 mm + 1 s settle:
+   **Update (28 Oct), tolerance 5 mm for the expert and the policy:** a run counts as reached (and its 1 s settle
+   starts) at 5 mm instead of 1 cm, the course's tolerance from the starter code (`REACH_TOLERANCE` in both task
+   scripts, `SUCCESS_TOLERANCE` in `compare.py`). Why: the expert clearly can do better than 1 cm (in pilot runs that
+   kept going it got from 1 cm to 5 mm within 0.5 s), so the data shows a more precise final approach; and the
+   policy is judged by the **same rule** as the expert, so expert and model success rates in `results/` mean the
+   same thing (we first considered keeping 1 cm for the policy, but then the expert's "reached" would be stricter
+   than the models'). Our success test is stricter than the brief's 1 cm: say so in the report; the policy's frames
+   are saved, so success at 1 cm (ever within 1 cm) can still be computed. Checked on all 350 pilot targets at 5 mm
+   + 1 s settle:
    **349/350 reached**, final error median 1.25 mm (90%: 1.46 mm), sim time median 12.5 s (5.8-17.5 s), 4.30 M
    frames vs 3.81 M for the pilot (~13% more, now spent approaching and holding instead of idling). The one failure,
    episode 77 (target 0.36, -1.07, 0.50), can't get below 5.9 mm and is stopped by the stall rule (at 1 cm it reached
-   with 6.2 mm): such rare "stalled" episodes are filtered by episode cleaning (8). Consequence: the expert's
-   "reached" is stricter than the policy's, so its success rate in `results/expert.csv` is at 5 mm. The current
-   world-frame baseline reached 0/52 test targets at either tolerance, so the success rule can't be judged from the
-   policy yet; "success at 5 mm" can later be computed from saved frames without changing the stop rule.
+   with 6.2 mm): such rare "stalled" episodes are filtered by episode cleaning (8). The old world-frame baseline
+   reached 0/52 test targets at either tolerance, so the policy side couldn't be compared yet.
 4. **Make the code work from any start pose** (we assume the final tests may start the cart away from (0, 0)
    and/or rotated). Now we only make it *possible*; all training and testing stays at the (0, 0, 0) start until
    the final evaluation (step 24), where other start poses are tested.
@@ -190,6 +191,19 @@ for their own work as they go.
      If it ever matters, turning more slowly in place (expert-only) would reduce it without changing the physics.
    - **Navigation timeout (25 s, absolute time):** after it the base counts as arrived wherever it is and the arm
      starts reaching.
+   - **The base can circle a close parking spot until the timeout** (`data_main` episode 774, target -0.77, 0.87,
+     0.61; watched in the GUI): the spot is only 0.52 m from the start, behind-left. After the turn in place the
+     base passes it ~9-10 cm away, just outside the 8 cm capture radius (`pos_tol`), and the "passed the goal" rule
+     doesn't fire. With the drive phase's steering capped at 0.3 rad/s and its minimum forward speed of 0.05 m/s, it
+     can't turn in, so it loops (~1 m across, faster as it gets farther) until the 25 s timeout, then the arm
+     reaches from 1.15 m away and the stall rule ends the run (27.2 s). After the timeout the base still coasts
+     ~0.3 m with zero wheel commands (sliding on the low-friction wheels). 1 of 1,000 episodes; **documented, not
+     fixed**: episode cleaning (8) drops it. If it ever needs fixing (e.g. for other start poses in 24): in the drive
+     phase, go back to `align` (turn in place) when the heading error exceeds ~0.5 rad, but only farther than
+     ~2 x `pos_tol` from the spot (closer, a small sideways offset already gives a large heading error, and
+     `passed_goal` ends the drive). Not a wider capture radius instead: the base would park up to 15 cm off and
+     some targets would be out of the arm's 0.85 m reach. Any such fix changes the data, so it needs a recollection
+     (~8 min).
    - **Phase after arrival:** `base_state.phase` stays `"orient"` once `done` is set (also after the timeout), so
      the phase and the "arrived" flag are logged separately (fix 6).
    - **Last frame not logged:** the frame where a stop condition fires is not saved; `final_error` comes from it.
@@ -241,6 +255,33 @@ are recorded, see below).
 - Then point the scripts at the new folder: `DATA_DIR` in `train.py` and the `--data-dir` default in `compare.py`
   (both `data_pilot` now).
 
+**Done (28 Oct):** collected **1,000 episodes** into `robotnik_arm_task/data_main` (`run_batch.py --n 1000 --start 0
+--seed 0 --out-dir data_main`, 16 workers, after expert fixes 1-6, the 1 s settle and the 5 mm expert tolerance).
+Why 1,000: the low end of the 1,000-1,500 range; the learning curve (17) decides whether to extend it (same seed,
+`--start 1000`). `data_main` is git-ignored (~3 GB). Everything now points at it: `DATA_DIR` in `train.py`, the
+`--data-dir` default in `compare.py`, the quick check in `bc_data.py`, and `run_batch.py`'s defaults (`--out-dir
+data_main`, `--start 0`, so running it without options can only add missing episodes to `data_main`). Seed 0 as for the
+pilot, so episodes 50-349 have the same targets as the pilot ones. Note: `data_pilot` (351 files, ~1.6 GB) is
+**committed to git**, against the "don't commit the dataset" rule; removing it (`git rm --cached`) is a team decision,
+since it stays in the history either way.
+
+**Result:** 1,000 episodes in 8.4 min, no crashes or timeouts, 2.8 GB, 12.1 M frames; **995 reached, 5 stalled**
+(final error median 1.25 mm, sim time median 12.2 s, max 27.2 s). The 5 stalled episodes (drop them in episode
+cleaning, 8):
+- 77, 738, 752, 799: close targets (~1.0-1.2 m from the start, mid height) where the arm ends 6-11 mm from the
+  target. **Episode 77 checked (GUI + saved frames): a real dead end, not the stall rule cutting off a slow
+  approach.** The base parks normally; the error falls to 5.9 mm at ~7.5 s and then creeps back up to 6.9 mm. Three
+  joints sit at their lower limits (J2 0.056 rad, J4 0.057 rad, J6 0.024 rad above them, inside the controller's
+  0.05 rad safety margin, so they are frozen), and the arm can't get closer with the other joints. Visually it
+  looks reached (the target sphere has a 3 cm radius), and it would count as reached at 1 cm; at our 5 mm rule it's
+  0.9 mm short. **Episode 799 checked too, same cause:** best 9.6 mm; J4 and J6 at their lower limits (0.050 and
+  0.024 rad above them). The base parked ~8 cm from its spot (within `pos_tol`), and the folded arm can't pull the
+  end-effector back in: it stays ~1 cm too far out, not too high or low. 738 and 752 (closest 7.0 and 7.1 mm, also
+  close mid-height targets) are assumed to be the same, not checked individually. These are not low targets (all 0.50-0.61 m high; the 105 targets below 0.3 m all reached): the weak spot
+  is close + mid height (radius < 1.2 m, height 0.45-0.60 m: 4 of 11 episodes stall). If it matters for the
+  models, collect more close targets (like 18), rather than keep the stalled episodes.
+- 774: the base circles its parking spot until the 25 s timeout (see the expert quirks, fix 5).
+
 **Dataset size: start with 1,000-1,500 episodes, extend only if it helps.**
 - Why more than now: the model has to generalise over *targets*, and training currently sees only ~245 different
   targets spread over a 3D region (full circle, 1-3 m out, 0.2-1.1 m high). ~1,000+ episodes cover it far more
@@ -284,7 +325,7 @@ are recorded, see below).
   | `best_val_loss`, `best_epoch` | `train.py` | Lowest validation loss and the epoch it happened |
   | `train_time_s`, `parameters`, `inference_ms` | `train.py` | Efficiency (`inference_ms` = one single-frame prediction, 1 thread, must be well under 1 ms) |
   | `test_wheel_rmse`, `test_torque_rmse` | `train.py` | Offline test: mean per-episode RMSE (rad/s, N*m) |
-  | `sim_success_rate` | `compare.py --test-set` | Fraction of test targets reached within 1 cm |
+  | `sim_success_rate` | `compare.py --test-set` | Fraction of test targets reached within 5 mm (same rule as the expert) |
   | `sim_final_err_mean`, `sim_final_err_median` | `compare.py --test-set` | Final distance to the target (median is robust to runaway runs) |
   | `sim_time_to_reach` | `compare.py --test-set` | Mean time to reach, successful runs only |
 

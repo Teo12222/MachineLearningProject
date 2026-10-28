@@ -14,3 +14,6 @@ robotnik_arm_task/models
 # trained weights and comparison outputs (regenerated locally, not submitted)
 robotnik_arm_task/checkpoints
 robotnik_arm_task/compare_out
+
+# main dataset (~3 GB, regenerated with run_batch.py, not submitted)
+robotnik_arm_task/data_main

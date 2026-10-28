@@ -23,7 +23,7 @@ from bc_model import MLP, save_model, load_model
 
 # Paths are relative to this file, so the script works from any working directory
 SCRIPT_DIR = Path(__file__).resolve().parent
-DATA_DIR = SCRIPT_DIR / "data_pilot"
+DATA_DIR = SCRIPT_DIR / "data_main"
 CHECKPOINT = SCRIPT_DIR / "checkpoints" / "mlp_baseline.pt"
 EPOCHS = 20
 BATCH = 2048

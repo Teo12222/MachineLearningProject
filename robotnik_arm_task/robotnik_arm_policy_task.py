@@ -42,8 +42,8 @@ START_POSE = parse_start_pose(os.environ.get("ROBOENV_START", "0,0,0"))
 FIXED_FINGER_ANGLES = np.array([0.1, 0.1, 0.1, 0.1, 0.1, 0.1])
 
 # Stop once the EE is this close to the target (m); time cap set via ROBOENV_MAX_TIME.
-# 1 cm is the success rule (the course's tolerance); the expert stops at 5 mm for more precise data.
-REACH_TOLERANCE = 0.01
+# 5 mm, the same success rule as the expert's (PLAN.md step 0, tolerance update).
+REACH_TOLERANCE = 0.005
 # ==============================================================================
 
 

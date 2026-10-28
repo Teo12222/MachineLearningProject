@@ -4,7 +4,7 @@ Usage (from the robotnik_arm_task folder, inside your roboenv environment):
     python compare.py                             # default target (0, 1.1, 0.5)
     python compare.py --target 1.5,-0.8,0.6
     python compare.py --target 1.5,-0.8,0.6 --start 0.5,0.5,1.57   # both start from another base pose
-    python compare.py --episode 292               # target + stored expert run of data_pilot/ep_0292.npz
+    python compare.py --episode 292               # target + stored expert run of data_main/ep_0292.npz
     python compare.py --test-set                  # policy on every test episode's target, results table
 
 --target: the expert (robotnik_arm_task.py) runs headless while the policy (robotnik_arm_policy_task.py) runs in the
@@ -32,8 +32,7 @@ EXPERT_SCRIPT = "robotnik_arm_task.py"
 POLICY_SCRIPT = "robotnik_arm_policy_task.py"
 EXPERT_TIMEOUT = 180.0  # s, the headless expert takes a few seconds per episode
 POLICY_TIMEOUT = 300.0  # s, wall time; a failing policy runs until its 30 s simulated time cap
-SUCCESS_TOLERANCE = 0.01  # m, the policy script's REACH_TOLERANCE (shown as the success line in the test-set plot);
-# the expert stops at a tighter 5 mm, so its "reached" is stricter than the policy's
+SUCCESS_TOLERANCE = 0.005  # m, the task scripts' REACH_TOLERANCE (shown as the success line in the test-set plot)
 
 
 def load_npz(path):
@@ -190,7 +189,7 @@ def run_test_set(data_dir, out_dir, script_dir, workers):
     ax.bar(pos - width / 2, exp_err, width, label="Expert", color="b")
     ax.bar(pos + width / 2, pol_err, width, label="Policy", color="tab:orange")   # nan (no result) is left empty
     ax.axhline(SUCCESS_TOLERANCE, color="gray", linestyle="--", linewidth=1,
-               label=f"Success threshold ({SUCCESS_TOLERANCE * 100:.0f} cm)")
+               label=f"Success threshold ({SUCCESS_TOLERANCE * 1000:.0f} mm)")
     ax.set_yscale("log")
     # Label the powers of ten as plain distances (1 mm, 1 cm, 10 cm, 1 m, ...) instead of 10^-3, 10^-2, ...
     # Only ticks inside the plotted range are set, so the axis is not stretched to show them all.
@@ -219,7 +218,7 @@ def main():
     mode.add_argument("--test-set", action="store_true", help="run the policy on all test episodes (table + error plot)")
     parser.add_argument("--start", help="start pose of the base x,y,yaw (m, m, rad), --target only; "
                                          "--episode / --test-set use each episode's stored start pose")
-    parser.add_argument("--data-dir", default="data_pilot", help="episode folder, relative to this script")
+    parser.add_argument("--data-dir", default="data_main", help="episode folder, relative to this script")
     parser.add_argument("--workers", type=int, default=16, help="policy runs in parallel for --test-set")
     parser.add_argument("--out-dir", default="compare_out", help="folder for the episode files and plots")
     args = parser.parse_args()

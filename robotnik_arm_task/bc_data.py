@@ -59,7 +59,7 @@ def split_episodes(data_dir, seed=0, val_frac=0.15, test_frac=0.15):
 
 if __name__ == "__main__":
     # Quick check: split sizes and the shapes of a few training episodes
-    train_ids, val_ids, test_ids = split_episodes("data_pilot")
+    train_ids, val_ids, test_ids = split_episodes("data_main")
     print(len(train_ids), len(val_ids), len(test_ids))
-    x, y = load_episodes("data_pilot", train_ids[:3])
+    x, y = load_episodes("data_main", train_ids[:3])
     print(x.shape, y.shape, x.dtype)
