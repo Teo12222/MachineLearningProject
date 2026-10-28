@@ -102,9 +102,62 @@ def split_episodes(data_dir, seed=0, val_frac=0.15, test_frac=0.15):
     return train_ids, val_ids, test_ids
 
 
+REACH_TOLERANCE = 0.01   # m, the expert's stop tolerance
+TORQUE_LIMIT = 30.0      # N*m, the expert clips the arm torques to +-this
+FRAME_KEYS = ["base_pos", "base_bearing", "q_mes", "qd_mes", "wheel_cmds", "torque_arm", "ee_pos"]
+
+
+def check_episode(d, min_duration=1.0):
+    """Problems that make a saved episode unusable for training (empty list = clean). d is the loaded .npz."""
+    problems = []
+    message = str(d["stop_message"])
+    if not message.startswith("Target reached"):
+        problems.append(f"not reached ({message[:40]})")
+    if float(d["final_error"]) > REACH_TOLERANCE:
+        problems.append(f"final error {1000 * float(d['final_error']):.1f} mm")
+    n = len(d["time"])
+    if any(len(d[k]) != n for k in FRAME_KEYS):
+        problems.append("arrays of different lengths")
+    if not all(np.isfinite(d[k]).all() for k in FRAME_KEYS + ["time", "target"]):
+        problems.append("NaN or inf values")
+    if n == 0 or d["time"][-1] < min_duration:
+        problems.append(f"shorter than {min_duration} s")
+    return problems
+
+
+def clean_ids(data_dir, episode_ids, max_saturated=0.1):
+    """The episodes that pass check_episode. Prints what was dropped and why.
+
+    Torques at the limit are expected (the expert's short kick when the reach starts), so they only give a warning
+    when more than max_saturated of an episode's frames are saturated. Call this after split_episodes, on each set:
+    dropping a bad episode then never moves a good one to another set.
+    """
+    kept, dropped, saturated = [], [], []
+    for i in episode_ids:
+        try:
+            d = np.load(Path(data_dir) / f"ep_{i:04d}.npz")
+            problems = check_episode(d)
+            share = (np.abs(d["torque_arm"]) >= TORQUE_LIMIT - 0.01).any(axis=1).mean()
+        except Exception as e:   # missing or truncated file (e.g. a crashed run)
+            problems, share = [f"unreadable ({type(e).__name__})"], 0.0
+        if problems:
+            dropped.append((i, problems))
+        else:
+            kept.append(i)
+            if share > max_saturated:
+                saturated.append((i, share))
+    print(f"episode check ({Path(data_dir).name}): kept {len(kept)} of {len(episode_ids)}")
+    for i, problems in dropped:
+        print(f"  dropped ep {i:04d}: {', '.join(problems)}")
+    for i, share in saturated:
+        print(f"  warning ep {i:04d}: torques at the limit in {100 * share:.1f}% of frames")
+    return kept
+
+
 if __name__ == "__main__":
-    # Quick check: split sizes and the shapes of a few training episodes
+    # Quick check: split sizes, the episode check and the shapes of a few training episodes
     train_ids, val_ids, test_ids = split_episodes("data_pilot")
     print(len(train_ids), len(val_ids), len(test_ids))
+    clean_ids("data_pilot", sorted(train_ids + val_ids + test_ids))
     x, y = load_episodes("data_pilot", train_ids[:3])
     print(x.shape, y.shape, x.dtype)
