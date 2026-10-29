@@ -46,8 +46,8 @@ for their own work as they go.
    improvements on master are Kris's.
 3. **Input features** (all in `bc_data.py`, which Matteo owns anyway): robot-frame polar vs Cartesian (6) and the
    feature checks from the preprocessing slides (after 11).
-4. **Then:** multi-model / split networks (15): base and arm networks, "arrived" flag, parking-pose prediction,
-   starting the arm early.
+4. **Then:** multi-model / split networks (15): base and arm networks, "arrived" flag, then the phase head,
+   parking-pose prediction, starting the arm early.
 5. **Once the ideas have results:** combine the winning ideas into the final model (components as switches),
    ablations (23), start-pose test (24).
 6. Camera extension (final section of the plan), shared with Kris: whoever is free once the final model works.
@@ -59,7 +59,7 @@ for their own work as they go.
    needed early by Jamie's `(v, w)` outputs), then adaptive subsampling (7; the past-frame windows need its frame
    indices) and episode cleaning (8). Faster training + `--seed` (11) last: seed repeats only start once the main
    improvements are done.
-2. Temporal data (14): past-frame windows, then the RNN (LSTM / GRU).
+2. Temporal data (14): past-frame windows, a TCN, then the RNN (GRU).
 3. Learning curve (17), which decides whether to extend the dataset; more low-height targets (18).
 4. Noise injection, DART (19); randomised arm starting pose (20) and DAgger (21) optional.
 5. Robustness tests (24: sensor noise, friction, shoves), on the final model.
@@ -534,7 +534,9 @@ on a saved episode: moving and rotating the whole scene (base, EE, target togeth
 - **What follows (priorities):** (a) **gravity-residual torques (12, Jamie) first**: gravity computed exactly by
   Pinocchio for the actual pose, the network only learns the small remainder, so the arm can't sag from missed
   gravity; (b) **split base / arm networks + "arrived" flag (15, Matteo)**: arm mistakes no longer feed the wheel
-  commands, and the flag addresses the late turn -> drive switch, as do temporal inputs (14, Kris); (c) tuning
+  commands, and the flag tells the arm when to reach. **Corrected (29 Oct):** the flag flips at the *end* of orient,
+  so it does not fix the late turn -> drive switch; the phase head (15, v2) and temporal inputs (14, Kris) address
+  that; (c) tuning
   (`tune.py`) still worth doing, but a better validation loss alone won't fix these closed-loop failures.
 - (The numbers above are on the first `data_main`, with the expert's arm chatter.)
 
@@ -684,8 +686,9 @@ validation targets if needed), never on the test set; then report the chosen set
   patience, activation function (ReLU vs e.g. SiLU/Tanh), optimiser (Adam vs AdamW; Adam's betas usually less
   important), weight initialisation (PyTorch default vs He/Kaiming for ReLU; still compared over seeds, see 24:
   the initialisation is random either way).
-- **Model-specific ones:** history length k and frame spacing (temporal models); RNN hidden size and training
-  sequence length; subsampling rates and floor (adaptive subsampling); noise level (DART data).
+- **Model-specific ones:** history length k and frame spacing (temporal models); TCN layers (receptive field
+  2^L frames), frame spacing and channels per layer; RNN hidden size, training window and burn-in length;
+  subsampling rates and floor (adaptive subsampling); noise level (DART data).
 - Keep the search small (a few values per hyperparameter, most important first: learning rate, network size, batch);
   record each tried setting as its own model name so it lands in `results/`.
 
@@ -807,14 +810,127 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
 14. **Temporal data** (aimed at the early stop of turning and the phase switches). Also a discussion point: why
     temporal data is needed (the expert has hidden state: navigation phase, accumulated joint targets).
     - First, **past-frame windows** into the MLP: stack k frames with a spacing, sweep both.
-    - Then a **recurrent neural network (RNN)**: an LSTM or GRU (`torch.nn.LSTM` / `torch.nn.GRU`). It keeps an
+    - Then a **temporal convolutional network (TCN)** (Lecture 07; added 29 Oct): causal dilated 1-D convolutions
+      directly on the 27 inputs of the last N frames give the commands at time t. Plain first, no per-frame MLP
+      encoder: the lecture uses one to compress wide inputs (many channels, images) into features, and ours are only
+      27 numbers. If it trains badly, add residual connections around each layer first (standard in TCNs; deep plain
+      dilated stacks are hard to train), and the encoder only if it underfits the per-frame mapping. Unlike
+      past-frame windows (separate weights per past frame, cost grows with the window), the TCN shares weights over
+      time and its reach grows exponentially with dilation: windows for short histories, the TCN for a long
+      receptive field at low cost. Settings and why:
+      - **Causal only** (no future frames at run time; for the same reason no bidirectional RNN), **stride 1**
+        (one prediction per 1 ms step), **kernel 2 with dilation 1, 2, 4, ...** as in the lecture: the receptive
+        field doubles per layer (2^L frames), so the number of layers L is the main knob to sweep.
+      - Frames inside the window at a **spacing** (e.g. 10 ms): neighbouring 1 ms frames are almost identical, so
+        without it even 6 layers (64 frames) only see 64 ms; with 10 ms, 6 layers see 0.64 s.
+      - **No max pooling** by default: pooling makes the output ignore *when* something happened in the window (the
+        lecture's translation invariance, useful for recognising whether an event happened), but our commands
+        depend on exactly that timing (time since the turn stopped, progress of the reach), and it lowers the time
+        resolution. At most an ablation.
+      - **Episode start:** the first frames have no past; pad by repeating the first frame (not zeros: zero in
+        normalised units means "an average state"), **identically in training and in the policy script**.
+      - **No repeated computation:** training computes `make_features` once per episode and builds windows by
+        indexing (the frames from `subsample_indices` + fixed offsets), not by copying N frames per sample (all 12 M
+        frames x 27 inputs is ~1.3 GB in float32: fine on the desktop, tight on the laptop). In the policy, each
+        layer keeps a ring buffer of its past outputs and computes only the newest node each step: the lecture's
+        dilation tree, where each node is computed once and reused by later steps (same cost per step as the MLP).
+        Measure `inference_ms` either way.
+      - Expected to help the **base** (the phase switch shows in the recent history) more than the **arm**: the
+        arm's hidden state `q_des_arm` is clipped to within 0.15 rad of the measured angles (`max_q_lead`), so its
+        memory is short. With split networks (15) a temporal model can go into one net only: try base-only first.
+    - Then a **recurrent neural network (RNN)**: a GRU (`torch.nn.GRU`; why not an LSTM: below). It keeps an
       internal memory that is updated every step, so it can learn the expert's hidden state (which phase it is in)
       instead of us choosing a fixed window. Training uses short sequences cut from the episodes; in the policy
       script the memory is carried from step to step and reset at the start of each episode.
-15. **Multi-model / split networks** (mirrors the expert's structure), from simple to more structured:
-    - separate **base** and **arm** networks, each with its own subsampling;
-    - base network also outputs an **"arrived" flag** (bool): while false the base drives and the arm holds; when
-      true the base stops and the arm network takes over (imbalanced classes: use a weighted loss);
+      - **Plain GRU first, trained in one go** (decided 29 Oct): one GRU layer stepping every 1 ms on the 27
+        inputs, linear output (the lecture's basic RNN; simplest, and the cleanest comparison with the MLP and the
+        TCN). Only if its offline torque RMSE is clearly worse than the MLP's (underfitting the pose-dependent
+        torques: a GRU has one nonlinear layer per step, the MLP three), add a small MLP head on [GRU output,
+        current frame]; gravity-residual torques (12) would remove most of that nonlinearity anyway. Not the
+        lecture's MLP encoder + GRU (encoder before the GRU, trained in stages): more parts and more training steps
+        for inputs that are already small.
+      - **Training data:** **contiguous windows** cut from the episodes (not `subsample_indices`' scattered
+        frames; window starts can still favour phase switches), with a **burn-in** at the start of each window
+        without loss, since a window cut mid-episode starts from a state the policy would never have; **truncated
+        backpropagation through time** over the window (long sequences risk vanishing/exploding gradients).
+      - **Why a GRU and not an LSTM (decided 29 Oct):** an LSTM adds a separate cell memory next to the hidden
+        state (input, forget and output gates: 4 weight blocks instead of the GRU's 3, ~33% more parameters and
+        compute per step), so it can keep information for much later without it affecting the current output
+        (Lecture 07). Our hidden state is the opposite case: the phase and the joint reference matter for the
+        commands *now*, over a few seconds, not information stored for later. The lecture also notes the GRU was
+        designed as a simpler LSTM with negligible loss, and in 15 the forward-only phase latch already carries the
+        longest memory (the phase) by hand. So no separate LSTM model; since it is a drop-in swap (`nn.GRU` ->
+        `nn.LSTM`, same training code, the state becomes (h, c)), **one LSTM run** only if the GRU clearly fails to
+        hold the phase (poor phase accuracy near the switches, or validation loss still falling with longer
+        training windows), or as an ablation if time is left at the end.
+      - Optional later: the GRU also predicts the phase (as in 15's phase head) to check whether it learned the
+        hidden state; 15 builds the phase head first.
+    - **Compare TCN vs RNN** on the same inputs, split and metrics (validation loss, test RMSE, closed loop,
+      inference time per step). Report points: (a) the MLP's only temporal information is the joint velocity
+      (one-step memory; the lecture's "RNNs vs MLPs"); (b) the TCN needs a fixed window, while the arrival time
+      varies 3.6-12.8 s, which the RNN handles without choosing a window (the lecture's "TCN limitations"); the TCN
+      is simpler to train; (c) **14 vs 15**: the same hidden phase, learned here vs built by hand in 15 (the
+      forward-only latch), see the report point at the end of 15.
+    - Owner: Kris (step 14); the TCN can move to Matteo if 15 finishes first (decide at the check-in).
+15. **Multi-model / split networks** (mirrors the expert's structure), from simple to more structured. Matteo,
+    models `split_*` (e.g. `split_arrived_s0`). Design agreed 29 Oct, not built yet:
+    - **Facts from 150 training episodes (`data_main`)**, behind the design: `nav_done` is True in ~31% of frames
+      (median; 15-58%), only ever goes False -> True, and the wheels are exactly 0 after it. Arrival at a median
+      8.7 s (3.6-12.8 s), wheel speed just before ~0.86 rad/s (the orient turn in place). Before arrival the arm is
+      a PD hold of its start pose + gravity (drift <= 0.067 rad), and its torques step by 6.5-11 N*m at arrival.
+      **The flag flips at the end of orient, so it does not fix the late align -> drive switch** (the diagnosis
+      under step 6 said it would; corrected there): it mainly helps the arm (hold vs reach), and base-only inputs
+      help the base. The class imbalance is mild (~2:1); the hard part is the timing of the switch.
+    - **v1: separate base and arm networks + "arrived" flag.**
+      - Base net: `make_features` columns 0-2 (target forward/left in the base frame, target height) -> 4 wheels
+        (MSE, all frames including the post-arrival zeros) + 1 "arrived" logit (`BCEWithLogitsLoss`, `pos_weight`
+        = negatives / positives on the frames actually used). Loss = MSE + BCE, 1:1 to start.
+      - Arm net: columns 3-26 (target relative to the EE, sin/cos q, qd: 24) + the flag (0/1) = 25 inputs -> 7
+        torques. Trained with the true `nav_done`, run with the latched predicted flag. Columns 0-2 left out on
+        purpose: the arm doesn't need them (target - shoulder = EE-relative target + a function of q), and they
+        would let it guess the phase from the base position instead of using the flag.
+      - Both nets on the same adaptive frames at first, so `best_val_loss` stays comparable with the single MLP
+        ((4 x wheel MSE + 7 x torque MSE) / 11 on the same normalisation); per-net subsampling is a later switch.
+      - Policy: the flag latches once p > 0.5 for ~20 ms and never unlatches; wheels forced to 0 after the latch
+        (a hand-coded rule mirroring the expert: say so in the report). Success is still `check_stop(..., True)`,
+        not the flag. p(arrived) and the latched flag are saved in the policy `.npz`. Open: also latch at 25 s like
+        the expert's navigation timeout (then log whether the network or the timeout latched).
+      - Code (the single-MLP files stay as they are): `bc_split.py` reuses `bc_model.MLP` unchanged (base
+        `MLP(3, 5)`, arm `MLP(25, 7)`), saved as **one** checkpoint so `ROBOENV_POLICY` / `compare.py --model`
+        work; the logit column gets `y_mean` 0 / `y_std` 1 so the output normalisation doesn't rescale it.
+        `bc_data.py`: additions only (`nav_done` labels aligned with the subsampled frames, `BASE_INPUTS` /
+        `ARM_INPUTS` slices). The policy script branches on the checkpoint type; the single-MLP path is unchanged.
+        Open: a new `train_split.py` (recommended: `train.py`, `tune.py` and teammates' merges stay untouched, at
+        the cost of ~100 duplicated lines) vs a `--split` option in `train.py`.
+      - Evaluation: reference = the single MLP retrained with the current defaults (e.g. `mlp_robotframe_s0`; the
+        recorded `mlp_robotframe` used lr 1e-3, a fixed 20 epochs, uniform every-10th frames and 700 episodes, so
+        it isn't a fair reference). Offline: `best_val_loss`, test RMSE replayed with the predicted, latched flag
+        feeding the arm net, median arrival-time error, number of latches > 0.1 s early (early is the dangerous
+        direction). Closed loop (`compare.py --test-set --quick`): reached, median final error, closest to the
+        parking spot and when, latch time vs the expert's arrival, closest EE error. Old reference: 0/50, 0.78 m,
+        35/50 within 15 cm at ~20 s, 17 cm.
+    - **v2: phase head** (after v1, so the comparison shows what it adds; added 29 Oct). The expert's phases only
+      move forward (align -> drive -> orient -> arrived; phases can be skipped, never revisited), so the latch
+      generalises: the base net outputs 4 phase logits (from `nav_phase` + `nav_done`; "orient" = `orient` and not
+      `nav_done`; class-weighted cross-entropy, since phases that finish instantly have no frames) instead of the
+      1 arrived logit, and gets the current phase (one-hot) as input: the true phase in training, the latched one
+      at run time. The policy only advances the phase (p(a later phase) > 0.5 for ~20 ms); "arrived" is v1's flag.
+      - Why per frame is enough here: the latch is the memory, so the net only has to spot the next transition, and
+        the transitions are mostly readable from the base inputs (align ends when the heading to the parking spot
+        is within 0.05 rad, and since the base turns in place on the start-to-target line that is the heading to
+        the target, up to the ~9 cm skid; drive ends within 8 cm of the spot, a standoff from the target set by its
+        height).
+      - **This is the part that addresses the late align -> drive switch:** a regression blurs the jump in the wheel
+        commands (turning at +-3 rad/s -> driving forward), a classifier + latch makes it a sharp decision.
+      - Not a per-frame phase classifier feeding a GRU (14): without the latch the phase can't be read from one
+        frame near the switches (the expert's switch rules have hysteresis), and a front end trained on true phases
+        but run on predicted ones adds a train/run mismatch.
+      - **Report point: 15 vs 14.** Both go after the same problem, the expert's hidden "which phase am I in"
+        (the single MLP sees one frame and can't know it). Here the memory is **built by hand** (the forward-only
+        latch, using the logged phases as labels); in 14 the network **learns** it (TCN window, GRU state) from the
+        commands alone. Compare them on the same metrics, especially the timing of the align -> drive switch and of
+        arrival: if the hand-built latch wins, the structure of the expert is worth building in; if the GRU matches
+        it, the memory can be learned without phase labels.
     - a model that **predicts the base's final pose** (where to park, from the target) that the base network then
       drives to;
     - **start the arm before the base arrives** (no expert change needed): train the arm network only on the reach
