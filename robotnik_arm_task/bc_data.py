@@ -4,6 +4,7 @@ make_features is shared by training (whole episodes) and robotnik_arm_policy_tas
 so the model always sees inputs built the same way.
 """
 import numpy as np
+from functools import cache
 from pathlib import Path
 
 
@@ -39,23 +40,64 @@ def make_labels(wheel_cmds, torque_arm):
     return np.concatenate([wheel_cmds, torque_arm], axis=-1).astype(np.float32)
 
 
-def decode_outputs(y):
+def decode_outputs(y, tau_g=None):
     """Model output back to robot commands: (4 wheel commands in rad/s, 7 arm torques in N*m).
 
     The inverse of make_labels. Works for one frame or a whole episode (one row per frame).
     Everything that runs or scores a model (policy script, offline test) goes through this, so a new output
     format (e.g. (v, w) instead of 4 wheel speeds) only changes make_labels and this function.
+    tau_g: for gravity-residual models (PLAN.md step 12) the arm gravity torques of the same frames
+    (arm_gravity), added back to the predicted torques; None for models that predict the full torque.
     """
     y = np.asarray(y)
-    return y[..., :4], y[..., 4:11]
+    torques = y[..., 4:11] if tau_g is None else y[..., 4:11] + tau_g
+    return y[..., :4], torques
 
 
-def load_episode(path):
-    """Inputs and labels for every frame of one saved episode."""
+@cache
+def _gravity_model():
+    """Pinocchio model of the robot and the joint indices arm_gravity needs; built once, on the first call."""
+    import pinocchio as pin   # only needed here, so the rest of the module keeps working without it
+    urdf = Path(__file__).resolve().parent / "models" / "summit_xl_arm_description" / "summit_xl_complete_pin.urdf"
+    model = pin.buildModelFromUrdf(str(urdf), pin.JointModelFreeFlyer())
+    arm = [f"robot_j2s7s300_joint_{i}" for i in range(1, 8)]
+    fingers = [f"robot_j2s7s300_joint_finger{s}" for s in ("_1", "_tip_1", "_2", "_tip_2", "_3", "_tip_3")]
+    # Pinocchio orders the joints its own way: look up where each arm/finger joint sits by name
+    idx_q = [model.joints[model.getJointId(n)].idx_q for n in arm + fingers]
+    idx_v = [model.joints[model.getJointId(n)].idx_v for n in arm]
+    return model, model.createData(), idx_q, idx_v
+
+
+def arm_gravity(q_mes):
+    """Arm gravity torques in N*m, (n, 7), from the measured joint angles q_mes, (n, 17) or one frame (17,).
+
+    The same torque the expert adds in arm_controller (pin.computeGeneralizedGravity), but built from the URDF alone,
+    so it needs no simulator and works on saved episodes (PLAN.md step 12). The base is left at the origin and
+    upright: on a flat floor the base position and yaw don't change the arm's gravity torques. Checked on data_pilot:
+    matches the expert's torques to ~0.006 N*m (the small rest is the base tilting while it drives).
+    """
+    import pinocchio as pin
+    model, data, idx_q, idx_v = _gravity_model()
+
+    q_mes = np.atleast_2d(q_mes)
+    q = pin.neutral(model)
+    tau_g = np.empty((len(q_mes), 7), dtype=np.float32)
+    for k, qm in enumerate(q_mes):
+        q[idx_q] = qm[4:17]   # arm (7) then fingers (6), same order as q_mes
+        tau_g[k] = pin.computeGeneralizedGravity(model, data, q)[idx_v]
+    return tau_g
+
+
+def load_episode(path, gravity_residual=False):
+    """Inputs and labels for every frame of one saved episode.
+
+    gravity_residual: the torque labels are the expert torque minus the arm gravity torque (PLAN.md step 12).
+    """
     d = np.load(path)
     x = make_features(d["base_pos"], d["base_bearing"], d["q_mes"][:, 4:11], d["qd_mes"][:, 4:11], d["target"],
                       d["ee_pos"])
-    y = make_labels(d["wheel_cmds"], d["torque_arm"])
+    torque = d["torque_arm"] - arm_gravity(d["q_mes"]) if gravity_residual else d["torque_arm"]
+    y = make_labels(d["wheel_cmds"], torque)
     return x, y
 
 
@@ -87,17 +129,23 @@ def subsample_indices(wheel_cmds, torque_arm, keep_frac=0.1, mode="adaptive", fl
     return np.sort(rng.choice(n, size=k, replace=False, p=p / p.sum()))
 
 
-def load_episodes(data_dir, episode_ids, keep_frac=None, mode="adaptive", seed=0):
+def load_episodes(data_dir, episode_ids, keep_frac=None, mode="adaptive", seed=0, gravity_residual=False):
     """Inputs and labels of several episodes stacked into one array each.
 
     keep_frac=None keeps every frame; otherwise each episode keeps only the frames picked by subsample_indices.
+    gravity_residual: torque labels minus the arm gravity torque (see load_episode).
     """
     xs, ys = [], []
     for i in episode_ids:
-        x, y = load_episode(Path(data_dir) / f"ep_{i:04d}.npz")
+        path = Path(data_dir) / f"ep_{i:04d}.npz"
+        x, y = load_episode(path)
+        keep = slice(None)
         if keep_frac is not None:
+            # Picked from the full torques, so a gravity-residual model trains on the same frames as one without
             keep = subsample_indices(*decode_outputs(y), keep_frac=keep_frac, mode=mode, seed=(seed, i))
             x, y = x[keep], y[keep]
+        if gravity_residual:
+            y[:, 4:11] -= arm_gravity(np.load(path)["q_mes"][keep])   # only for the kept frames
         xs.append(x)
         ys.append(y)
     return np.concatenate(xs), np.concatenate(ys)
