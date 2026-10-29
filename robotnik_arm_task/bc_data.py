@@ -130,7 +130,8 @@ def quick_val_ids(val_ids, n=20, seed=0):
     return quick_test_ids(val_ids, n, seed)
 
 
-REACH_TOLERANCE = 0.01   # m, the expert's stop tolerance
+REACH_TOLERANCE = 0.01   # m, loose check of the final error: the expert itself stops at 5 mm, and runs that
+                         # drift to 5-10 mm in the 1 s settle after reaching are still good demonstrations
 TORQUE_LIMIT = 30.0      # N*m, the expert clips the arm torques to +-this
 FRAME_KEYS = ["base_pos", "base_bearing", "q_mes", "qd_mes", "wheel_cmds", "torque_arm", "ee_pos"]
 

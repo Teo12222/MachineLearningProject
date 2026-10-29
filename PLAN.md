@@ -421,9 +421,40 @@ of `results/<model>.csv`, so they never overwrite each other. Details:
 - **Uniform subsample for now:** `train.py` trains and validates on every 10th frame (`FRAME_STEP = 10`, recorded
   as the `frame_step` column), via a crude `every` argument of `load_episodes` (thinned per episode while loading,
   so the full 12 M frames never sit in memory). Placeholder until adaptive subsampling (7) replaces it. The test
-  RMSE always uses every frame.
+  RMSE always uses every frame. **Replaced at the merge (29 Oct), see below.**
 - The training seed is still fixed (`torch.manual_seed(0)`) until `--seed` (11): put the seed in the model name
-  yourself (e.g. `mlp_worldframe_s0`).
+  yourself (e.g. `mlp_worldframe_s0`). **Since 28 Oct: `train.py --seed N` (default 0).**
+
+**Merge of Matteo's and Kris's `master` work (29 Oct).** Both sides kept; how the overlaps were resolved and why:
+- **Subsampling:** Kris's `subsample_indices` / `load_episodes(..., keep_frac, mode)` replace the crude `every=` /
+  `FRAME_STEP` (they were its placeholder). **`train.py` now uses `SUBSAMPLE = "adaptive"`, `KEEP_FRAC = 0.1`** (same
+  number of frames as before; Kris's default `None` = all 12 M frames, ~10x slower). Why adaptive now: it samples
+  more frames where the expert's commands change (phase switches, the start of the reach), which is where the policy
+  fails (late turn -> drive switch, imprecise reach); the reason to hold back was the expert's arm chatter, which
+  adaptive sampling would have oversampled, and that is fixed. **Consequence:** models trained from now on use
+  adaptive frames, all earlier models (`mlp_robotframe`, `mlp_robotframe_tuned`) used uniform ones (`frame_step = 10`
+  in their results files; new ones record `subsample` / `keep_frac`), so they differ in the training data too.
+  **To do: test the difference at some point** (step 7's "compare against uniform"): train the same model with
+  `SUBSAMPLE = "uniform"` and `"adaptive"` and compare offline and closed loop (`--quick`, then the full test set),
+  so the choice is backed by a result in the report. Validation stays uniformly subsampled in both, so the
+  validation losses are comparable.
+- **Episode cleaning:** Kris's `clean_ids` runs after the split in `train.py`. On the recollected `data_main` it
+  drops 6 episodes: the 5 stalled ones (77, 297, 752, 791, 799) and 834 (reached, then drifted to 10.1 mm in the
+  settle second, above the 1 cm check). So training now uses 696 / 149 / 149 episodes instead of 700 / 150 / 150
+  (`train_episodes` = 696 in new results; earlier models used 700). The cleaning threshold stays 1 cm (the expert stops
+  at 5 mm, but runs that drift to 5-10 mm while settling are still good demonstrations; the constant's comment says
+  so). **`compare.py --test-set` still runs all 150 test targets** (it doesn't clean): a target the expert couldn't
+  reach is still a valid closed-loop test, and every model and the expert are judged on the same 150.
+- **Offline test scored through `decode_outputs`** (Kris, step 10): predictions are decoded into 4 wheel speeds and 7
+  torques and compared with the expert's own commands from the episode file, so `test_wheel_rmse` /
+  `test_torque_rmse` mean the same for every output format (e.g. Jamie's `(v, w)`). Same numbers as before for
+  models that output wheels + torques directly.
+- **Policy script:** robot-frame `make_features(..., ee_pos)`, then Kris's `decode_outputs(model.predict(x))`, then
+  both safety clips (wheels +-3 rad/s, torques +-30 N*m) on the decoded commands.
+- **Two merge slips caught and fixed:** `torch.manual_seed(0)` had replaced `torch.manual_seed(args.seed)` (so
+  `--seed` was ignored), and `FRAME_STEP` was still recorded although no longer used. Checked after the merge: all
+  scripts compile, `bc_data.py`'s self-check runs, and a 1-epoch training gives 856 k training frames (every 10th),
+  27 inputs, and the new results columns.
 
 Then **retrain the current world-frame baseline on the new dataset** under its own name (e.g. checkpoint
 `mlp_worldframe.pt`, so `results/mlp_worldframe.csv`), with `train.py` and `compare.py --test-set`. This is the
@@ -528,6 +559,12 @@ on a saved episode: moving and rotating the whole scene (base, EE, target togeth
    while it holds; a small floor rate everywhere (never zero). Per episode, keeping frame indices so past-frame
    windows stay possible. Compare against uniform subsampling.
    - **Done (Kris, 28 Oct, pushed 28 Oct). Still to run: the comparison against uniform.**
+   - **Default since the merge (29 Oct): `SUBSAMPLE = "adaptive"`, `KEEP_FRAC = 0.1` in `train.py`** (see the merge note
+     under "Recording results" for why). **To do: test the difference** against uniform: train the same model with both
+     settings (only `SUBSAMPLE` changes) and compare offline (validation loss, test RMSE), then in closed loop
+     (`compare.py --test-set --quick`, then the full test set), so the choice is backed by a result in the report.
+     Validation is subsampled uniformly in both, so their validation losses are directly comparable. (A 1-epoch
+     check already hinted at it: validation loss 0.0091 adaptive vs 0.0135 uniform, too short to count.)
    - `afafe7a` (`bc_data.py`): `subsample_indices(wheel_cmds, torque_arm, keep_frac, mode, floor=0.3, smooth=50, seed)`
      returns the sorted frame indices to keep from one episode (indices, not copies, so the temporal models (14) can
      still look up past frames in the full episode).
@@ -572,6 +609,18 @@ on a saved episode: moving and rotating the whole scene (base, EE, target togeth
 9. **RANSAC / outlier preprocessing (experiment):** keep both raw and preprocessed data and compare models trained
    on each. Note: the simulator is noise-free, so we expect little difference on clean data; it becomes more
    relevant once sensor noise is added (robustness tests).
+   - **Decided (29 Oct, not done yet; Jamie's item, low priority): an experiment on a branch, not part of the shared
+     data, and it doesn't block branching.** Only changes to the data or inputs everyone trains on had to come before
+     branching, and RANSAC is unlikely to be used on the shared data: (a) the data has no outliers in the usual sense
+     (noise-free simulator, no NaN/inf in the episode checks, and the one real data problem, the expert's arm chatter,
+     was fixed at the source); (b) **what it would remove could be the most important frames**: fitted to our data, the
+     frames that don't fit the overall trend are where the expert's command changes abruptly (turn -> drive switch,
+     the base stopping, the start of the reach), i.e. exactly the decisions the policy fails to copy (the late turn ->
+     drive switch), so removing them could make the model worse at the failure we diagnosed. Check closed-loop
+     results before applying it to any training data. (c) Where it does make sense is on noisy measurements in the
+     robustness tests (24), as a filter on the inputs at run time (part of the final model), and in the camera
+     extension (fitting and removing the floor plane). Expected result on clean data: no difference, still worth a
+     sentence in the report (the "clean" step of the lecture pipeline).
 10. **`decode_outputs()` helper** in `bc_data.py`, so the policy script doesn't change when the output format does.
     - **Done (Kris, 27 Oct, pushed 28 Oct).**
     - `96f3ca3` (`bc_data.py`, `robotnik_arm_policy_task.py`, `train.py`): `decode_outputs(y)` returns

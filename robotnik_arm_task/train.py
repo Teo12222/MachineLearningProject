@@ -38,10 +38,11 @@ MAX_EPOCHS = 100
 PATIENCE = 10
 BATCH = 2048
 LR = 3e-3
-# Uniform subsample of the training and validation frames (every 10th) until adaptive subsampling exists (PLAN.md
-# step 7). The test RMSE always uses every frame.
-FRAME_STEP = 10
-SUBSAMPLE = None    # training frames: None = all, "uniform" or "adaptive" (see subsample_indices in bc_data.py)
+# Training frames: None = all, "uniform" or "adaptive" (see subsample_indices in bc_data.py). "adaptive" since the
+# merge: more frames where the expert's commands change (phase switches, the reach), now that the expert's arm chatter
+# is fixed. Models trained before used "uniform" (every 10th frame); the comparison is still to be run (PLAN.md
+# step 7). All frames would be ~10x slower. Validation is subsampled uniformly and the test RMSE uses every frame.
+SUBSAMPLE = "adaptive"
 KEEP_FRAC = 0.1     # share of each episode kept when subsampling
 
 OUTPUT_NAMES = ["wheel FR", "wheel FL", "wheel BL", "wheel BR"] + [f"J{j}" for j in range(1, 8)]
@@ -69,7 +70,7 @@ CHECKPOINT = SCRIPT_DIR / "checkpoints" / f"{args.model}.pt"
 if args.threads:
     torch.set_num_threads(args.threads)
 
-torch.manual_seed(0)
+torch.manual_seed(args.seed)
 train_ids, val_ids, test_ids = split_episodes(DATA_DIR)
 # Bad episodes are dropped after the split, so the good ones always stay in the same set
 train_ids, val_ids, test_ids = (clean_ids(DATA_DIR, ids) for ids in (train_ids, val_ids, test_ids))
@@ -130,7 +131,8 @@ if not args.test_only:
     update_results(
         args.model, train_episodes=len(train_ids), epochs=epoch, batch=args.batch, lr=args.lr,
         hidden=args.hidden, layers=args.layers, best_val_loss=best_val, best_epoch=best_epoch,
-        train_time_s=train_time, parameters=sum(p.numel() for p in model.parameters()), frame_step=FRAME_STEP,
+        train_time_s=train_time, parameters=sum(p.numel() for p in model.parameters()),
+        subsample=SUBSAMPLE or "off", keep_frac=KEEP_FRAC if SUBSAMPLE else None,
         weight_decay=args.weight_decay, dropout=args.dropout, max_epochs=args.max_epochs, patience=args.patience,
         inference_ms=None, test_wheel_rmse=None, test_torque_rmse=None, **{c: None for c in SIM_COLUMNS},
     )
