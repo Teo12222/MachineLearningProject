@@ -860,7 +860,12 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
         - **Gravity residual fixes the early arm failure:** arm deviation at 6 s is at the expert's level (0.056 rad, the
           expert stays within 0.067), and closest EE approach halves, with almost the same offline numbers. Still 0/50.
           The median final error is higher (2.26 m) but says little here: it measures where a failed run wandered to.
-        - **Next:** windows should be judged on top of the residual: Stage 1's models lost the arm for another reason.
+        - **Window on top of the residual, `temporal_window_k4_d50_gravres_s0` (200 ms): worse than the residual alone.**
+          Val loss 0.00155 (vs 0.00131), test wheels 0.056, torques 0.111, 0/50, final error 8.70 m (2.26 m), within 15 cm of
+          the spot 5/50 (23/50), closest EE 0.33 m (0.16 m), arm deviation at 6 s 0.54 rad (0.056), base 0.3 m off the
+          expert at 6.6 s (7.7 s), never in 3/50 (21/50). So windows lose in all five comparisons, with and without the
+          residual: on the whole network they destabilise the arm. The turn -> drive delay is 0.03 s without them, so
+          they have nothing to fix there. Sweep stopped here: Stages 2-3 not run. One seed, quick test.
     - Then a **temporal convolutional network (TCN)** (Lecture 07; added 29 Oct): causal dilated 1-D convolutions
       directly on the 27 inputs of the last N frames give the commands at time t. Plain first, no per-frame MLP
       encoder: the lecture uses one to compress wide inputs (many channels, images) into features, and ours are only
