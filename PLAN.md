@@ -287,6 +287,11 @@ for their own work as they go.
    so it sees exactly the same numbers. Compression would save another ~25% (1.41 MB) but makes every load slower;
    not worth it at this size. `target`, `final_error` and the poses stay float64; old float64 files load the same way.
 
+   **Checked (30 Oct): `q_des_arm` is hardly hidden in practice.** Before arrival it is the arm's start pose (the
+   same in every episode); during the reach the current 27 inputs predict `q_des_arm - q` with R2 0.98-1.00 per joint
+   (validation episodes), leaving 0.01-0.15 N*m of torque, about the current torque error. So the arm needs no
+   memory for it: a single-frame arm network is fine (see 14 and 15).
+
 **Only the expert fixes have to come before recollecting.** Input features are built by `make_features` when
 episodes are loaded, not when they are recorded, and everything they need is already saved (`base_pos`,
 `base_bearing`, `q_mes`, `qd_mes`, `ee_pos`, `time`, `target`): robot-frame inputs, polar vs Cartesian, sin/cos
@@ -836,8 +841,14 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
         dilation tree, where each node is computed once and reused by later steps (same cost per step as the MLP).
         Measure `inference_ms` either way.
       - Expected to help the **base** (the phase switch shows in the recent history) more than the **arm**: the
-        arm's hidden state `q_des_arm` is clipped to within 0.15 rad of the measured angles (`max_q_lead`), so its
+        arm's internal reference `q_des_arm` is predictable from the current frame (checked under fix 6), so its
         memory is short. With split networks (15) a temporal model can go into one net only: try base-only first.
+      - **Temporal arm too? Test it, don't assume it** (decided 30 Oct). Once a temporal base works, compare
+        temporal base + single-frame arm vs temporal base + temporal arm (closed loop, and the torque error during
+        the reach). Why not by default: what memory could fix in the arm is small (above), the flag already handles
+        the hold -> reach switch, and a temporal arm sees its own recent motion (mostly the result of its own last
+        torques), the copycat risk (see "Feature checks"). Keep the simpler arm unless the temporal one clearly wins.
+        Report point either way: memory helps where the expert has hidden state (base), not where it doesn't (arm).
     - Then a **recurrent neural network (RNN)**: a GRU (`torch.nn.GRU`; why not an LSTM: below). It keeps an
       internal memory that is updated every step, so it can learn the expert's hidden state (which phase it is in)
       instead of us choosing a fixed window. Training uses short sequences cut from the episodes; in the policy
