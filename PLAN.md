@@ -951,6 +951,10 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
           Same direction as the windows (arm fails at 2-3 s). Why is not established.
         - Not comparable with the MLP on size: these TCNs have 20-45% of its parameters, and val loss is not monotonic in
           L (L6 is worse than L4 and L8), which suggests the plain deep stack trains badly (no residual connections yet).
+        - **Old settings on L4, `tcn_L4_d10_gravres_lr1e3_s0` (lr 1e-3, max 20 epochs): no rescue, unlike the MLP.** Val
+          0.00408, wheel / torque RMSE 0.105 / 0.166, 0/50; max torque first hit 1.89 s (L4: 1.25 s), arm dev. at 2 s 0.73
+          rad, off the floor 49/50, spot within 15 cm 6/50. The arm still fails before the drive starts. Val loss was still
+          falling at epoch 20, so this model is underfit; it is not a test of a well-trained TCN at lr 1e-3.
     - Then a **recurrent neural network (RNN)**: a GRU (`torch.nn.GRU`; why not an LSTM: below). It keeps an
       internal memory that is updated every step, so it can learn the expert's hidden state (which phase it is in)
       instead of us choosing a fixed window. Training uses short sequences cut from the episodes; in the policy
