@@ -47,7 +47,10 @@ for their own work as they go.
 3. **Input features** (all in `bc_data.py`, which Matteo owns anyway): robot-frame polar vs Cartesian (6) and the
    feature checks from the preprocessing slides (after 11).
 4. **Then:** multi-model / split networks (15): base and arm networks, "arrived" flag, then the phase head,
-   parking-pose prediction, starting the arm early.
+   parking-pose prediction, starting the arm early. **Then DAgger for the split arm (21)** (decided 30 Oct; the
+   phase head is parked): the arm drifts off the expert's states ~1 s into the reach, and the expert's arm controller
+   can label the policy's own states offline, so no expert re-runs. Noise injection (19) stays Kris's: the two are
+   compared in the report.
 5. **Once the ideas have results:** combine the winning ideas into the final model (components as switches),
    ablations (23), start-pose test (24).
 6. Camera extension (final section of the plan), shared with Kris: whoever is free once the final model works.
@@ -60,8 +63,10 @@ for their own work as they go.
    indices) and episode cleaning (8). Faster training + `--seed` (11) last: seed repeats only start once the main
    improvements are done.
 2. Temporal data (14): past-frame windows, a TCN, then the RNN (GRU).
-3. Learning curve (17), which decides whether to extend the dataset; more low-height targets (18).
-4. Noise injection, DART (19); randomised arm starting pose (20) and DAgger (21) optional.
+3. Noise injection, DART (19); randomised arm starting pose (20) optional (DAgger, 21, moved to Matteo, 30 Oct).
+   Moved up (30 Oct): the split model's arm drifts off the expert's states ~1 s into the reach and the data has no
+   examples of correcting from there (step 15 results); noise injection adds exactly those.
+4. Learning curve (17), which decides whether to extend the dataset; more low-height targets (18).
 5. Robustness tests (24: sensor noise, friction, shoves), on the final model.
 6. Camera extension (final section of the plan), shared with Matteo: whoever is free once the final model works.
 7. **Report:** shared improvements (subsampling, cleaning), temporal models, data experiments, robustness, the
@@ -1012,7 +1017,15 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
           several seeds. (The earlier "Gravity residual: no difference" above is offline only.)
         - Keep each model's quick-test files with `compare.py --out-dir compare_out/<model>` (otherwise each run
           overwrites `compare_out/test_set_quick/`).
-    - **v2: phase head** (after v1, so the comparison shows what it adds; added 29 Oct). The expert's phases only
+    - **v2: phase head: parked (30 Oct), not worth doing for now.** Why: what it was for is already fixed by v1. In
+      the `split_arrived_s0` quick runs the turn -> drive switch comes a median 23 ms after the expert's (80% within
+      -54..+57 ms, worst 190 ms; detected from the commanded forward speed, a detector that finds the expert's logged
+      switch to the millisecond), the base arrives at 7.7 s (expert 7.9 s) and parks 9 cm from its spot (expert
+      7.4 cm). The remaining failure is the arm, which a better base can't change, and the time goes there. The
+      "15 vs 14" report point still works with v1's arrival latch (hand-built memory) against a GRU's timing.
+      Revisit only if navigation breaks later, e.g. from other start poses (step 24: the 3-input base net has only
+      seen origin starts). The design below is kept as it was.
+    - v2 design (added 29 Oct; after v1, so the comparison shows what it adds). The expert's phases only
       move forward (align -> drive -> orient -> arrived; phases can be skipped, never revisited), so the latch
       generalises: the base net outputs 4 phase logits (from `nav_phase` + `nav_done`; "orient" = `orient` and not
       `nav_done`; class-weighted cross-entropy, since phases that finish instantly have no frames) instead of the
