@@ -186,7 +186,8 @@ def main():
         x = make_features(base_pos, base_bearing, q_mes[4:11], qd_mes[4:11], TARGET_EE_POS, ee_pos)
         # Gravity-residual models (PLAN.md step 12) predict torque minus gravity: add this frame's gravity back
         tau_g = arm_gravity(q_mes)[0] if model.config.get("gravity_residual") else None
-        wheel_cmds, torque_arm = decode_outputs(model.predict(x), tau_g)
+        # (v, w) models (PLAN.md step 13) are converted back to 4 wheel commands here
+        wheel_cmds, torque_arm = decode_outputs(model.predict(x), tau_g, model.config.get("vw_outputs", False))
         # Safety clips to the expert's own ranges (PLAN.md, "Parked"), so one extreme output can't fling the robot away
         wheel_cmds = np.clip(wheel_cmds, -3.0, 3.0)  # rad/s, the expert's largest command (turning in place at 1 rad/s)
         torque_arm = np.clip(torque_arm, -30.0, 30.0)  # same torque limit the expert uses

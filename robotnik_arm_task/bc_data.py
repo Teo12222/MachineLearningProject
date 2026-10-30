@@ -4,6 +4,7 @@ make_features is shared by training (whole episodes) and robotnik_arm_policy_tas
 so the model always sees inputs built the same way.
 """
 import numpy as np
+from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
 
@@ -35,12 +36,40 @@ def make_features(base_pos, base_bearing, q_arm, qd_arm, target, ee_pos):
     ], axis=-1).astype(np.float32)                 # 27 inputs
 
 
-def make_labels(wheel_cmds, torque_arm):
-    """Model output: 4 wheel commands then 7 arm torques."""
-    return np.concatenate([wheel_cmds, torque_arm], axis=-1).astype(np.float32)
+@dataclass(frozen=True)
+class WheelGeometry:
+    """Base wheel geometry the expert uses to turn (v, w) into wheel commands (PLAN.md step 13).
+
+    Same names and values as BaseControllerParams in robotnik_arm_control.py: keep the two in step.
+    """
+    wheel_radius: float = 0.11
+    # Effective track width for skid-steer (calibrated in simulation: yaw rate ~0.34 rad/s per rad/s of wheel speed)
+    wheel_base_width: float = 0.66
 
 
-def decode_outputs(y, tau_g=None):
+def wheels_to_vw(wheel_cmds, geom=WheelGeometry()):
+    """4 wheel commands [front_right, front_left, back_left, back_right] (rad/s) to forward speed v (m/s) and turn
+    rate w (rad/s), (..., 2). Exact for the expert's commands: each side's two wheels always get the same command."""
+    right, left = wheel_cmds[..., 0], wheel_cmds[..., 1]
+    return np.stack([geom.wheel_radius * (right + left) / 2,
+                     geom.wheel_radius * (right - left) / geom.wheel_base_width], axis=-1)
+
+
+def vw_to_wheels(vw, geom=WheelGeometry()):
+    """Inverse of wheels_to_vw: the expert's own formula (base_controller in robotnik_arm_control.py)."""
+    v, w = vw[..., 0], vw[..., 1]
+    right = (v + w * geom.wheel_base_width / 2) / geom.wheel_radius
+    left = (v - w * geom.wheel_base_width / 2) / geom.wheel_radius
+    return np.stack([right, left, left, right], axis=-1)
+
+
+def make_labels(wheel_cmds, torque_arm, vw_outputs=False):
+    """Model output: 4 wheel commands (or v, w with vw_outputs, PLAN.md step 13) then 7 arm torques."""
+    wheels = wheels_to_vw(wheel_cmds) if vw_outputs else wheel_cmds
+    return np.concatenate([wheels, torque_arm], axis=-1).astype(np.float32)
+
+
+def decode_outputs(y, tau_g=None, vw_outputs=False):
     """Model output back to robot commands: (4 wheel commands in rad/s, 7 arm torques in N*m).
 
     The inverse of make_labels. Works for one frame or a whole episode (one row per frame).
@@ -48,10 +77,14 @@ def decode_outputs(y, tau_g=None):
     format (e.g. (v, w) instead of 4 wheel speeds) only changes make_labels and this function.
     tau_g: for gravity-residual models (PLAN.md step 12) the arm gravity torques of the same frames
     (arm_gravity), added back to the predicted torques; None for models that predict the full torque.
+    vw_outputs: the model outputs (v, w) instead of 4 wheel commands (PLAN.md step 13).
     """
     y = np.asarray(y)
-    torques = y[..., 4:11] if tau_g is None else y[..., 4:11] + tau_g
-    return y[..., :4], torques
+    wheels = vw_to_wheels(y[..., :2]) if vw_outputs else y[..., :4]
+    torques = y[..., -7:]   # always the last 7, whichever wheel format
+    if tau_g is not None:
+        torques = torques + tau_g
+    return wheels, torques
 
 
 @cache
@@ -88,16 +121,17 @@ def arm_gravity(q_mes):
     return tau_g
 
 
-def load_episode(path, gravity_residual=False):
+def load_episode(path, gravity_residual=False, vw_outputs=False):
     """Inputs and labels for every frame of one saved episode.
 
     gravity_residual: the torque labels are the expert torque minus the arm gravity torque (PLAN.md step 12).
+    vw_outputs: the wheel labels are (v, w) instead of 4 wheel commands (PLAN.md step 13).
     """
     d = np.load(path)
     x = make_features(d["base_pos"], d["base_bearing"], d["q_mes"][:, 4:11], d["qd_mes"][:, 4:11], d["target"],
                       d["ee_pos"])
     torque = d["torque_arm"] - arm_gravity(d["q_mes"]) if gravity_residual else d["torque_arm"]
-    y = make_labels(d["wheel_cmds"], torque)
+    y = make_labels(d["wheel_cmds"], torque, vw_outputs)
     return x, y
 
 
@@ -129,11 +163,13 @@ def subsample_indices(wheel_cmds, torque_arm, keep_frac=0.1, mode="adaptive", fl
     return np.sort(rng.choice(n, size=k, replace=False, p=p / p.sum()))
 
 
-def load_episodes(data_dir, episode_ids, keep_frac=None, mode="adaptive", seed=0, gravity_residual=False):
+def load_episodes(data_dir, episode_ids, keep_frac=None, mode="adaptive", seed=0, gravity_residual=False,
+                  vw_outputs=False):
     """Inputs and labels of several episodes stacked into one array each.
 
     keep_frac=None keeps every frame; otherwise each episode keeps only the frames picked by subsample_indices.
     gravity_residual: torque labels minus the arm gravity torque (see load_episode).
+    vw_outputs: wheel labels as (v, w) (see load_episode).
     """
     xs, ys = [], []
     for i in episode_ids:
@@ -146,6 +182,9 @@ def load_episodes(data_dir, episode_ids, keep_frac=None, mode="adaptive", seed=0
             x, y = x[keep], y[keep]
         if gravity_residual:
             y[:, 4:11] -= arm_gravity(np.load(path)["q_mes"][keep])   # only for the kept frames
+        if vw_outputs:
+            # Converted after picking the frames, so every output format trains on the same frames too
+            y = np.concatenate([wheels_to_vw(y[:, :4]), y[:, 4:]], axis=1)
         xs.append(x)
         ys.append(y)
     return np.concatenate(xs), np.concatenate(ys)

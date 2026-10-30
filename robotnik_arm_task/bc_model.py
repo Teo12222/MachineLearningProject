@@ -6,13 +6,14 @@ from torch import nn
 class MLP(nn.Module):
     """Baseline behaviour-cloning network. Stores its own normalisation so it can be used in real units."""
 
-    def __init__(self, n_in, n_out, hidden=256, layers=3, dropout=0.0, gravity_residual=False):
+    def __init__(self, n_in, n_out, hidden=256, layers=3, dropout=0.0, gravity_residual=False, vw_outputs=False):
         super().__init__()
-        # gravity_residual: the torque outputs are torque minus arm gravity (PLAN.md step 12). Not used by the
-        # network itself; saved in the checkpoint so whoever runs the model knows to add gravity back
-        # (decode_outputs). Older checkpoints don't have it and load with the default False.
+        # gravity_residual: the torque outputs are torque minus arm gravity (PLAN.md step 12).
+        # vw_outputs: the wheel outputs are (v, w) instead of 4 wheel commands (PLAN.md step 13).
+        # Neither is used by the network itself; saved in the checkpoint so whoever runs the model knows how to
+        # decode its outputs (decode_outputs). Older checkpoints don't have them and load with the default False.
         self.config = dict(n_in=n_in, n_out=n_out, hidden=hidden, layers=layers, dropout=dropout,
-                           gravity_residual=gravity_residual)
+                           gravity_residual=gravity_residual, vw_outputs=vw_outputs)
         dims = [n_in] + [hidden] * layers
         blocks = []
         for a, b in zip(dims[:-1], dims[1:]):
