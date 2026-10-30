@@ -916,6 +916,20 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
       - Expected to help the **base** (the phase switch shows in the recent history) more than the **arm**: the
         arm's hidden state `q_des_arm` is clipped to within 0.15 rad of the measured angles (`max_q_lead`), so its
         memory is short. With split networks (15) a temporal model can go into one net only: try base-only first.
+      - **Code done (Kris, 30 Oct, on `Kris`, not pushed yet). Still to run: the sweep.** Decided: ring buffers as planned,
+        a separate `train_tcn.py`, gravity residual on by default.
+      - `728a157` (`bc_model.py`): `TCN(n_in, n_out, layers, channels, spacing, gravity_residual)`: kernel 2, written as a
+        linear layer on the two time points; 2^L frames, spacing ms apart. `forward` walks the tree (training), `step`
+        computes the newest node of each layer with one ring buffer per layer (run time). `load_model` picks the class
+        from the checkpoint. Dilation counted in ms, so 10 ms spacing needs no staggered buffers.
+      - `51ed5fa` (`bc_data.py`): `load_frames` stores each frame once, `window_batch` cuts windows per batch (first frame
+        repeated at the episode start), since stored windows would take ~6 GB at 64 frames.
+      - `ada87a4` (`robotnik_arm_policy_task.py`): `model.step(x)` for TCNs; other models as before.
+      - `b4c51d3` (`train_tcn.py`, new): same data, split, early stopping, results; records `architecture=tcn`.
+      - Checked: `forward` and `step` agree to 1e-7 over 3,000 real frames; `window_batch` identical to `with_history`,
+        padding included; a frame just beyond the reach and a future frame change nothing; a tiny batch overfits; saved
+        checkpoints reload; `load_frames` matches `load_episodes`; 1 epoch end to end for L = 6 (13 s per epoch) and L = 8
+        (37 s); 0.05 ms per step at either size; TCN, MLP and window checkpoints all run in the policy script.
     - Then a **recurrent neural network (RNN)**: a GRU (`torch.nn.GRU`; why not an LSTM: below). It keeps an
       internal memory that is updated every step, so it can learn the expert's hidden state (which phase it is in)
       instead of us choosing a fixed window. Training uses short sequences cut from the episodes; in the policy
