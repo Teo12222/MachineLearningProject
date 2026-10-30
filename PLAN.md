@@ -844,10 +844,23 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
           rad in the reference (the expert stays within 0.067 rad).
         - **The late turn -> drive switch is not the failure here:** the median delay is at most 0.12 s, so the base
           starts on time and is pulled off course once the arm has gone. In 16/50 `k4_d50` runs it never drives.
-        - **Open: the reference is worse than `mlp_robotframe`** (final error 1.36 vs 0.78 m; arm deviation at 6 s 0.75 vs
-          0.062 rad; wheels at the clip 80% vs 7%) despite a lower validation loss. It differs in learning rate, epochs
-          and adaptive frames, so one of those hurts closed loop. Adaptive frames are a suspect: they thin the frames of
-          the arm holding still. Next: the same model with uniform frames (step 7), and a window with `--gravity-residual`.
+        - **The reference is worse than `mlp_robotframe`** (final error 1.36 vs 0.78 m; arm deviation at 6 s 0.75 vs 0.062
+          rad; wheels at the clip 80% vs 7%) despite a lower validation loss. Adaptive frames are **not** the cause, see
+          below. What is left: the learning rate (3e-3 vs 1e-3) or the longer training (68 best epoch vs 20 epochs).
+      - **Follow-ups (Kris, 30 Oct), same reference with one change, quick test, seed 0:**
+
+        | Model | Change | Val loss | Test wheels | Test torques | Reached | Final err (median) | Within 15 cm of spot | Closest EE (median; best) | Arm deviation at 6 s | Base 0.3 m off expert | Wheels at clip |
+        |---|---|---|---|---|---|---|---|---|---|---|---|
+        | `temporal_window_k0_s0` | adaptive frames | 0.00130 | 0.056 | 0.108 | 0/50 | 1.36 m | 22/50 | 0.37 m; 33 mm | 0.75 rad | 6.0 s, never in 9 | 80% |
+        | `temporal_window_k0_uniform_s0` | uniform frames | 0.00257 | 0.062 | 0.104 | 0/50 | 5.36 m | 17/50 | 0.32 m; 25 mm | 0.84 rad | 5.9 s, never in 9 | 77% |
+        | `temporal_window_k0_gravres_s0` | `--gravity-residual` | 0.00131 | 0.057 | 0.104 | 0/50 | 2.26 m | 23/50 | **0.16 m; 17 mm** | **0.056 rad** | **7.7 s, never in 21** | 67% |
+
+        - **Step 7, first result: adaptive is at least as good as uniform** (validation loss half, arm no worse). One seed,
+          quick test: repeat before reporting. It didn't cause the arm failure.
+        - **Gravity residual fixes the early arm failure:** arm deviation at 6 s is at the expert's level (0.056 rad, the
+          expert stays within 0.067), and closest EE approach halves, with almost the same offline numbers. Still 0/50.
+          The median final error is higher (2.26 m) but says little here: it measures where a failed run wandered to.
+        - **Next:** windows should be judged on top of the residual: Stage 1's models lost the arm for another reason.
     - Then a **temporal convolutional network (TCN)** (Lecture 07; added 29 Oct): causal dilated 1-D convolutions
       directly on the 27 inputs of the last N frames give the commands at time t. Plain first, no per-frame MLP
       encoder: the lecture uses one to compress wide inputs (many channels, images) into features, and ours are only

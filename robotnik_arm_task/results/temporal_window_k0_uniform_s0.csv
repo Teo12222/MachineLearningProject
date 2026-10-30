@@ -1,0 +1,2 @@
+model,train_episodes,epochs,batch,lr,hidden,layers,best_val_loss,best_epoch,train_time_s,parameters,inference_ms,test_wheel_rmse,test_torque_rmse,sim_success_rate,sim_final_err_mean,sim_final_err_median,sim_time_to_reach,subsample,keep_frac,weight_decay,dropout,max_epochs,patience,gravity_residual,history_k,history_spacing
+temporal_window_k0_uniform_s0,696,74,2048,0.003,256,3,0.00257298,64,167.413,141579,0.025875,0.0615039,0.103908,,,,,uniform,0.1,0,0,100,10,False,0,50
