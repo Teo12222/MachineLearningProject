@@ -28,6 +28,9 @@ DRIVE_SPEED = 0.1       # m/s, forward speed that counts as driving
 DRIVE_SUSTAIN = 50      # frames (ms) it has to last
 WHEEL_CLIP = 3.0        # rad/s, the policy's clip on the wheel commands
 PARKED_WITHIN = 0.15    # m, "got to the parking spot"
+TORQUE_CLIP = 30.0      # N*m, the policy's clip on the arm torques
+ARM_DEV_TIME = 2.0      # s, when the arm is compared with the expert's (before the first drive in most episodes)
+OFF_FLOOR = 0.3         # m, base height moved this far from its start: the physics has broken down
 
 
 def drive_start(d):
@@ -41,6 +44,8 @@ def run_metrics(policy, expert):
     """Numbers of one test episode; the parking spot and target come from the expert's file."""
     spot_dist = np.linalg.norm(policy["base_pos"][:, :2] - expert["base_goal"][:2], axis=1)
     spot_frame = int(np.argmin(spot_dist))
+    at_clip = (np.abs(policy["torque_arm"]) >= TORQUE_CLIP - 1e-3).any(axis=1)
+    i, j = np.searchsorted(policy["time"], ARM_DEV_TIME), np.searchsorted(expert["time"], ARM_DEV_TIME)
     return {
         "reached": outcome(policy) == "reached",
         "final_err": float(policy["final_error"]),
@@ -50,6 +55,9 @@ def run_metrics(policy, expert):
         "spot_time": float(policy["time"][spot_frame]),
         "ee_dist": float(np.linalg.norm(policy["ee_pos"] - expert["target"], axis=1).min()),
         "wheels_at_clip": float((np.abs(policy["wheel_cmds"]) >= WHEEL_CLIP - 1e-3).any(axis=1).mean()),
+        "torque_clip_time": float(policy["time"][np.argmax(at_clip)]) if at_clip.any() else np.nan,
+        "arm_dev": float(np.abs(policy["q_mes"][i, 4:11] - expert["q_mes"][j, 4:11]).mean()),
+        "off_floor": bool((np.abs(policy["base_pos"][:, 2] - policy["base_pos"][0, 2]) > OFF_FLOOR).any()),
     }
 
 
@@ -92,6 +100,9 @@ def main():
                                         else ""))
     print(f"Closest EE error: median {np.median(col('ee_dist')):.3f} m, best {col('ee_dist').min():.3f} m")
     print(f"Wheels at the clip: {100 * np.mean(col('wheels_at_clip')):.1f}% of frames (mean over episodes)")
+    print(f"Arm: at the torque clip first at {np.nanmedian(col('torque_clip_time')):.2f} s, {ARM_DEV_TIME:.0f} s from the "
+          f"start {np.median(col('arm_dev')):.3f} rad from the expert (medians); base off the floor in "
+          f"{int(col('off_floor').sum())}/{n}")
 
     if args.model:
         prefix = "full" if args.full else "quick"
@@ -106,6 +117,9 @@ def main():
             f"{prefix}_ee_dist_median": float(np.median(col("ee_dist"))),
             f"{prefix}_ee_dist_best": float(col("ee_dist").min()),
             f"{prefix}_wheels_at_clip": float(np.mean(col("wheels_at_clip"))),
+            f"{prefix}_torque_clip_time_median": float(np.nanmedian(col("torque_clip_time"))),
+            f"{prefix}_arm_dev_median": float(np.median(col("arm_dev"))),
+            f"{prefix}_off_floor": int(col("off_floor").sum()),
         })
         print(f"Summary written to results/{args.model}.csv")
 
