@@ -810,6 +810,24 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
 14. **Temporal data** (aimed at the early stop of turning and the phase switches). Also a discussion point: why
     temporal data is needed (the expert has hidden state: navigation phase, accumulated joint targets).
     - First, **past-frame windows** into the MLP: stack k frames with a spacing, sweep both.
+      - **Code done (Kris, 30 Oct, on `Kris`, not pushed yet). Still to run: the sweep.** All defaults mean no history,
+        so single-frame models train and run as before.
+      - `1e5703f` (`bc_data.py`): `with_history(x, frames, history_k, history_spacing)` joins each input with its past
+        frames (current frame first, spacing in frames, 1 frame = 1 ms), taken from the full episode before
+        subsampling, repeating the first frame where there is no past. `FrameHistory` does the same at run time.
+        `load_episodes(..., history_k=0, history_spacing=1)`.
+      - `3146d02` (`bc_model.py`): `history_k` / `history_spacing` saved in the checkpoint, like `gravity_residual`.
+      - `222f76b` (`train.py`): `--history-k`, `--history-spacing`; also recorded in `results/<model>.csv`. The offline
+        test reads them from the checkpoint.
+      - `ea9beb0` (`robotnik_arm_policy_task.py`): `FrameHistory`, one per episode; does nothing for single-frame models.
+      - `c9bdcd8` (`analyse_temporal.py`, new): reads a `compare.py --test-set` run and reports the turn -> drive delay
+        against the expert, closest approach to the parking spot and the target, wheels at the clip. Run each model
+        with its own `--out-dir`: `compare.py` deletes the episode files of the previous run in that folder.
+      - Checked: k = 0 inputs identical to before on real episodes; `FrameHistory` identical to `with_history` over
+        whole episodes (k = 4, d = 50; k = 2, d = 1; k = 0); a 1-epoch training with k = 4, d = 50 runs end to end (856 k
+        frames, 135 inputs, 2.3 s per epoch, 0.029 ms per prediction) and both a window and a single-frame model run in
+        the policy script. `analyse_temporal.py`: expert runs given as policy runs show zero delay; its drive-start
+        rule (forward speed > 0.1 m/s for 50 ms) matches the logged `nav_phase` exactly on 100 episodes.
     - Then a **temporal convolutional network (TCN)** (Lecture 07; added 29 Oct): causal dilated 1-D convolutions
       directly on the 27 inputs of the last N frames give the commands at time t. Plain first, no per-frame MLP
       encoder: the lecture uses one to compress wide inputs (many channels, images) into features, and ours are only
