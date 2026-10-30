@@ -1098,6 +1098,9 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
     helps with everything else, and reveals ideas that overlap).
     - While combining, make each component a switch (e.g. `ROBOT_FRAME = True`, `HISTORY_FRAMES = 10`), so every
       ablation run is a one-setting change and everything else is guaranteed identical.
+    - **Also check the losers** (Matteo, 30 Oct): the best temporal model of 14 goes into the split networks (15), and the
+      temporal models that lost the comparison are swapped in as ablation runs on the combined model, so a model that
+      lost alone gets tested in combination too.
     - Same split, seeds and test set for all runs.
     - Budget time: e.g. 5 components x 3 seeds + the full model x 3 = ~18 trainings plus a `--test-set` run each, so
       aim to have the combined model ready several days before 6 Nov.
