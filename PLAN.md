@@ -876,6 +876,13 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
         median 0.27 m). The expert's data ends 1 s after reaching, so it shows no recovery from a missed reach.
         **So the priority moves to the arm's reach**: temporal inputs on the base can't fix it. Candidates: split
         networks (15), noise data (19), a reach-focused arm model.
+      - **Old settings on the residual, `temporal_window_k0_gravres_lr1e3_s0` (Kris, 30 Oct; lr 1e-3, max 20 epochs, quick
+        test, seed 0): the best closed loop so far, with the worst offline numbers of the residual models.** Val loss
+        0.00211 (0.00131 at lr 3e-3), test wheels 0.075 (0.057), torques 0.125 (0.104); still 0/50, but within 15 cm of the
+        spot 44/50 (23/50), closest to the spot 0.04 m (0.17 m), closest EE 0.10 m (0.16 m), best 9 mm (17 mm), base 0.3 m
+        off the expert in only 5/50 runs (29/50), wheels at the clip 43% (67%). Training stopped at the 20-epoch limit, on
+        its best epoch, so it was still improving. Learning rate and training length changed together: which of them
+        matters isn't known yet. If this holds, `train.py`'s defaults (lr 3e-3, up to 100 epochs) are worth revisiting.
     - Then a **temporal convolutional network (TCN)** (Lecture 07; added 29 Oct): causal dilated 1-D convolutions
       directly on the 27 inputs of the last N frames give the commands at time t. Plain first, no per-frame MLP
       encoder: the lecture uses one to compress wide inputs (many channels, images) into features, and ours are only
