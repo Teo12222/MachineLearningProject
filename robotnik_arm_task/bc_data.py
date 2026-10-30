@@ -187,11 +187,13 @@ def load_episodes(data_dir, episode_ids, keep_frac=None, mode="adaptive", seed=0
     return np.concatenate(xs), np.concatenate(ys)
 
 
-def load_frames(data_dir, episode_ids, keep_frac=None, mode="adaptive", seed=0, gravity_residual=False):
+def load_frames(data_dir, episode_ids, keep_frac=None, mode="adaptive", seed=0, gravity_residual=False,
+                all_labels=False):
     """For models that cut their windows per batch (TCN): every frame stored once, plus which ones are samples.
 
     Returns x (all frames of all episodes), y (labels of the kept frames only), frames (their rows in x) and starts
     (the row where each one's episode begins, so windows stop there). Same frames as load_episodes.
+    all_labels: y has every frame's labels, in the same rows as x (the GRU scores whole windows).
     """
     xs, ys, frames, starts = [], [], [], []
     total = 0
@@ -201,9 +203,10 @@ def load_frames(data_dir, episode_ids, keep_frac=None, mode="adaptive", seed=0, 
         keep = np.arange(len(x))
         if keep_frac is not None:
             keep = subsample_indices(*decode_outputs(y), keep_frac=keep_frac, mode=mode, seed=(seed, i))
-        y = y[keep]
+        labelled = np.arange(len(x)) if all_labels else keep
+        y = y[labelled]
         if gravity_residual:
-            y[:, 4:11] -= arm_gravity(np.load(path)["q_mes"][keep])
+            y[:, 4:11] -= arm_gravity(np.load(path)["q_mes"][labelled])
         xs.append(x)
         ys.append(y)
         frames.append(keep + total)
