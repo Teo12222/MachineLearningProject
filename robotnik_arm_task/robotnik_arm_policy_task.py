@@ -138,6 +138,7 @@ def main():
     torch.set_num_threads(1)   # one sample per step: extra threads only add overhead
     # Past frames the model was trained with (PLAN.md step 14); does nothing for a single-frame model
     history = FrameHistory(model.config.get("history_k", 0), model.config.get("history_spacing", 1))
+    is_tcn = model.config.get("arch") == "tcn"   # keeps its own per-layer buffers (TCN.step)
 
     # Stop conditions (target reached, time cap), see StopCriteria. No stall check: while the base turns in
     # place the EE error can go well over 2 s without improving, so a stall rule could cut off a run that
@@ -185,10 +186,10 @@ def main():
         # ----------------------------------------------------------------------
         # 1 + 2. Learned policy: wheel velocities and arm torques from the measurements and the target
         # ----------------------------------------------------------------------
-        x = history.add(make_features(base_pos, base_bearing, q_mes[4:11], qd_mes[4:11], TARGET_EE_POS, ee_pos))
+        x = make_features(base_pos, base_bearing, q_mes[4:11], qd_mes[4:11], TARGET_EE_POS, ee_pos)
         # Gravity-residual models (PLAN.md step 12) predict torque minus gravity: add this frame's gravity back
         tau_g = arm_gravity(q_mes)[0] if model.config.get("gravity_residual") else None
-        wheel_cmds, torque_arm = decode_outputs(model.predict(x), tau_g)
+        wheel_cmds, torque_arm = decode_outputs(model.step(x) if is_tcn else model.predict(history.add(x)), tau_g)
         # Safety clips to the expert's own ranges (PLAN.md, "Parked"), so one extreme output can't fling the robot away
         wheel_cmds = np.clip(wheel_cmds, -3.0, 3.0)  # rad/s, the expert's largest command (turning in place at 1 rad/s)
         torque_arm = np.clip(torque_arm, -30.0, 30.0)  # same torque limit the expert uses
