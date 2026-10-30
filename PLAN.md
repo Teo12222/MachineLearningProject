@@ -982,8 +982,7 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
         training windows), or as an ablation if time is left at the end.
       - Optional later: the GRU also predicts the phase (as in 15's phase head) to check whether it learned the
         hidden state; 15 builds the phase head first.
-      - **Code done (Kris, 30 Oct, on `Kris`, not pushed yet). Still to run: the sweep** on window length (250, 1000, 2000
-        ms). Decided: 192 memory units (129,419 parameters, close to the MLP's 141,579), separate `train_gru.py`, gravity
+      - **Code done (Kris, 30 Oct, on `Kris`, not pushed yet); sweep below.** Decided: 192 memory units (129,419 parameters, close to the MLP's 141,579), separate `train_gru.py`, gravity
         residual on by default, lr 1e-3, gradient norm clipped at 1.0, max 50 epochs, stepping every 1 ms as planned.
       - `bc_model.py`, `robotnik_arm_policy_task.py`: `GRU(n_in, n_out, hidden, burn_in, gravity_residual)`, one layer and a
         linear output, `step` at run time; stateful models (TCN, GRU) both use `model.step(x)`. The memory starts warmed
@@ -996,6 +995,23 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
       - Checked: `predict` and `step` agree to 2e-6 over 4,000 real frames; changing future frames changes nothing earlier;
         a tiny batch overfits; saved checkpoints reload; `all_labels` keeps the same frames and labels; 1 epoch end to end
         takes 75 s on 3 threads; 0.04 ms per step; a 1-epoch checkpoint runs in the policy script on 50 targets.
+      - **Sweep (Kris, 30 Oct; window = frames in the loss, 192 units, gravity residual, lr 1e-3, quick test on 50 targets,
+        Mac): still 0/50, but the first temporal models that are stable, and the best base so far.** Best validation
+        does not mean best closed loop; the GRU's validation runs whole episodes, so it is not the same test as the MLP's.
+
+        | Model | Val loss | Wheel / torque RMSE | Max torque first hit (s) | Arm dev. at 2 s (rad) | Base off the floor | Spot within 15 cm | Closest EE median (m) | EE within 10 / 5 / 2 / 1 cm | Final err median (m) |
+        |---|---|---|---|---|---|---|---|---|---|
+        | `mlp_gravres_lr1e3_s0` | 0.00211 | 0.075 / 0.125 | 8.97 | 0.014 | 2/50 | 44/50 | 0.102 | 22 / 12 / 2 / 1 | 1.66 |
+        | `tcn_L4_d10_gravres_s0` | 0.00174 | 0.059 / 0.117 | 1.25 | 0.58 | 47/50 | 4/50 | 0.884 | not counted | blow-up |
+        | `gru_h192_w250_gravres_s0` | 0.00521 | 0.075 / 0.189 | 9.89 | 0.003 | 6/50 | 40/50 | 0.101 | 24 / 12 / 4 / 0 | 1.90 |
+        | `gru_h192_w1000_gravres_s0` | 0.00306 | 0.077 / 0.150 | 11.43 | 0.002 | 0/50 | 49/50 | 0.087 | 31 / 11 / 1 / 1 | 1.15 |
+        | `gru_h192_w2000_gravres_s0` | 0.00390 | 0.094 / 0.168 | 13.30 | 0.003 | 0/50 | 43/50 | 0.152 | 19 / 7 / 2 / 1 | 1.09 |
+
+        - **Base solved on these targets, reach not:** `w1000` parks within 15 cm in 49/50, with wheels at the clip in 7% of
+          frames (MLP 43%). The arm then reaches to about 9 cm (median closest) but no run gets within the 5 mm target,
+          and it hits the torque clip at 11-13 s, around the end of the expert's reach (median episode 12.1 s).
+        - **Not finished training:** `w1000` and `w2000` stopped at the 50-epoch cap with validation still improving (best
+          epochs 46 and 49). One seed each; differences between the three windows may be noise.
     - **Compare TCN vs RNN** on the same inputs, split and metrics (validation loss, test RMSE, closed loop,
       inference time per step). Report points: (a) the MLP's only temporal information is the joint velocity
       (one-step memory; the lecture's "RNNs vs MLPs"); (b) the TCN needs a fixed window, while the arrival time
