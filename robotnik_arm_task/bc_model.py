@@ -111,6 +111,52 @@ class TCN(MLP):
         return (self(((x - self.x_mean) / self.x_std)) * self.y_std + self.y_mean).numpy()
 
 
+class GRU(MLP):
+    """Recurrent network (PLAN.md step 14): one GRU layer stepping every frame, then a linear output.
+
+    Its memory is carried from frame to frame. The memory starts from zeros, warmed up on burn_in copies of the first
+    frame, which is what the training windows at an episode's start look like. Normalisation is the MLP's.
+    """
+
+    def __init__(self, n_in, n_out, hidden=192, burn_in=200, gravity_residual=False):
+        super().__init__(n_in, n_out, hidden=hidden, layers=1, gravity_residual=gravity_residual)
+        self.config = dict(arch="gru", n_in=n_in, n_out=n_out, hidden=hidden, burn_in=burn_in,
+                           gravity_residual=gravity_residual)
+        self.gru = nn.GRU(n_in, hidden, batch_first=True)
+        self.head = nn.Linear(hidden, n_out)
+        del self.net                              # the MLP's layers: only its normalisation is reused
+        self.burn_in = burn_in
+        self.reset()
+
+    def forward(self, x_norm, memory=None):
+        """Normalised in, normalised out, for every frame. x_norm: (batch, frames, n_in). Returns (y, memory)."""
+        h, memory = self.gru(x_norm, memory)
+        return self.head(h), memory
+
+    def warm_up(self, first_norm):
+        """The memory after burn_in copies of the first frame (normalised, (batch, n_in))."""
+        return self.gru(first_norm[:, None].expand(-1, self.burn_in, -1))[1]
+
+    def reset(self):
+        """Forget the past: call at the start of an episode."""
+        self.memory = None
+
+    @torch.no_grad()
+    def step(self, x):
+        """One simulation step: real units in, real units out. x: one frame of inputs (numpy array)."""
+        h = (torch.as_tensor(x, dtype=torch.float32) - self.x_mean) / self.x_std
+        if self.memory is None:
+            self.memory = self.warm_up(h[None])
+        y, self.memory = self(h[None, None], self.memory)
+        return (y[0, 0] * self.y_std + self.y_mean).numpy()
+
+    @torch.no_grad()
+    def predict(self, x):
+        """Whole episodes from their start, real units in and out. x: (batch, frames, n_in) numpy array."""
+        h = (torch.as_tensor(x, dtype=torch.float32) - self.x_mean) / self.x_std
+        return (self(h, self.warm_up(h[:, 0]))[0] * self.y_std + self.y_mean).numpy()
+
+
 def save_model(model, path):
     torch.save({"config": model.config, "state_dict": model.state_dict()}, path)
 
@@ -118,7 +164,7 @@ def save_model(model, path):
 def load_model(path):
     ckpt = torch.load(path)
     config = dict(ckpt["config"])
-    model = (TCN if config.pop("arch", "mlp") == "tcn" else MLP)(**config)
+    model = {"mlp": MLP, "tcn": TCN, "gru": GRU}[config.pop("arch", "mlp")](**config)
     model.load_state_dict(ckpt["state_dict"])
     model.eval()
     return model
