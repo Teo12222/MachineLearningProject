@@ -982,6 +982,20 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
         training windows), or as an ablation if time is left at the end.
       - Optional later: the GRU also predicts the phase (as in 15's phase head) to check whether it learned the
         hidden state; 15 builds the phase head first.
+      - **Code done (Kris, 30 Oct, on `Kris`, not pushed yet). Still to run: the sweep** on window length (250, 1000, 2000
+        ms). Decided: 192 memory units (129,419 parameters, close to the MLP's 141,579), separate `train_gru.py`, gravity
+        residual on by default, lr 1e-3, gradient norm clipped at 1.0, max 50 epochs, stepping every 1 ms as planned.
+      - `bc_model.py`, `robotnik_arm_policy_task.py`: `GRU(n_in, n_out, hidden, burn_in, gravity_residual)`, one layer and a
+        linear output, `step` at run time; stateful models (TCN, GRU) both use `model.step(x)`. The memory starts warmed
+        up on `burn_in` copies of the first frame, matching the training windows at an episode's start.
+      - `bc_data.py`, `train_gru.py` (new): `load_frames(..., all_labels=True)` keeps every frame's labels. Window ends are
+        the adaptive kept frames; 200 ms burn-in without loss; repeated first frames have no loss; an epoch is about as
+        many frames as the training set. Validation and test run whole episodes from the start, as at run time.
+      - `analyse_temporal.py`: three failure metrics in `quick_*` / `full_*` columns: when the torque clip is first hit,
+        arm deviation at 2 s, base off the floor. Needed since `quick_final_err_median` means nothing after a blow-up.
+      - Checked: `predict` and `step` agree to 2e-6 over 4,000 real frames; changing future frames changes nothing earlier;
+        a tiny batch overfits; saved checkpoints reload; `all_labels` keeps the same frames and labels; 1 epoch end to end
+        takes 75 s on 3 threads; 0.04 ms per step; a 1-epoch checkpoint runs in the policy script on 50 targets.
     - **Compare TCN vs RNN** on the same inputs, split and metrics (validation loss, test RMSE, closed loop,
       inference time per step). Report points: (a) the MLP's only temporal information is the joint velocity
       (one-step memory; the lecture's "RNNs vs MLPs"); (b) the TCN needs a fixed window, while the arrival time
