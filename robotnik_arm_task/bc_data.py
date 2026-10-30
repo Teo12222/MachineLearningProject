@@ -187,8 +187,10 @@ def quick_test_ids(test_ids, n=50, seed=0):
     return sorted(int(i) for i in rng.choice(test_ids, size=min(n, len(test_ids)), replace=False))
 
 
-def quick_val_ids(val_ids, n=20, seed=0):
-    """Fixed subset of the validation episodes for tune.py's closed-loop check (tuning never uses test episodes)."""
+def quick_val_ids(val_ids, n=50, seed=0):
+    """Fixed subset of the validation episodes for closed-loop checks that decide something: compare.py --val-set,
+    tune.py and dagger.py (decisions never use test episodes). 50 like the quick test subset, so differences
+    between models aren't lost in the noise (tune.py used 20 until 30 Oct)."""
     return quick_test_ids(val_ids, n, seed)
 
 

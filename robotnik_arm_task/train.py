@@ -11,6 +11,8 @@ Usage (from the robotnik_arm_task folder):
     pixi run python train.py --model X --lr 3e-3 --hidden 512 --dropout 0.1   # other settings (tune.py uses these)
     pixi run python train.py --model gravres_s0 --gravity-residual   # learn torque minus gravity (PLAN.md step 12)
     pixi run python train.py --model split_arrived_s0 --split --gravity-residual   # split networks (PLAN.md step 15)
+    pixi run python train.py --model X --split --gravity-residual --dagger dagger/split_dagger_r1   # + DAgger data
+                                                   # for the arm network (dagger.py output, PLAN.md step 21)
 
 Results go to results/<model>.csv (see results.py): training columns after training, test columns after testing.
 Training stops early once the validation loss hasn't improved for --patience epochs (at most --max-epochs).
@@ -29,7 +31,8 @@ from torch import nn
 
 from bc_data import split_episodes, clean_ids, load_episode, load_episodes, decode_outputs, arm_gravity
 from bc_model import MLP, save_model
-from bc_split import SplitPolicy, ArrivedLatch, arm_inputs, base_inputs, base_labels, base_loss, load_policy
+from bc_split import (SplitPolicy, ArrivedLatch, arm_inputs, base_inputs, base_labels, base_loss, load_dagger_arm,
+                      load_policy)
 from results import SIM_COLUMNS, update_results
 
 # Paths are relative to this file, so the script works from any working directory
@@ -79,11 +82,16 @@ parser.add_argument("--gravity-residual", action=argparse.BooleanOptionalAction,
 parser.add_argument("--split", action=argparse.BooleanOptionalAction, default=False,
                     help="separate base and arm networks with an 'arrived' flag (PLAN.md step 15); --no-split for "
                          "the ablation")
+parser.add_argument("--dagger", nargs="+", metavar="FOLDER",
+                    help="with --split: DAgger episode folders (dagger.py output) whose expert-labelled frames are added "
+                         "to the arm network's training data (PLAN.md step 21); leave out for the ablation")
 parser.add_argument("--seed", type=int, default=0, help="training seed (weights, batch order); put it in --model too")
 parser.add_argument("--threads", type=int, help="torch CPU threads (several runs at once share the cores)")
 args = parser.parse_args()
 if args.no_test and args.test_only:
     parser.error("--no-test and --test-only together would do nothing")
+if args.dagger and not args.split:
+    parser.error("--dagger needs --split: DAgger data only has arm labels (a single MLP would also need wheel labels)")
 CHECKPOINT = SCRIPT_DIR / "checkpoints" / f"{args.model}.pt"
 if args.threads:
     torch.set_num_threads(args.threads)
@@ -168,8 +176,18 @@ if not args.test_only:
             model.base, *normalise(model.base, base_inputs(x_tr), base_labels(y_tr, a_tr)), xbv, ybv,
             lambda out, target: base_loss(out, target, pos_weight), "base ")
         # The arm is trained with the expert's true flag as input (at run time: the latched predicted one)
+        x_arm, y_arm = arm_inputs(x_tr, a_tr), y_tr[:, 4:11]
+        dagger_frames = 0
+        if args.dagger:
+            # Frames the earlier policies visited, labelled with the expert's torques: thinned like the expert data
+            # (every 1 / KEEP_FRAC-th labelled frame). Added after the normalisation, which stays the expert data's,
+            # so best_val_loss stays comparable with models trained without DAgger; validation stays the expert's
+            x_dag, y_dag = load_dagger_arm(args.dagger, round(1 / KEEP_FRAC), args.gravity_residual)
+            x_arm, y_arm, dagger_frames = np.concatenate([x_arm, x_dag]), np.concatenate([y_arm, y_dag]), len(x_dag)
+            print(f"arm training frames: {len(x_arm) - dagger_frames} expert + {dagger_frames} DAgger "
+                  f"({', '.join(Path(f).name for f in args.dagger)})")
         arm_val, arm_best, arm_epochs = fit(
-            model.arm, *normalise(model.arm, arm_inputs(x_tr, a_tr), y_tr[:, 4:11]),
+            model.arm, *normalise(model.arm, x_arm, y_arm),
             *normalise(model.arm, arm_inputs(x_va, a_va), y_va[:, 4:11]), nn.MSELoss(), "arm  ")
         # Validation loss on the same scale as the single MLP's (mean squared error over the 11 normalised outputs;
         # same frames, so the same normalisation): the base's wheel part (without the flag's loss) + the arm's
@@ -179,7 +197,9 @@ if not args.test_only:
             flag_val = nn.functional.binary_cross_entropy_with_logits(model.base(xbv)[:, 4], ybv[:, 4]).item()
         best_val, best_epoch, epoch = (4 * wheel_val + 7 * arm_val) / 11, None, None
         split_columns = dict(base_epochs=base_epochs, base_best_epoch=base_best, arm_epochs=arm_epochs,
-                             arm_best_epoch=arm_best, val_arrived_bce=flag_val)
+                             arm_best_epoch=arm_best, val_arrived_bce=flag_val,
+                             dagger=";".join(Path(f).name for f in args.dagger) if args.dagger else "",
+                             dagger_frames=dagger_frames)
     else:
         model = MLP(x_tr.shape[1], y_tr.shape[1], hidden=args.hidden, layers=args.layers, dropout=args.dropout,
                     gravity_residual=args.gravity_residual)

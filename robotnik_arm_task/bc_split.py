@@ -4,12 +4,14 @@ Mirrors the expert's structure: the base drives until it has arrived, then stops
 is a plain bc_model.MLP; both are saved together in one checkpoint, so the policy script and compare.py load a
 split model by name like any other (load_policy).
 """
+from pathlib import Path
+
 import numpy as np
 import torch
 from torch import nn
 from torch.nn import functional as F
 
-from bc_data import BASE_INPUTS, ARM_INPUTS
+from bc_data import BASE_INPUTS, ARM_INPUTS, arm_gravity, make_features
 from bc_model import MLP
 
 
@@ -91,6 +93,27 @@ class ArrivedLatch:
             elif t > self.timeout:   # same comparison as the expert's base_controller
                 self.arrived, self.source = True, "timeout"
         return self.arrived
+
+
+def load_dagger_arm(folders, step, gravity_residual):
+    """Arm-network training frames from DAgger episodes (dagger.py output, PLAN.md step 21).
+
+    Every step-th frame with an expert label (arm_label_mask: the arm phase after the latch), as arm-network inputs
+    with the flag set, and the expert's relabelled torques as labels (minus gravity for gravity-residual models).
+    The episodes store the full torque, so the same data serves models with and without the gravity residual.
+    """
+    xs, ys = [], []
+    for path in sorted(p for folder in folders for p in Path(folder).glob("ep_*.npz")):
+        d = np.load(path)
+        keep = np.flatnonzero(d["arm_label_mask"])[::step]
+        x = make_features(d["base_pos"][keep], d["base_bearing"][keep], d["q_mes"][keep, 4:11], d["qd_mes"][keep, 4:11],
+                          d["target"], d["ee_pos"][keep])
+        y = d["torque_arm"][keep].astype(np.float32)
+        if gravity_residual:
+            y -= arm_gravity(d["q_mes"][keep])
+        xs.append(arm_inputs(x, 1.0))
+        ys.append(y)
+    return np.concatenate(xs), np.concatenate(ys)
 
 
 def load_policy(path):

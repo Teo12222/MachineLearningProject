@@ -51,9 +51,17 @@ for their own work as they go.
    phase head is parked): the arm drifts off the expert's states ~1 s into the reach, and the expert's arm controller
    can label the policy's own states offline, so no expert re-runs. Noise injection (19) stays Kris's: the two are
    compared in the report.
+   **Order after DAgger (decided 30 Oct):** (a) if DAgger makes the arm reach, the full test set on the best round
+   (the first real success rate); (b) integrate early: merge the split + DAgger into `master` and agree the temporal
+   interfaces with Kris, so his model plugs into the split (temporal base / arm) when ready; (c) final model,
+   ablations with tuning, seeds, full test sets (point 5); (d) the report. Parking-pose prediction and starting the
+   arm early wait: the base already parks 9 cm from its spot, and starting the arm early adds new failure modes to
+   the arm, the part that still fails, for a gain in speed only.
 5. **Once the ideas have results:** combine the winning ideas into the final model (components as switches),
    ablations (23), start-pose test (24).
-6. Camera extension (final section of the plan), shared with Kris: whoever is free once the final model works.
+6. **Extensions, once a model works:** first parking-pose prediction + starting the arm early (the rest of 15; could
+   reach targets faster than the expert), then straight after the camera extension (final section of the plan,
+   shared with Kris: whoever is free).
 7. **Report:** introduction, data collection (26), pipeline and evaluation methodology, input features, split-network
    results, README, and the final edit of the whole report.
 
@@ -424,6 +432,15 @@ of `results/<model>.csv`, so they never overwrite each other. Details:
   while developing (about a third of the time). It prints the same table and plot (`test_set_quick_final_error.png`,
   its own `test_set_quick/` folder) but **never writes results**: only the full `--test-set` fills the `sim_*`
   columns, so quick checks never mix with reported numbers.
+- **Decisions on validation, from 30 Oct: `compare.py --val-set`** (the same check on a fixed 50 validation
+  episodes, `bc_data.quick_val_ids`, its own `val_set/` folder, never writes results). Why: choosing between models on
+  the quick test subset (which model, setting or DAgger round to keep) is tuning on test episodes, and those 50 are
+  part of the 150 the final numbers come from. So every decision now uses `--val-set`; the quick test subset is
+  still useful to see how a model does, but never to choose; the full test set is only for the final numbers.
+  `tune.py`'s closed-loop check uses the same 50 (it used 20: `--val-episodes` default and `quick_val_ids` now 50,
+  so differences aren't lost in the noise; the check takes ~2.5x longer) and `dagger.py --val-set` runs it after each
+  round. **Earlier decisions were made on the quick test subset** (gravity residual on, uniform arm frames rejected;
+  step 15): re-checked on the validation 50, see step 15. Tell the team: `--quick` was everyone's development check.
 - **The test set depends on the dataset:** `split_episodes` shuffles the episode ids found in `data_main`, so if the
   dataset changes (e.g. extended with `--start 1000` after the learning curve), the train/val/test split, and with it
   the quick 50, change too. Then **every model's results must be recomputed** (retrain + `--test-set`), as when we
@@ -1015,6 +1032,12 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
           `--gravity-residual` (`split_arrived_s0` is the main variant), and step 12 has a first closed-loop result in
           its favour. One seed, quick subset: the number for the report comes from the gravity ablation (23) with
           several seeds. (The earlier "Gravity residual: no difference" above is offline only.)
+        - **Both decisions re-checked on the 50 validation episodes (30 Oct, `compare.py --val-set`), both hold**
+          (they were made on the quick test subset, see "Recording results"): closest approach median **4.9 cm**
+          with gravity residual and adaptive arm frames (26/50 under 5 cm, 5 under 2 cm, error back above 20 cm
+          2.9 s after the latch) vs **10.9 cm** without gravity residual (13/50, 1; collapse 0.9 s) and **9.4 cm**
+          with uniform arm frames (11/50, 2). Navigation the same in all three (latch ~7.9 s, 9.2 cm from the spot).
+          `split_arrived_s0` stays the main variant and DAgger starts from it.
         - Keep each model's quick-test files with `compare.py --out-dir compare_out/<model>` (otherwise each run
           overwrites `compare_out/test_set_quick/`).
     - **v2: phase head: parked (30 Oct), not worth doing for now.** Why: what it was for is already fixed by v1. In
@@ -1047,6 +1070,9 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
         commands alone. Compare them on the same metrics, especially the timing of the align -> drive switch and of
         arrival: if the hand-built latch wins, the structure of the expert is worth building in; if the GRU matches
         it, the memory can be learned without phase labels.
+    - **The next two parts are the first extension (decided 30 Oct), once a model reaches targets, before the camera
+      extension:** not needed for the main result (the base already parks 9 cm from its spot) and risky while the arm
+      still fails; see "Who does what", Matteo point 4 for the order of work until then.
     - a model that **predicts the base's final pose** (where to park, from the target) that the base network then
       drives to;
     - **start the arm before the base arrives** (no expert change needed): train the arm network only on the reach
@@ -1071,13 +1097,82 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
     start is already covered by robot-frame inputs, see 6). Randomise it and collect data for it if we want to
     claim generalisation to new initial conditions.
 21. DAgger (optional): the expert relabels states the policy visits.
+    **Done (30 Oct, Matteo): DAgger for the split arm network** (why: the split arm drifts off the expert's states
+    ~1 s into the reach and the data has no examples of correcting from there; step 15 results). Code, not run yet:
+    - `expert_relabel.py`: the expert's own `arm_controller` stepped offline along any saved run, carrying its joint
+      reference `q_des`, with the robot model rebuilt from the URDF: the torques the expert would have commanded at
+      each frame, with no simulator and no expert re-runs. Check (`python expert_relabel.py`): on 5 expert episodes it
+      gives back the saved torques to 0.0007-0.016 N*m median (worst 0.37 N*m; the base is taken as upright, only its
+      yaw is saved).
+    - `dagger.py --start split_arrived_s0 --rounds 3 [--quick]`: each round runs the previous model on 200 new
+      **training** targets (never validation or test), labels the arm phase, saves the episodes to
+      `dagger/split_dagger_r<k>/` (git-ignored) and calls `train.py --split --dagger <all rounds so far>`
+      (models `split_dagger_r<k>_s0`, settings and gravity residual from the start model; `--quick` adds a quick test
+      per round into `compare_out/<model>/`). Steps already done are skipped, so an interrupted run continues.
+      Retrained from scratch each round on all data (standard DAgger: every round's model is a clean, comparable
+      training); the base gets no new data and comes out identical (same data and seed), so every change is the arm's.
+    - **Labelled part: from the latch until 5 s later, or until the expert's label stays at its 30 N*m limit for
+      50 ms (not counted in the first 0.5 s, where the expert's own reach starts with a short kick at the limit).**
+      Why: first tried until the arm's error climbed back above 20 cm, but then most late labels sat at the limit
+      (60-100% of frames), a median 6-8 standard deviations outside the expert's data, and 1,137 such frames pushed
+      the arm's training loss from 0.04 to 4.3, i.e. they would dominate training. Before the limit the labels are
+      the expert's normal size (median 1-3 standard deviations); with the rule the labelled part ends at 1.7-2.4 s on
+      the test runs and the loss stays normal (0.045). As the policy drifts less in later rounds, the part grows.
+    - Episode format: `data_main`'s fields without the expert-only ones (`nav_phase`, `q_des_arm`, `base_goal`);
+      `torque_arm` = the expert's labels (nan where unlabelled), `arm_label_mask` = which frames are labelled,
+      `policy_wheel_cmds` / `policy_torque_arm` = what the policy did. Full rate and the full run, so base DAgger
+      (wheel labels, later) and Kris's temporal models (windows) can use the same files.
+    - `train.py --dagger <folders>` (with `--split` only; a single MLP would also need wheel labels): adds every
+      10th labelled frame (like the expert data) to the arm's training frames. Full torques are stored and gravity is
+      subtracted at training time, so the same files serve the gravity ablation. Normalisation and validation stay
+      the expert data's (so `best_val_loss` stays comparable; it can't show DAgger's benefit: judge in closed loop).
+      New results columns `dagger` (folders) and `dagger_frames`. Leaving `--dagger` out is the ablation.
+    - Checked offline: labelling 3 policy runs takes 3.3 s (200 per round: ~1 min with 16 processes); the labels
+      differ from the policy's torques by 0.4-1.7 N*m in the first 0.5 s, as in the diagnosis; a 1-epoch training with
+      DAgger data runs and records the new columns. Not yet run: the policy runs on training targets (round 1).
+    - Later: base DAgger, tested separately (replay the expert's base state machine along policy runs for wheel and
+      "arrived" labels); DAgger on Kris's temporal single model once base labels exist. Ablation: DAgger on / off.
+    - **Result (30 Oct): DAgger works, the first targets reached.** `dagger.py --start split_arrived_s0 --rounds 3
+      --val-set` (default settings, seed 0), closed loop on the 50 validation episodes:
+
+      | Round (model) | DAgger frames (total) | Reached | Closest approach (median) | Under 1 cm | Collapsed (error back > 20 cm) |
+      |---|---|---|---|---|---|
+      | 0 (`split_arrived_s0`) | 0 | 0/50 | 4.9 cm | 1 | 50/50, at 2.9 s |
+      | 1 (`split_dagger_r1_s0`) | 32.5 k | **10/50** | 1.2 cm | 22 | 16/50 |
+      | 2 (`split_dagger_r2_s0`) | 111.6 k | **15/50** | 0.8 cm | 32 | 21/50 |
+      | 3 (`split_dagger_r3_s0`) | 180.6 k | **22/50** | 0.7 cm | 31 | 7/50, at 12.6 s |
+
+      - Navigation unchanged (latch ~7.9 s, ~9 cm from the spot): the gain is all the arm's, as intended. The arm no
+        longer saturates (torques at the limit in 0-1% of post-latch frames, 80% before) and stays near the target
+        (median time within 5 cm 5.4 s in round 3, 0.15 s in round 0). Final error median 0.92 m -> 0.04 m.
+      - Round 2 labelled far more frames than round 1 (79 k vs 32.5 k): its policy drifted less, so the labelled
+        part (until the expert's label saturates) got longer, as expected.
+      - **Offline numbers got worse while closed loop got much better:** `best_val_loss` 0.0058 / 0.0125 / 0.0132 and
+        test torque RMSE ~0.79 N*m, both measured on the expert's states, which the DAgger frames are not. The
+        offline vs closed-loop gap again (a report point): judge DAgger in closed loop only.
+      - Possible improvements: more rounds (the trend is still rising); early stopping judges on the expert's
+        validation states only, and stopped the arm at epochs 11-27 (40-54 without DAgger): validating on held-out
+        DAgger frames too could let it train longer. Choose the round on the validation 50, then the full test set.
+    - **Rounds 4-5 and the first full test set (30 Oct).** `dagger.py` first allowed each training target only once
+      (696 targets: at most 3 rounds of 200); later rounds now wrap around and reuse targets (rounds 1-3 unchanged).
+      Why that's fine: a target is only a starting point, and a newer policy visits different states from it.
+      Validation 50: round 4 (218.6 k DAgger frames) **24/50** reached, closest median 0.5 cm, 2/50 collapsed;
+      round 5 (282.1 k) **26/50**, 0.5 cm, 8/50 collapsed. Gains flattening (+10, +5, +7, +2, +2).
+      **Chosen: round 5**, by the rule set before looking (most reached, then closest approach). Round 4 is the steadier
+      model (all 50 within 5 cm vs 42, 2 collapses vs 8) and 24 vs 26 is within run-to-run noise: seeds can decide.
+      **Full test set, `split_dagger_r5_s0`: 62/150 reached (41.3%)** (expert 149/150), final error median 3.9 cm
+      (mean 0.20 m), time to reach 11.2 s for reached runs (expert 12.2 s, both incl. the 1 s settle; the reached
+      targets are likely the easier ones, so not a like-for-like speed comparison). 90/150 got within 1 cm at some
+      point (the brief's 1 cm tolerance, "ever within 1 cm"). Validation (52%) was higher than test (41%): expected,
+      since the round was picked as the best of five on validation. Offline as before: test wheels 0.181 rad/s,
+      torques 0.80 N*m; inference 0.17 ms per step.
 
 ### Evaluation and report
 22. **Compare all models:** one results table with every model (baseline, each branch, final), offline error and
     closed-loop success / final error, all on the same test set.
 23. **Ablations** (done once the winning branches are combined into one final model): remove one component at a
     time (robot-frame inputs, robot-frame polar vs Cartesian, gravity residual, history window, adaptive subsampling,
-    noise data, split networks),
+    noise data, DAgger data, split networks),
     retrain, and report offline error + closed-loop success for each vs the full model. This shows how much each
     design choice contributes in combination (branch results show each idea alone; the ablation shows it still
     helps with everything else, and reveals ideas that overlap).

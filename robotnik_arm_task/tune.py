@@ -137,7 +137,8 @@ def main():
     parser.add_argument("--final", required=True, help="name of the tuned model (checkpoint + results file)")
     parser.add_argument("--top", type=int, default=3,
                         help="at most this many shortlisted settings (within the tolerance) checked in closed loop")
-    parser.add_argument("--val-episodes", type=int, default=20, help="validation episodes for the closed-loop check")
+    # 50, the same episodes as compare.py --val-set (20 until 30 Oct)
+    parser.add_argument("--val-episodes", type=int, default=50, help="validation episodes for the closed-loop check")
     parser.add_argument("--parallel", type=int, default=4, help="trainings at once (they share the CPU cores)")
     parser.add_argument("--workers", type=int, default=16, help="simulations at once in the closed-loop check")
     parser.add_argument("--max-epochs", type=int, help="passed to train.py (only to make quick test runs shorter)")
