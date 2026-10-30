@@ -22,7 +22,7 @@ from robotnik_arm_control import (
 )
 
 import torch
-from bc_data import make_features, decode_outputs, arm_gravity
+from bc_data import make_features, decode_outputs, arm_gravity, FrameHistory
 from bc_model import load_model
 
 
@@ -136,6 +136,8 @@ def main():
     # Default checkpoint is found relative to this file, so the script works from any working directory
     model = load_model(os.environ.get("ROBOENV_POLICY", os.path.join(cur_dir, "checkpoints", "mlp_baseline.pt")))
     torch.set_num_threads(1)   # one sample per step: extra threads only add overhead
+    # Past frames the model was trained with (PLAN.md step 14); does nothing for a single-frame model
+    history = FrameHistory(model.config.get("history_k", 0), model.config.get("history_spacing", 1))
 
     # Stop conditions (target reached, time cap), see StopCriteria. No stall check: while the base turns in
     # place the EE error can go well over 2 s without improving, so a stall rule could cut off a run that
@@ -183,7 +185,7 @@ def main():
         # ----------------------------------------------------------------------
         # 1 + 2. Learned policy: wheel velocities and arm torques from the measurements and the target
         # ----------------------------------------------------------------------
-        x = make_features(base_pos, base_bearing, q_mes[4:11], qd_mes[4:11], TARGET_EE_POS, ee_pos)
+        x = history.add(make_features(base_pos, base_bearing, q_mes[4:11], qd_mes[4:11], TARGET_EE_POS, ee_pos))
         # Gravity-residual models (PLAN.md step 12) predict torque minus gravity: add this frame's gravity back
         tau_g = arm_gravity(q_mes)[0] if model.config.get("gravity_residual") else None
         wheel_cmds, torque_arm = decode_outputs(model.predict(x), tau_g)
