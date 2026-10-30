@@ -887,7 +887,7 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
         empty when there is no history. `analyse_temporal.py --model X` adds the closed-loop summary to `results/X.csv` as
         `quick_*` (or `full_*`) columns, with the machine that ran it; `sim_*` stays full-test only. The four models with no
         window were renamed (`temporal_window_k0_*` -> `mlp_robotframe_s0`, `mlp_robotframe_uniform_s0`, `mlp_gravres_s0`,
-        `mlp_gravres_lr1e3_s0`). `mlp_worldframe.csv` has a `data_note`: it used the old data.
+        `mlp_gravres_lr1e3_s0`).
     - Then a **temporal convolutional network (TCN)** (Lecture 07; added 29 Oct): causal dilated 1-D convolutions
       directly on the 27 inputs of the last N frames give the commands at time t. Plain first, no per-frame MLP
       encoder: the lecture uses one to compress wide inputs (many channels, images) into features, and ours are only
