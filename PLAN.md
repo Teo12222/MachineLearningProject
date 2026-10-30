@@ -916,7 +916,7 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
       - Expected to help the **base** (the phase switch shows in the recent history) more than the **arm**: the
         arm's hidden state `q_des_arm` is clipped to within 0.15 rad of the measured angles (`max_q_lead`), so its
         memory is short. With split networks (15) a temporal model can go into one net only: try base-only first.
-      - **Code done (Kris, 30 Oct, on `Kris`, not pushed yet). Still to run: the sweep.** Decided: ring buffers as planned,
+      - **Code done (Kris, 30 Oct, on `Kris`, not pushed yet); sweep below.** Decided: ring buffers as planned,
         a separate `train_tcn.py`, gravity residual on by default.
       - `728a157` (`bc_model.py`): `TCN(n_in, n_out, layers, channels, spacing, gravity_residual)`: kernel 2, written as a
         linear layer on the two time points; 2^L frames, spacing ms apart. `forward` walks the tree (training), `step`
@@ -930,6 +930,27 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
         padding included; a frame just beyond the reach and a future frame change nothing; a tiny batch overfits; saved
         checkpoints reload; `load_frames` matches `load_episodes`; 1 epoch end to end for L = 6 (13 s per epoch) and L = 8
         (37 s); 0.05 ms per step at either size; TCN, MLP and window checkpoints all run in the policy script.
+      - **Sweep (Kris, 30 Oct; 10 ms spacing, 64 channels, gravity residual, lr 3e-3, quick test on 50 targets, Mac):
+        all 0/50, and closed loop far worse than the MLP.** No TCN beat `mlp_gravres_s0` on validation loss.
+
+        | Model | Reach | Parameters | Val loss | Wheel / torque RMSE | Max torque first hit (s) | Arm dev. at 2 s (rad) | Base off the floor | Spot within 15 cm |
+        |---|---|---|---|---|---|---|---|---|
+        | `mlp_gravres_s0` | 1 frame | 141,579 | 0.00131 | 0.057 / 0.104 | 8.73 | 0.013 | 12/50 | 23/50 |
+        | `mlp_gravres_lr1e3_s0` | 1 frame | 141,579 | 0.00211 | 0.075 / 0.125 | 8.97 | 0.014 | 2/50 | 44/50 |
+        | `tcn_L4_d10_gravres_s0` | 160 ms | 29,003 | 0.00174 | 0.059 / 0.117 | 1.25 | 0.58 | 47/50 | 4/50 |
+        | `tcn_L6_d10_gravres_s0` | 640 ms | 45,515 | 0.00227 | 0.064 / 0.130 | 1.09 | 3.15 | 50/50 | 2/50 |
+        | `tcn_L8_d10_gravres_s0` | 2.56 s | 62,027 | 0.00184 | 0.050 / 0.120 | 0.58 | 3.35 | 50/50 | 0/50 |
+
+        - Arm deviation: median over episodes of the mean |q - q_expert| over the 7 joints. Max torque first hit: median
+          first time a torque reaches the 30 N*m clip. Off the floor: base height moved over 0.3 m from its start.
+        - **Do not read `quick_final_err_median` (30 / 371 / 1,032 m) as distances.** The wheels allow at most 10 m in
+          30 s. The arm is at the torque clip almost throughout, the physics blows up, and in the worst runs the robot
+          ends over 1 km below the floor. In the median run it leaves the floor at 7.2 / 1.9 / 2.4 s.
+        - Not a run-time bug: `step` and `predict` agree within 5e-6 over 4,000 frames of a real episode for all three.
+        - The arm fails before the base has started driving (expert drive start 1.36 s), and a longer reach fails sooner.
+          Same direction as the windows (arm fails at 2-3 s). Why is not established.
+        - Not comparable with the MLP on size: these TCNs have 20-45% of its parameters, and val loss is not monotonic in
+          L (L6 is worse than L4 and L8), which suggests the plain deep stack trains badly (no residual connections yet).
     - Then a **recurrent neural network (RNN)**: a GRU (`torch.nn.GRU`; why not an LSTM: below). It keeps an
       internal memory that is updated every step, so it can learn the expert's hidden state (which phase it is in)
       instead of us choosing a fixed window. Training uses short sequences cut from the episodes; in the policy
