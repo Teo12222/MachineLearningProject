@@ -833,7 +833,7 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
 
         | Model | Span | Val loss | Test wheels | Test torques | Reached | Final err (median) | Within 15 cm of spot | Closest EE (median) | Turn -> drive delay | Arm 0.15 rad off | Base 0.3 m off expert |
         |---|---|---|---|---|---|---|---|---|---|---|---|
-        | `temporal_window_k0_s0` | 0 | 0.00130 | 0.056 | 0.108 | 0/50 | 1.36 m | 22/50 | 0.37 m | 0.03 s | 5.3 s | 6.0 s |
+        | `mlp_robotframe_s0` | 0 | 0.00130 | 0.056 | 0.108 | 0/50 | 1.36 m | 22/50 | 0.37 m | 0.03 s | 5.3 s | 6.0 s |
         | `temporal_window_k4_d10_s0` | 40 ms | 0.00184 | 0.066 | 0.118 | 0/50 | 12.5 m | 3/50 | 0.88 m | 0.12 s | 1.9 s | 2.9 s |
         | `temporal_window_k4_d50_s0` | 200 ms | 0.00129 | 0.052 | 0.109 | 0/50 | 13.3 m | 4/50 | 0.96 m | 0.00 s | 2.0 s | 3.0 s |
         | `temporal_window_k4_d125_s0` | 500 ms | 0.00157 | 0.057 | 0.113 | 0/50 | 7.40 m | 3/50 | 0.74 m | 0.04 s | 3.0 s | 4.1 s |
@@ -851,9 +851,9 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
 
         | Model | Change | Val loss | Test wheels | Test torques | Reached | Final err (median) | Within 15 cm of spot | Closest EE (median; best) | Arm deviation at 6 s | Base 0.3 m off expert | Wheels at clip |
         |---|---|---|---|---|---|---|---|---|---|---|---|
-        | `temporal_window_k0_s0` | adaptive frames | 0.00130 | 0.056 | 0.108 | 0/50 | 1.36 m | 22/50 | 0.37 m; 33 mm | 0.75 rad | 6.0 s, never in 9 | 80% |
-        | `temporal_window_k0_uniform_s0` | uniform frames | 0.00257 | 0.062 | 0.104 | 0/50 | 5.36 m | 17/50 | 0.32 m; 25 mm | 0.84 rad | 5.9 s, never in 9 | 77% |
-        | `temporal_window_k0_gravres_s0` | `--gravity-residual` | 0.00131 | 0.057 | 0.104 | 0/50 | 2.26 m | 23/50 | **0.16 m; 17 mm** | **0.056 rad** | **7.7 s, never in 21** | 67% |
+        | `mlp_robotframe_s0` | adaptive frames | 0.00130 | 0.056 | 0.108 | 0/50 | 1.36 m | 22/50 | 0.37 m; 33 mm | 0.75 rad | 6.0 s, never in 9 | 80% |
+        | `mlp_robotframe_uniform_s0` | uniform frames | 0.00257 | 0.062 | 0.104 | 0/50 | 5.36 m | 17/50 | 0.32 m; 25 mm | 0.84 rad | 5.9 s, never in 9 | 77% |
+        | `mlp_gravres_s0` | `--gravity-residual` | 0.00131 | 0.057 | 0.104 | 0/50 | 2.26 m | 23/50 | **0.16 m; 17 mm** | **0.056 rad** | **7.7 s, never in 21** | 67% |
 
         - **Step 7, first result: adaptive is at least as good as uniform** (validation loss half, arm no worse). One seed,
           quick test: repeat before reporting. It didn't cause the arm failure.
@@ -866,7 +866,7 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
           expert at 6.6 s (7.7 s), never in 3/50 (21/50). So windows lose in all five comparisons, with and without the
           residual: on the whole network they destabilise the arm. The turn -> drive delay is 0.03 s without them, so
           they have nothing to fix there. Sweep stopped here: Stages 2-3 not run. One seed, quick test.
-      - **What fails after ~7 s, `temporal_window_k0_gravres_s0` (saved quick-test runs, 3 plotted against the expert):
+      - **What fails after ~7 s, `mlp_gravres_s0` (saved quick-test runs, 3 plotted against the expert):
         the reach, not the navigation.** Turn, drive and the approach follow the expert's path closely. The arm then
         leaves its hold at a median of 7.6 s (expert arrival 7.9 s), but reaches far more slowly than the expert (486:
         about 3.5 s for what the expert does in about 1.5 s), gets to a median of 0.16 m at 8.9 s (best 17 mm, no run
@@ -876,13 +876,18 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
         median 0.27 m). The expert's data ends 1 s after reaching, so it shows no recovery from a missed reach.
         **So the priority moves to the arm's reach**: temporal inputs on the base can't fix it. Candidates: split
         networks (15), noise data (19), a reach-focused arm model.
-      - **Old settings on the residual, `temporal_window_k0_gravres_lr1e3_s0` (Kris, 30 Oct; lr 1e-3, max 20 epochs, quick
+      - **Old settings on the residual, `mlp_gravres_lr1e3_s0` (Kris, 30 Oct; lr 1e-3, max 20 epochs, quick
         test, seed 0): the best closed loop so far, with the worst offline numbers of the residual models.** Val loss
         0.00211 (0.00131 at lr 3e-3), test wheels 0.075 (0.057), torques 0.125 (0.104); still 0/50, but within 15 cm of the
         spot 44/50 (23/50), closest to the spot 0.04 m (0.17 m), closest EE 0.10 m (0.16 m), best 9 mm (17 mm), base 0.3 m
         off the expert in only 5/50 runs (29/50), wheels at the clip 43% (67%). Training stopped at the 20-epoch limit, on
         its best epoch, so it was still improving. Learning rate and training length changed together: which of them
         matters isn't known yet. If this holds, `train.py`'s defaults (lr 3e-3, up to 100 epochs) are worth revisiting.
+      - **Result annotations (Kris, 30 Oct):** `76bba15` records `architecture` and `seed`, and leaves `history_spacing`
+        empty when there is no history. `analyse_temporal.py --model X` adds the closed-loop summary to `results/X.csv` as
+        `quick_*` (or `full_*`) columns, with the machine that ran it; `sim_*` stays full-test only. The four models with no
+        window were renamed (`temporal_window_k0_*` -> `mlp_robotframe_s0`, `mlp_robotframe_uniform_s0`, `mlp_gravres_s0`,
+        `mlp_gravres_lr1e3_s0`). `mlp_worldframe.csv` has a `data_note`: it used the old data.
     - Then a **temporal convolutional network (TCN)** (Lecture 07; added 29 Oct): causal dilated 1-D convolutions
       directly on the 27 inputs of the last N frames give the commands at time t. Plain first, no per-frame MLP
       encoder: the lecture uses one to compress wide inputs (many channels, images) into features, and ours are only

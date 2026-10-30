@@ -1,2 +1,0 @@
-model,train_episodes,epochs,batch,lr,hidden,layers,best_val_loss,best_epoch,train_time_s,parameters,inference_ms,test_wheel_rmse,test_torque_rmse,sim_success_rate,sim_final_err_mean,sim_final_err_median,sim_time_to_reach,subsample,keep_frac,weight_decay,dropout,max_epochs,patience,gravity_residual,history_k,history_spacing
-temporal_window_k0_gravres_s0,696,68,2048,0.003,256,3,0.00130991,58,152.341,141579,0.026458,0.0567836,0.104179,,,,,adaptive,0.1,0,0,100,10,True,0,50
