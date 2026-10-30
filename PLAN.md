@@ -866,6 +866,16 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
           expert at 6.6 s (7.7 s), never in 3/50 (21/50). So windows lose in all five comparisons, with and without the
           residual: on the whole network they destabilise the arm. The turn -> drive delay is 0.03 s without them, so
           they have nothing to fix there. Sweep stopped here: Stages 2-3 not run. One seed, quick test.
+      - **What fails after ~7 s, `temporal_window_k0_gravres_s0` (saved quick-test runs, 3 plotted against the expert):
+        the reach, not the navigation.** Turn, drive and the approach follow the expert's path closely. The arm then
+        leaves its hold at a median of 7.6 s (expert arrival 7.9 s), but reaches far more slowly than the expert (486:
+        about 3.5 s for what the expert does in about 1.5 s), gets to a median of 0.16 m at 8.9 s (best 17 mm, no run
+        within 5 mm), then keeps going past the expert's final pose and winds up. Only after that does the base leave
+        the spot and the wheels go to the clip (turning in place at the clip in 47% of the frames after the closest
+        approach): the wheel chaos is a consequence. In 27/50 runs the base also stops short of the spot (closest
+        median 0.27 m). The expert's data ends 1 s after reaching, so it shows no recovery from a missed reach.
+        **So the priority moves to the arm's reach**: temporal inputs on the base can't fix it. Candidates: split
+        networks (15), noise data (19), a reach-focused arm model.
     - Then a **temporal convolutional network (TCN)** (Lecture 07; added 29 Oct): causal dilated 1-D convolutions
       directly on the 27 inputs of the last N frames give the commands at time t. Plain first, no per-frame MLP
       encoder: the lecture uses one to compress wide inputs (many channels, images) into features, and ours are only
