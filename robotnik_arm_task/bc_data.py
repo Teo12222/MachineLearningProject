@@ -4,6 +4,7 @@ make_features is shared by training (whole episodes) and robotnik_arm_policy_tas
 so the model always sees inputs built the same way.
 """
 import numpy as np
+from collections import deque
 from functools import cache
 from pathlib import Path
 
@@ -129,21 +130,56 @@ def subsample_indices(wheel_cmds, torque_arm, keep_frac=0.1, mode="adaptive", fl
     return np.sort(rng.choice(n, size=k, replace=False, p=p / p.sum()))
 
 
-def load_episodes(data_dir, episode_ids, keep_frac=None, mode="adaptive", seed=0, gravity_residual=False):
+def with_history(x, frames, history_k=0, history_spacing=1):
+    """Model inputs of the given frames of one episode, each with its history_k past frames (PLAN.md step 14).
+
+    x: the inputs of every frame of the episode, (n, 27). Returns (len(frames), 27 * (history_k + 1)): the current
+    frame first, then t - spacing, t - 2 * spacing, ... (spacing in frames, 1 frame = 1 ms). History comes from the
+    full episode, so the past frames don't have to be kept by subsampling. Before the first frame there is no past:
+    that frame is repeated (not zeros, which would mean "an average state" after normalisation). FrameHistory does
+    the same at run time. history_k=0 gives just the frames themselves.
+    """
+    offsets = history_spacing * np.arange(history_k + 1)
+    idx = np.maximum(np.asarray(frames)[:, None] - offsets, 0)
+    return x[idx].reshape(len(idx), -1)
+
+
+class FrameHistory:
+    """Run-time version of with_history: keeps the recent input rows, one new row per simulation step.
+
+    Create one per episode. The buffer starts filled with the first row, as with_history repeats the first frame.
+    """
+
+    def __init__(self, history_k=0, history_spacing=1):
+        self.offsets = history_spacing * np.arange(history_k + 1)
+        self.rows = deque(maxlen=history_k * history_spacing + 1)
+
+    def add(self, x):
+        """Store this step's input row and return it joined with its past frames."""
+        if not self.rows:
+            self.rows.extend([x] * self.rows.maxlen)
+        self.rows.append(x)
+        return np.concatenate([self.rows[-1 - o] for o in self.offsets])
+
+
+def load_episodes(data_dir, episode_ids, keep_frac=None, mode="adaptive", seed=0, gravity_residual=False,
+                  history_k=0, history_spacing=1):
     """Inputs and labels of several episodes stacked into one array each.
 
     keep_frac=None keeps every frame; otherwise each episode keeps only the frames picked by subsample_indices.
     gravity_residual: torque labels minus the arm gravity torque (see load_episode).
+    history_k, history_spacing: past frames added to each input (see with_history).
     """
     xs, ys = [], []
     for i in episode_ids:
         path = Path(data_dir) / f"ep_{i:04d}.npz"
         x, y = load_episode(path)
-        keep = slice(None)
+        keep = np.arange(len(x))
         if keep_frac is not None:
             # Picked from the full torques, so a gravity-residual model trains on the same frames as one without
             keep = subsample_indices(*decode_outputs(y), keep_frac=keep_frac, mode=mode, seed=(seed, i))
-            x, y = x[keep], y[keep]
+        # Before dropping any frames: the history comes from the full episode
+        x, y = with_history(x, keep, history_k, history_spacing), y[keep]
         if gravity_residual:
             y[:, 4:11] -= arm_gravity(np.load(path)["q_mes"][keep])   # only for the kept frames
         xs.append(x)
