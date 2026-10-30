@@ -5,18 +5,25 @@ COMP0245 assignment: train a PyTorch model that copies the expert controller, i.
 
 ## Files
 
-The shared pipeline lives on `master`, in `robotnik_arm_task/`:
+The shared pipeline lives on `master`, in `robotnik_arm_task/` (updated 30 Oct; the split networks and DAgger, step
+15 and 21, are on the `Matteo` branch until merged). Run everything with `pixi run python <script>` from there.
 
 | File | What it does |
 |---|---|
-| `robotnik_arm_task.py`, `robotnik_arm_control.py` | The expert (simulation + controllers); saves one `.npz` per episode |
-| `run_batch.py` | Runs the expert on many random targets in parallel to collect data |
-| `data_pilot/` | 350 expert episodes (all reach the target), listed in `index.csv` |
-| `bc_data.py` | Model inputs/outputs, episode loading, train/val/test split by episode (fixed seed) |
-| `bc_model.py` | Baseline MLP (3 x 256) with its normalisation stored inside, plus save/load |
-| `train.py` | Trains, keeps the epoch with the lowest **validation** loss, then tests it offline on the test episodes. `--no-test`, `--test-only` |
-| `robotnik_arm_policy_task.py` | Same simulation as the expert, but the trained model drives the robot (`ROBOENV_POLICY` picks the checkpoint) |
-| `compare.py` | Expert vs model: `--target x,y,z`, `--episode N`, or `--test-set` (success rate + final error on all test targets) |
+| `robotnik_arm_task.py`, `robotnik_arm_control.py` | The expert (simulation + base and arm controllers, stop rules); saves one `.npz` per episode, including its hidden state (`nav_phase`, `nav_done`, `q_des_arm`) |
+| `run_batch.py` | Runs the expert on many random targets in parallel to collect data (defaults: `data_main`, from episode 0) |
+| `data_main/` | The dataset: 1,000 expert episodes after the expert fixes (git-ignored, ~3 GB; recollect with `run_batch.py`) |
+| `data_pilot/` | The first 350 episodes, before the expert fixes: no longer used for training (still committed) |
+| `bc_data.py` | Model inputs (27 robot-frame features) and outputs, `decode_outputs`, episode loading, adaptive / uniform subsampling, episode cleaning, gravity torques (`arm_gravity`), the train/val/test split by episode (fixed seed) and the fixed quick-test / validation subsets |
+| `bc_model.py` | The MLP (size set by options) with its normalisation stored inside, plus save/load |
+| `bc_split.py` | Split networks (15): base net (wheels + "arrived" flag) and arm net in one checkpoint, the arrival latch, the DAgger data loader, `load_policy` (loads any checkpoint) |
+| `train.py` | Trains one model (early stopping on the **validation** loss), then tests it offline on the test episodes; writes `results/<model>.csv`. Options: `--model`, settings, `--seed`, `--gravity-residual` (12), `--split` (15), `--dagger` (21), `--no-test` / `--test-only` |
+| `tune.py` | Hyperparameter search for a final model (staged grid via `train.py`, closed-loop check of the best few on the 50 validation episodes) |
+| `robotnik_arm_policy_task.py` | Same simulation as the expert, but a trained model drives the robot (`ROBOENV_POLICY` picks the checkpoint; single MLP or split) |
+| `compare.py` | Expert vs model in simulation: `--target x,y,z`, `--episode N`, `--test-set` (all 150 test targets, writes the `sim_*` results), `--test-set --quick` (50 test targets, for looking only), `--val-set` (50 validation targets, for every decision) |
+| `expert_relabel.py` | The expert's arm controller run offline along any saved run: what the expert would have commanded there (DAgger labels, 21) |
+| `dagger.py` | DAgger for the split arm (21): runs a split model on training targets, labels it with `expert_relabel.py`, retrains via `train.py --dagger`, several rounds (data in the git-ignored `dagger/`) |
+| `results.py` | Results recording (`update_results`); `python results.py` stacks every `results/<model>.csv` into `results_combined.csv` with seed means |
 
 **Results:** every model's numbers are in `results/<model>.csv` (one file per model; see "Recording results" below).
 Look there for the current state of each model instead of this file.
