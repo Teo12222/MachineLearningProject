@@ -69,7 +69,7 @@ parser.add_argument("--gravity-residual", action=argparse.BooleanOptionalAction,
                     help="torque outputs are torque minus arm gravity, added back when the model is run (PLAN.md "
                          "step 12); --no-gravity-residual for the ablation")
 parser.add_argument("--history-k", type=int, default=0, help="past frames added to each input (PLAN.md step 14)")
-parser.add_argument("--history-spacing", type=int, default=1, help="frames between them (1 frame = 1 ms)")
+parser.add_argument("--history-spacing", type=int, default=50, help="frames between them (1 frame = 1 ms)")
 parser.add_argument("--seed", type=int, default=0, help="training seed (weights, batch order); put it in --model too")
 parser.add_argument("--threads", type=int, help="torch CPU threads (several runs at once share the cores)")
 args = parser.parse_args()
