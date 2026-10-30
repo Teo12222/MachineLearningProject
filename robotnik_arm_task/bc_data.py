@@ -187,6 +187,40 @@ def load_episodes(data_dir, episode_ids, keep_frac=None, mode="adaptive", seed=0
     return np.concatenate(xs), np.concatenate(ys)
 
 
+def load_frames(data_dir, episode_ids, keep_frac=None, mode="adaptive", seed=0, gravity_residual=False):
+    """For models that cut their windows per batch (TCN): every frame stored once, plus which ones are samples.
+
+    Returns x (all frames of all episodes), y (labels of the kept frames only), frames (their rows in x) and starts
+    (the row where each one's episode begins, so windows stop there). Same frames as load_episodes.
+    """
+    xs, ys, frames, starts = [], [], [], []
+    total = 0
+    for i in episode_ids:
+        path = Path(data_dir) / f"ep_{i:04d}.npz"
+        x, y = load_episode(path)
+        keep = np.arange(len(x))
+        if keep_frac is not None:
+            keep = subsample_indices(*decode_outputs(y), keep_frac=keep_frac, mode=mode, seed=(seed, i))
+        y = y[keep]
+        if gravity_residual:
+            y[:, 4:11] -= arm_gravity(np.load(path)["q_mes"][keep])
+        xs.append(x)
+        ys.append(y)
+        frames.append(keep + total)
+        starts.append(np.full(len(keep), total))
+        total += len(x)
+    return np.concatenate(xs), np.concatenate(ys), np.concatenate(frames), np.concatenate(starts)
+
+
+def window_batch(x, frames, starts, n_frames, spacing):
+    """Windows of the given rows of x: (len(frames), n_frames, n_in), oldest frame first, newest = the frame itself.
+
+    Before an episode's first frame, that frame is repeated, as in with_history.
+    """
+    offsets = spacing * np.arange(n_frames - 1, -1, -1)
+    return x[np.maximum(frames[:, None] - offsets, starts[:, None])]
+
+
 def split_episodes(data_dir, seed=0, val_frac=0.15, test_frac=0.15):
     """Randomly assign whole episodes to train / validation / test (fixed seed, so always the same split)."""
     ids = sorted(int(p.stem[3:]) for p in Path(data_dir).glob("ep_*.npz"))
