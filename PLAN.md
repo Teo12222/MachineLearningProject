@@ -828,6 +828,26 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
         frames, 135 inputs, 2.3 s per epoch, 0.029 ms per prediction) and both a window and a single-frame model run in
         the policy script. `analyse_temporal.py`: expert runs given as policy runs show zero delay; its drive-start
         rule (forward speed > 0.1 m/s for 50 ms) matches the logged `nav_phase` exactly on 100 episodes.
+      - **Stage 1 (Kris, 30 Oct), k = 4, 3 spans, shared `data_main`, quick test, seed 0:** all with today's defaults
+        (lr 3e-3, 256 x 3, early stopping, adaptive frames, no gravity residual).
+
+        | Model | Span | Val loss | Test wheels | Test torques | Reached | Final err (median) | Within 15 cm of spot | Closest EE (median) | Turn -> drive delay | Arm 0.15 rad off | Base 0.3 m off expert |
+        |---|---|---|---|---|---|---|---|---|---|---|---|
+        | `temporal_window_k0_s0` | 0 | 0.00130 | 0.056 | 0.108 | 0/50 | 1.36 m | 22/50 | 0.37 m | 0.03 s | 5.3 s | 6.0 s |
+        | `temporal_window_k4_d10_s0` | 40 ms | 0.00184 | 0.066 | 0.118 | 0/50 | 12.5 m | 3/50 | 0.88 m | 0.12 s | 1.9 s | 2.9 s |
+        | `temporal_window_k4_d50_s0` | 200 ms | 0.00129 | 0.052 | 0.109 | 0/50 | 13.3 m | 4/50 | 0.96 m | 0.00 s | 2.0 s | 3.0 s |
+        | `temporal_window_k4_d125_s0` | 500 ms | 0.00157 | 0.057 | 0.113 | 0/50 | 7.40 m | 3/50 | 0.74 m | 0.04 s | 3.0 s | 4.1 s |
+
+        - **Windows made closed loop worse, with no offline gain** (best window = reference on validation loss).
+        - **The arm fails first:** it leaves its holding pose (0.15 rad) ~1 s before the base leaves the expert's path, in
+          every model, ~3 s earlier with a window. By 6 s the joints have wound up by 7-45 rad (median) with windows, 0.75
+          rad in the reference (the expert stays within 0.067 rad).
+        - **The late turn -> drive switch is not the failure here:** the median delay is at most 0.12 s, so the base
+          starts on time and is pulled off course once the arm has gone. In 16/50 `k4_d50` runs it never drives.
+        - **Open: the reference is worse than `mlp_robotframe`** (final error 1.36 vs 0.78 m; arm deviation at 6 s 0.75 vs
+          0.062 rad; wheels at the clip 80% vs 7%) despite a lower validation loss. It differs in learning rate, epochs
+          and adaptive frames, so one of those hurts closed loop. Adaptive frames are a suspect: they thin the frames of
+          the arm holding still. Next: the same model with uniform frames (step 7), and a window with `--gravity-residual`.
     - Then a **temporal convolutional network (TCN)** (Lecture 07; added 29 Oct): causal dilated 1-D convolutions
       directly on the 27 inputs of the last N frames give the commands at time t. Plain first, no per-frame MLP
       encoder: the lecture uses one to compress wide inputs (many channels, images) into features, and ours are only
