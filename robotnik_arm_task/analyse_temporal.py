@@ -4,16 +4,22 @@ compare.py reports success and final error. While policies reach no targets thos
 the saved policy runs and the stored expert runs and measures the failure itself: how late the turn -> drive switch
 comes, how close the base gets to its parking spot, how close the end-effector gets to the target.
 
+With --model the summary also goes into results/<model>.csv as quick_* columns (full_* with --full), with the machine
+that ran the simulations, since runs differ slightly between machines. compare.py's sim_* columns stay full-test only.
+
 Usage (from the robotnik_arm_task folder, after compare.py --test-set --quick --model X --out-dir compare_out/X):
     pixi run python analyse_temporal.py --out-dir compare_out/X
     pixi run python analyse_temporal.py --out-dir compare_out/X --full   # a full --test-set run instead of --quick
+    pixi run python analyse_temporal.py --out-dir compare_out/X --model X   # also record the summary in results/X.csv
 """
 import argparse
+import platform
 from pathlib import Path
 
 import numpy as np
 
 from compare import load_npz, outcome
+from results import update_results
 
 # The same drive-start rule for policy and expert (the policy has no phases). Above the lowest speeds the expert
 # creeps at near a parking spot, and sustained, so a brief output spike while turning doesn't count.
@@ -52,6 +58,7 @@ def main():
     parser.add_argument("--out-dir", default="compare_out", help="the --out-dir given to compare.py")
     parser.add_argument("--full", action="store_true", help="read a full --test-set run instead of --quick")
     parser.add_argument("--data-dir", default="data_main", help="episode folder, relative to this script")
+    parser.add_argument("--model", help="also write the summary to results/<model>.csv")
     args = parser.parse_args()
 
     run_dir = Path(args.out_dir).resolve() / ("test_set" if args.full else "test_set_quick")
@@ -85,6 +92,22 @@ def main():
                                         else ""))
     print(f"Closest EE error: median {np.median(col('ee_dist')):.3f} m, best {col('ee_dist').min():.3f} m")
     print(f"Wheels at the clip: {100 * np.mean(col('wheels_at_clip')):.1f}% of frames (mean over episodes)")
+
+    if args.model:
+        prefix = "full" if args.full else "quick"
+        update_results(args.model, **{
+            f"{prefix}_episodes": n, f"{prefix}_machine": f"{platform.system()}-{platform.machine()}",
+            f"{prefix}_reached": int(col("reached").sum()),
+            f"{prefix}_final_err_median": float(np.median(col("final_err"))),
+            f"{prefix}_drive_delay_median": float(np.nanmedian(delay)),
+            f"{prefix}_never_drove": int(np.isnan(col("drive_start")).sum()),
+            f"{prefix}_spot_dist_median": float(np.median(col("spot_dist"))),
+            f"{prefix}_within_spot": int(parked.sum()),
+            f"{prefix}_ee_dist_median": float(np.median(col("ee_dist"))),
+            f"{prefix}_ee_dist_best": float(col("ee_dist").min()),
+            f"{prefix}_wheels_at_clip": float(np.mean(col("wheels_at_clip"))),
+        })
+        print(f"Summary written to results/{args.model}.csv")
 
 
 if __name__ == "__main__":

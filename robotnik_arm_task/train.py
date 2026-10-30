@@ -150,7 +150,8 @@ if not args.test_only:
         train_time_s=train_time, parameters=sum(p.numel() for p in model.parameters()),
         subsample=SUBSAMPLE or "off", keep_frac=KEEP_FRAC if SUBSAMPLE else None,
         weight_decay=args.weight_decay, dropout=args.dropout, max_epochs=args.max_epochs, patience=args.patience,
-        gravity_residual=args.gravity_residual, history_k=args.history_k, history_spacing=args.history_spacing,
+        gravity_residual=args.gravity_residual, history_k=args.history_k,
+        history_spacing=args.history_spacing if args.history_k else None, architecture="mlp", seed=args.seed,
         inference_ms=None, test_wheel_rmse=None, test_torque_rmse=None, **{c: None for c in SIM_COLUMNS},
     )
 elif not CHECKPOINT.exists():
