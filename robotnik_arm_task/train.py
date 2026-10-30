@@ -10,6 +10,7 @@ Usage (from the robotnik_arm_task folder):
     pixi run python train.py --test-only           # test the saved checkpoint, no training (checkpoint is not changed)
     pixi run python train.py --model X --lr 3e-3 --hidden 512 --dropout 0.1   # other settings (tune.py uses these)
     pixi run python train.py --model gravres_s0 --gravity-residual   # learn torque minus gravity (PLAN.md step 12)
+    pixi run python train.py --model split_arrived_s0 --split --gravity-residual   # split networks (PLAN.md step 15)
 
 Results go to results/<model>.csv (see results.py): training columns after training, test columns after testing.
 Training stops early once the validation loss hasn't improved for --patience epochs (at most --max-epochs).
@@ -18,6 +19,7 @@ import os
 os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")   # torch + numpy each ship an OpenMP runtime on Windows
 
 import argparse
+import copy
 import time
 from pathlib import Path
 
@@ -26,7 +28,8 @@ import torch
 from torch import nn
 
 from bc_data import split_episodes, clean_ids, load_episode, load_episodes, decode_outputs, arm_gravity
-from bc_model import MLP, save_model, load_model
+from bc_model import MLP, save_model
+from bc_split import SplitPolicy, ArrivedLatch, arm_inputs, base_inputs, base_labels, base_loss, load_policy
 from results import SIM_COLUMNS, update_results
 
 # Paths are relative to this file, so the script works from any working directory
@@ -44,9 +47,17 @@ LR = 3e-3
 # is fixed. Models trained before used "uniform" (every 10th frame); the comparison is still to be run (PLAN.md
 # step 7). All frames would be ~10x slower. Validation is subsampled uniformly and the test RMSE uses every frame.
 SUBSAMPLE = "adaptive"
+# Removed (30 Oct): separate training frames for the split arm network. Uniform arm frames were tested and made the
+# arm worse in closed loop, so both split networks use SUBSAMPLE (PLAN.md step 15). With it, also uncomment the block
+# in the --split branch below and use x_arm / y_arm / a_arm in the arm's fit call.
+# ARM_SUBSAMPLE = "uniform"
 KEEP_FRAC = 0.1     # share of each episode kept when subsampling
 
 OUTPUT_NAMES = ["wheel FR", "wheel FL", "wheel BL", "wheel BR"] + [f"J{j}" for j in range(1, 8)]
+# Offline test of the "arrived" flag (split models): when the latch switches vs the expert's arrival, over the test
+# episodes. Early is the dangerous direction: the base stops short and the arm reaches from the wrong place.
+ARRIVE_COLUMNS = ["test_arrive_err_median", "test_arrive_early", "test_arrive_late", "test_arrive_timeout"]
+EARLY_LATE_S = 0.1   # s, a latch this much before / after the expert's arrival counts as early / late
 
 parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 parser.add_argument("--no-test", action="store_true", help="skip the evaluation on the test episodes")
@@ -65,6 +76,9 @@ parser.add_argument("--patience", type=int, default=PATIENCE,
 parser.add_argument("--gravity-residual", action=argparse.BooleanOptionalAction, default=False,
                     help="torque outputs are torque minus arm gravity, added back when the model is run (PLAN.md "
                          "step 12); --no-gravity-residual for the ablation")
+parser.add_argument("--split", action=argparse.BooleanOptionalAction, default=False,
+                    help="separate base and arm networks with an 'arrived' flag (PLAN.md step 15); --no-split for "
+                         "the ablation")
 parser.add_argument("--seed", type=int, default=0, help="training seed (weights, batch order); put it in --model too")
 parser.add_argument("--threads", type=int, help="torch CPU threads (several runs at once share the cores)")
 args = parser.parse_args()
@@ -79,71 +93,115 @@ train_ids, val_ids, test_ids = split_episodes(DATA_DIR)
 # Bad episodes are dropped after the split, so the good ones always stay in the same set
 train_ids, val_ids, test_ids = (clean_ids(DATA_DIR, ids) for ids in (train_ids, val_ids, test_ids))
 
-if not args.test_only:
-    keep_frac = KEEP_FRAC if SUBSAMPLE else None
-    x_tr, y_tr = load_episodes(DATA_DIR, train_ids, keep_frac=keep_frac, mode=SUBSAMPLE,
-                               gravity_residual=args.gravity_residual)
-    # Validation is always subsampled uniformly, so runs with different SUBSAMPLE modes are judged on the same frames
-    x_va, y_va = load_episodes(DATA_DIR, val_ids, keep_frac=keep_frac, mode="uniform",
-                               gravity_residual=args.gravity_residual)
-    print(f"train frames {len(x_tr)}, val frames {len(x_va)} (subsampling: {SUBSAMPLE or 'off'}, "
-          f"gravity residual: {'on' if args.gravity_residual else 'off'})")
 
-    model = MLP(x_tr.shape[1], y_tr.shape[1], hidden=args.hidden, layers=args.layers, dropout=args.dropout,
-                gravity_residual=args.gravity_residual)
-    model.set_normalisation(x_tr, y_tr)
+def normalise(net, x, y):
+    """Inputs and labels as tensors in the network's normalised units (normalised once up front, so the training
+    loop only indexes tensors)."""
+    return (torch.from_numpy(x) - net.x_mean) / net.x_std, (torch.from_numpy(y) - net.y_mean) / net.y_std
 
-    # Normalise once up front, so the training loop only indexes tensors
-    xt = (torch.from_numpy(x_tr) - model.x_mean) / model.x_std
-    yt = (torch.from_numpy(y_tr) - model.y_mean) / model.y_std
-    xv = (torch.from_numpy(x_va) - model.x_mean) / model.x_std
-    yv = (torch.from_numpy(y_va) - model.y_mean) / model.y_std
 
+def fit(net, xt, yt, xv, yv, loss_fn, label=""):
+    """Train one network with early stopping; afterwards it holds the weights of its best validation epoch.
+
+    Returns (best validation loss, best epoch, epochs run). The single MLP and both split networks are trained by
+    this same loop, so with and without --split differ only in the networks (ablation, PLAN.md step 23).
+    """
     # AdamW: Adam with decoupled weight decay; with weight_decay 0 it is the same as Adam
-    opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    loss_fn = nn.MSELoss()
-    CHECKPOINT.parent.mkdir(parents=True, exist_ok=True)
-    best_val, best_epoch = float("inf"), 0
-
-    start = time.perf_counter()
+    opt = torch.optim.AdamW(net.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    best_val, best_epoch, best_state = float("inf"), 0, None
     for epoch in range(1, args.max_epochs + 1):
         epoch_start = time.perf_counter()
-        model.train()
+        net.train()
         perm = torch.randperm(len(xt))
         loss_sum = 0.0
         for i in range(0, len(xt), args.batch):
             idx = perm[i:i + args.batch]
-            loss = loss_fn(model(xt[idx]), yt[idx])
+            loss = loss_fn(net(xt[idx]), yt[idx])
             opt.zero_grad()
             loss.backward()
             opt.step()
             loss_sum += loss.item() * len(idx)
 
-        model.eval()
+        net.eval()
         with torch.no_grad():
-            val_loss = loss_fn(model(xv), yv).item()
+            val_loss = loss_fn(net(xv), yv).item()
         # Training loss averaged over the epoch (not the last batch), so the train/val gap shows over-/underfitting
-        print(f"epoch {epoch:3d}  train {loss_sum / len(xt):.4f}  val {val_loss:.4f}  "
+        print(f"{label}epoch {epoch:3d}  train {loss_sum / len(xt):.4f}  val {val_loss:.4f}  "
               f"({time.perf_counter() - epoch_start:.1f} s)")
         if val_loss < best_val:
-            best_val, best_epoch = val_loss, epoch
-            save_model(model, CHECKPOINT)
-            print(f"   saved {CHECKPOINT}")
+            # Kept in memory and saved once training ends (a split checkpoint holds both networks)
+            best_val, best_epoch, best_state = val_loss, epoch, copy.deepcopy(net.state_dict())
         elif epoch - best_epoch >= args.patience:
             print(f"   no improvement for {args.patience} epochs: stopping (best epoch {best_epoch})")
             break
+    net.load_state_dict(best_state)
+    return best_val, best_epoch, epoch
+
+
+if not args.test_only:
+    keep_frac = KEEP_FRAC if SUBSAMPLE else None
+    # a_tr / a_va: the expert's "arrived" flag of the same frames (split networks only)
+    x_tr, y_tr, a_tr = load_episodes(DATA_DIR, train_ids, keep_frac=keep_frac, mode=SUBSAMPLE,
+                                     gravity_residual=args.gravity_residual, arrived=True)
+    # Validation is always subsampled uniformly, so runs with different SUBSAMPLE modes are judged on the same frames
+    x_va, y_va, a_va = load_episodes(DATA_DIR, val_ids, keep_frac=keep_frac, mode="uniform",
+                                     gravity_residual=args.gravity_residual, arrived=True)
+    print(f"train frames {len(x_tr)}, val frames {len(x_va)} (subsampling: {SUBSAMPLE or 'off'}, "
+          f"gravity residual: {'on' if args.gravity_residual else 'off'}, split: {'on' if args.split else 'off'})")
+    CHECKPOINT.parent.mkdir(parents=True, exist_ok=True)
+    start = time.perf_counter()
+
+    if args.split:
+        model = SplitPolicy(hidden=args.hidden, layers=args.layers, dropout=args.dropout,
+                            gravity_residual=args.gravity_residual)
+        model.set_normalisation(x_tr, y_tr, a_tr)
+        # Removed (30 Oct, see ARM_SUBSAMPLE above): the arm's own training frames, loaded a second time
+        # x_arm, y_arm, a_arm = load_episodes(DATA_DIR, train_ids, keep_frac=KEEP_FRAC if ARM_SUBSAMPLE else None,
+        #                                     mode=ARM_SUBSAMPLE, gravity_residual=args.gravity_residual, arrived=True)
+        # model.arm.set_normalisation(arm_inputs(x_arm, a_arm), y_arm[:, 4:11])
+        # Weight of the arrived=True frames, so both classes count equally in the flag's loss (computed on the frames
+        # actually used: adaptive subsampling keeps relatively more navigation frames than the full episodes)
+        pos_weight = torch.tensor((1 - a_tr).sum() / a_tr.sum())
+        print(f"arrived in {100 * a_tr.mean():.1f}% of training frames, pos_weight {pos_weight:.2f}")
+        xbv, ybv = normalise(model.base, base_inputs(x_va), base_labels(y_va, a_va))
+        base_val, base_best, base_epochs = fit(
+            model.base, *normalise(model.base, base_inputs(x_tr), base_labels(y_tr, a_tr)), xbv, ybv,
+            lambda out, target: base_loss(out, target, pos_weight), "base ")
+        # The arm is trained with the expert's true flag as input (at run time: the latched predicted one)
+        arm_val, arm_best, arm_epochs = fit(
+            model.arm, *normalise(model.arm, arm_inputs(x_tr, a_tr), y_tr[:, 4:11]),
+            *normalise(model.arm, arm_inputs(x_va, a_va), y_va[:, 4:11]), nn.MSELoss(), "arm  ")
+        # Validation loss on the same scale as the single MLP's (mean squared error over the 11 normalised outputs;
+        # same frames, so the same normalisation): the base's wheel part (without the flag's loss) + the arm's
+        with torch.no_grad():
+            wheel_val = nn.functional.mse_loss(model.base(xbv)[:, :4], ybv[:, :4]).item()
+            # Recorded unweighted, so it reads as a plain cross-entropy (early stopping used the weighted one)
+            flag_val = nn.functional.binary_cross_entropy_with_logits(model.base(xbv)[:, 4], ybv[:, 4]).item()
+        best_val, best_epoch, epoch = (4 * wheel_val + 7 * arm_val) / 11, None, None
+        split_columns = dict(base_epochs=base_epochs, base_best_epoch=base_best, arm_epochs=arm_epochs,
+                             arm_best_epoch=arm_best, val_arrived_bce=flag_val)
+    else:
+        model = MLP(x_tr.shape[1], y_tr.shape[1], hidden=args.hidden, layers=args.layers, dropout=args.dropout,
+                    gravity_residual=args.gravity_residual)
+        model.set_normalisation(x_tr, y_tr)
+        best_val, best_epoch, epoch = fit(model, *normalise(model, x_tr, y_tr), *normalise(model, x_va, y_va),
+                                          nn.MSELoss())
+        split_columns = {}
     train_time = time.perf_counter() - start
+    save_model(model, CHECKPOINT)
+    print(f"saved {CHECKPOINT}")
 
     # New weights: the old test and simulation results no longer apply, so they are emptied ("not measured")
-    # epochs = epochs actually run (where early stopping ended)
+    # epochs = epochs actually run (where early stopping ended); split models record them per network instead
     update_results(
         args.model, train_episodes=len(train_ids), epochs=epoch, batch=args.batch, lr=args.lr,
         hidden=args.hidden, layers=args.layers, best_val_loss=best_val, best_epoch=best_epoch,
         train_time_s=train_time, parameters=sum(p.numel() for p in model.parameters()),
         subsample=SUBSAMPLE or "off", keep_frac=KEEP_FRAC if SUBSAMPLE else None,
         weight_decay=args.weight_decay, dropout=args.dropout, max_epochs=args.max_epochs, patience=args.patience,
-        gravity_residual=args.gravity_residual,
+        gravity_residual=args.gravity_residual, split=args.split, **split_columns,
         inference_ms=None, test_wheel_rmse=None, test_torque_rmse=None, **{c: None for c in SIM_COLUMNS},
+        **({c: None for c in ARRIVE_COLUMNS} if args.split else {}),
     )
 elif not CHECKPOINT.exists():
     parser.error(f"--test-only needs a trained checkpoint, but {CHECKPOINT} does not exist")
@@ -156,10 +214,31 @@ if args.no_test:
 # ------------------------------------------------------------------------------
 import matplotlib.pyplot as plt
 
-# Evaluate the saved checkpoint (best validation epoch), not the weights left after the last epoch
-best = load_model(CHECKPOINT)
+# Evaluate the saved checkpoint (best validation epoch), not the weights left after the last epoch.
+# The checkpoint says whether it is a split model, so --test-only needs no --split.
+best = load_policy(CHECKPOINT)
+split = isinstance(best, SplitPolicy)
+
+
+def predict_episode(x, t):
+    """Model output for every frame of an episode, run the way the policy script runs it.
+
+    Split models: the base network's p(arrived) goes through the same latch as in the policy, the latched flag is
+    the arm network's input, and the wheels are 0 once it is set. Also returns the latch time (nan if never) and
+    what latched it. Offline the states are still the expert's, so this tests the switch, not the closed loop.
+    """
+    if not split:
+        return best.predict(x), np.nan, None
+    wheels, p = best.predict_base(x)
+    latch = ArrivedLatch()
+    arrived = np.array([latch.update(pk, tk) for pk, tk in zip(p, t)])
+    wheels[arrived] = 0.0
+    t_latch = t[np.argmax(arrived)] if arrived.any() else np.nan
+    return np.concatenate([wheels, best.predict_arm(x, arrived)], axis=-1), t_latch, latch.source
+
 
 wheel_rmse, torque_rmse = [], []
+arrive_err, n_timeout = [], 0
 sq_err_sum, n_frames = np.zeros(len(OUTPUT_NAMES)), 0
 print(f"\nTest set: {len(test_ids)} episodes, RMSE between model and expert commands")
 print(f"{'episode':>8} {'wheels (rad/s)':>15} {'torques (N*m)':>14}")
@@ -171,7 +250,12 @@ for i in test_ids:
     # Gravity-residual models: add gravity back, so the error is on the full torque like every other model.
     # Read from the checkpoint, so --test-only scores a saved model the way it was trained.
     tau_g = arm_gravity(d["q_mes"]) if best.config.get("gravity_residual") else None
-    wheel_pred, torque_pred = decode_outputs(best.predict(x), tau_g)
+    y_pred, t_latch, source = predict_episode(x, d["time"])
+    wheel_pred, torque_pred = decode_outputs(y_pred, tau_g)
+    if split:
+        # Latch time minus the expert's arrival (nan: never latched within the episode)
+        arrive_err.append(t_latch - d["time"][np.argmax(d["nav_done"])])
+        n_timeout += source == "timeout"
     err = np.concatenate([wheel_pred - d["wheel_cmds"], torque_pred - d["torque_arm"]], axis=-1)
     wheel_rmse.append(np.sqrt(np.mean(err[:, :4] ** 2)))
     torque_rmse.append(np.sqrt(np.mean(err[:, 4:] ** 2)))
@@ -184,20 +268,36 @@ channel_rmse = np.sqrt(sq_err_sum / n_frames)
 
 print(f"{'average':>8} {wheel_rmse.mean():15.4f} {torque_rmse.mean():14.4f}   (mean of the per-episode values)")
 
-# Time of one single-frame prediction, as in the policy script (1 thread, one frame per simulation step)
+arrive_results = {}
+if split:
+    arrive_err = np.array(arrive_err)
+    arrive_results = dict(
+        test_arrive_err_median=np.nanmedian(np.abs(arrive_err)),        # s, over the episodes that latched
+        test_arrive_early=int((arrive_err < -EARLY_LATE_S).sum()),      # episodes
+        test_arrive_late=int(((arrive_err > EARLY_LATE_S) | np.isnan(arrive_err)).sum()),   # incl. never latched
+        test_arrive_timeout=n_timeout,
+    )
+    print(f"\nArrived flag (latch vs the expert's arrival, {len(arrive_err)} episodes): median |error| "
+          f"{arrive_results['test_arrive_err_median']:.3f} s, early (> {EARLY_LATE_S} s) "
+          f"{arrive_results['test_arrive_early']}, late or never {arrive_results['test_arrive_late']}, "
+          f"latched by the timeout {n_timeout}")
+
+# Time of one single-frame prediction, as in the policy script (1 thread, one frame per simulation step; split
+# models: both networks)
 torch.set_num_threads(1)
 frame = x[0]
+step = (lambda f: (best.predict_base(f), best.predict_arm(f, 1.0))) if split else best.predict
 for _ in range(50):   # warm-up
-    best.predict(frame)
+    step(frame)
 times = []
 for _ in range(1000):
     t0 = time.perf_counter()
-    best.predict(frame)
+    step(frame)
     times.append(time.perf_counter() - t0)
 inference_ms = 1000 * np.median(times)
 print(f"\nInference: {inference_ms:.3f} ms per frame (median of 1000, 1 thread)")
 update_results(args.model, test_wheel_rmse=wheel_rmse.mean(), test_torque_rmse=torque_rmse.mean(),
-               inference_ms=inference_ms)
+               inference_ms=inference_ms, **arrive_results)
 print("\nPer-output RMSE over all test frames:")
 for name, value in zip(OUTPUT_NAMES, channel_rmse):
     unit = "rad/s" if name.startswith("wheel") else "N*m"

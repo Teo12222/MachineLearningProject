@@ -35,6 +35,13 @@ def make_features(base_pos, base_bearing, q_arm, qd_arm, target, ee_pos):
     ], axis=-1).astype(np.float32)                 # 27 inputs
 
 
+# Columns of make_features each split network uses (PLAN.md step 15). The base only needs where the target is: the
+# expert's wheel commands don't depend on the arm. The arm doesn't need the target relative to the base: the target
+# relative to the shoulder follows from the EE-relative target and the joint angles.
+BASE_INPUTS = slice(0, 3)    # target forward, left of the base, target height
+ARM_INPUTS = slice(3, 27)    # target relative to the EE, sin/cos of the joint angles, joint velocities
+
+
 def make_labels(wheel_cmds, torque_arm):
     """Model output: 4 wheel commands then 7 arm torques."""
     return np.concatenate([wheel_cmds, torque_arm], axis=-1).astype(np.float32)
@@ -129,13 +136,16 @@ def subsample_indices(wheel_cmds, torque_arm, keep_frac=0.1, mode="adaptive", fl
     return np.sort(rng.choice(n, size=k, replace=False, p=p / p.sum()))
 
 
-def load_episodes(data_dir, episode_ids, keep_frac=None, mode="adaptive", seed=0, gravity_residual=False):
+def load_episodes(data_dir, episode_ids, keep_frac=None, mode="adaptive", seed=0, gravity_residual=False,
+                  arrived=False):
     """Inputs and labels of several episodes stacked into one array each.
 
     keep_frac=None keeps every frame; otherwise each episode keeps only the frames picked by subsample_indices.
     gravity_residual: torque labels minus the arm gravity torque (see load_episode).
+    arrived: also return the expert's "arrived" flag (nav_done, 0/1) of the same frames, as a third array, for the
+    split networks (PLAN.md step 15).
     """
-    xs, ys = [], []
+    xs, ys, arrs = [], [], []
     for i in episode_ids:
         path = Path(data_dir) / f"ep_{i:04d}.npz"
         x, y = load_episode(path)
@@ -146,8 +156,12 @@ def load_episodes(data_dir, episode_ids, keep_frac=None, mode="adaptive", seed=0
             x, y = x[keep], y[keep]
         if gravity_residual:
             y[:, 4:11] -= arm_gravity(np.load(path)["q_mes"][keep])   # only for the kept frames
+        if arrived:
+            arrs.append(np.load(path)["nav_done"][keep].astype(np.float32))
         xs.append(x)
         ys.append(y)
+    if arrived:
+        return np.concatenate(xs), np.concatenate(ys), np.concatenate(arrs)
     return np.concatenate(xs), np.concatenate(ys)
 
 

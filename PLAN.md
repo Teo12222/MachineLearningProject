@@ -559,6 +559,12 @@ on a saved episode: moving and rotating the whole scene (base, EE, target togeth
   level), but the base gets there late (closest approach at a median of ~20 s, the expert arrives at ~8-10 s) and
   the arm's reach then doesn't get within 5 mm before the 30 s cap (closest median 17 cm). So the failure has moved
   from "the arm sags and the base runs off" to "slow navigation + an imprecise reach".
+- **Renamed (30 Oct): `mlp_robotframe` -> `mlp_robotframe_old`** (checkpoint, test plots and `results/` file; the
+  numbers are unchanged, and it still runs with `compare.py --model mlp_robotframe_old`). Why: it was trained with
+  the old settings (lr 1e-3, a fixed 20 epochs, uniform every-10th frames, 700 episodes), so it isn't comparable with
+  models trained with the current defaults; the robot-frame single MLP is retrained as `mlp_robotframe_s0` (the
+  reference for 15). This section and the tuning section still call it `mlp_robotframe`: they describe what it did
+  at the time. `mlp_robotframe_tuned` also used the old settings (name kept).
 
 ### Master: shared improvements
 7. **Adaptive subsampling** (after the split): the base/wheel data sampled densely at the start and at phase
@@ -884,7 +890,7 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
       forward-only latch), see the report point at the end of 15.
     - Owner: Kris (step 14); the TCN can move to Matteo if 15 finishes first (decide at the check-in).
 15. **Multi-model / split networks** (mirrors the expert's structure), from simple to more structured. Matteo,
-    models `split_*` (e.g. `split_arrived_s0`). Design agreed 29 Oct, not built yet:
+    models `split_*` (e.g. `split_arrived_s0`). Design agreed 29 Oct; v1 built 30 Oct (see "Done" under v1):
     - **Facts from 150 training episodes (`data_main`)**, behind the design: `nav_done` is True in ~31% of frames
       (median; 15-58%), only ever goes False -> True, and the wheels are exactly 0 after it. Arrival at a median
       8.7 s (3.6-12.8 s), wheel speed just before ~0.86 rad/s (the orient turn in place). Before arrival the arm is
@@ -904,22 +910,108 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
         ((4 x wheel MSE + 7 x torque MSE) / 11 on the same normalisation); per-net subsampling is a later switch.
       - Policy: the flag latches once p > 0.5 for ~20 ms and never unlatches; wheels forced to 0 after the latch
         (a hand-coded rule mirroring the expert: say so in the report). Success is still `check_stop(..., True)`,
-        not the flag. p(arrived) and the latched flag are saved in the policy `.npz`. Open: also latch at 25 s like
-        the expert's navigation timeout (then log whether the network or the timeout latched).
+        not the flag. p(arrived) and the latched flag are saved in the policy `.npz`. **Decided (30 Oct): also latch
+        at 25 s** like the expert's navigation timeout, and log whether the network or the timeout latched. Why: the
+        expert's own rule (the arm always gets a try), and late arrivals are common (the old robot-frame model got
+        closest to the parking spot at a median ~20 s); logged so a timeout latch can't pass as a working flag.
       - Code (the single-MLP files stay as they are): `bc_split.py` reuses `bc_model.MLP` unchanged (base
         `MLP(3, 5)`, arm `MLP(25, 7)`), saved as **one** checkpoint so `ROBOENV_POLICY` / `compare.py --model`
         work; the logit column gets `y_mean` 0 / `y_std` 1 so the output normalisation doesn't rescale it.
         `bc_data.py`: additions only (`nav_done` labels aligned with the subsampled frames, `BASE_INPUTS` /
         `ARM_INPUTS` slices). The policy script branches on the checkpoint type; the single-MLP path is unchanged.
-        Open: a new `train_split.py` (recommended: `train.py`, `tune.py` and teammates' merges stay untouched, at
-        the cost of ~100 duplicated lines) vs a `--split` option in `train.py`.
-      - Evaluation: reference = the single MLP retrained with the current defaults (e.g. `mlp_robotframe_s0`; the
-        recorded `mlp_robotframe` used lr 1e-3, a fixed 20 epochs, uniform every-10th frames and 700 episodes, so
-        it isn't a fair reference). Offline: `best_val_loss`, test RMSE replayed with the predicted, latched flag
-        feeding the arm net, median arrival-time error, number of latches > 0.1 s early (early is the dangerous
-        direction). Closed loop (`compare.py --test-set --quick`): reached, median final error, closest to the
-        parking spot and when, latch time vs the expert's arrival, closest EE error. Old reference: 0/50, 0.78 m,
-        35/50 within 15 cm at ~20 s, 17 cm.
+        **Decided (30 Oct): a `--split` option in `train.py`**, not a separate `train_split.py` (first recommended).
+        Why: the ablation (23) switches one component off in the same script with everything else identical; with a
+        separate script "without split networks" would be a different script that could quietly differ (loading,
+        early stopping, the test). Merge-conflict risk kept small by putting the split code in `bc_split.py`.
+      - **Gravity residual (12) on from the start** (decided 30 Oct): split models are trained with
+        `--gravity-residual`. Not the class default (off, like the MLP's), so `--split` alone never switches gravity
+        on and the ablation changes one thing at a time. **Reminder: switching it off is an ablation run (23).**
+      - Evaluation: **a 2 x 2 for the results table** (decided 30 Oct; not a report table, but every row is in
+        `results/`): single MLP / split x without / with gravity residual = `mlp_robotframe_s0`, Jamie's
+        gravity-residual MLP (still to come; check it used the current defaults: lr 3e-3, early stopping, adaptive
+        frames, seed 0, 696 episodes), `split_arrived_nograv_s0`, `split_arrived_s0`. Each row of it then shows the
+        split's effect with and without gravity, each column the gravity residual's. The old `mlp_robotframe` isn't
+        a fair reference (old settings; renamed `mlp_robotframe_old`, see step 6). Offline: `best_val_loss`, test
+        RMSE replayed with the predicted, latched flag feeding the arm net, median arrival-time error, number of
+        latches > 0.1 s early (early is the dangerous direction). Closed loop (`compare.py --test-set --quick`):
+        reached, median final error; the latch time and where the base was at the latch are in the policy `.npz`
+        files (`compare.py` doesn't print them, see "Done"). Old reference: 0/50, 0.78 m, 35/50 within 15 cm at
+        ~20 s, 17 cm.
+      - **Done (30 Oct): v1 code** (`bc_data.py`, new `bc_split.py`, `train.py`, `robotnik_arm_policy_task.py`).
+        Usage: `train.py --model split_arrived_s0 --split --gravity-residual`, then `compare.py --model ...` as for
+        any model. What was built and why:
+        - `bc_data.py`: `BASE_INPUTS` / `ARM_INPUTS` (column slices of `make_features`, so the inputs stay frozen) and
+          `load_episodes(..., arrived=True)`, which also returns `nav_done` of the same (subsampled) frames.
+          `train.py` always loads it (cheap, unused without `--split`), so it only runs on data with `nav_done`
+          (`data_main`; not the old `data_pilot`).
+        - `bc_split.py`: `SplitPolicy` holds two unchanged `bc_model.MLP`s (base `MLP(3, 5)`, arm `MLP(25, 7)`) and is
+          saved with the existing `save_model`; its config has `kind: "split"`, which `load_policy` reads to build the
+          right class (old checkpoints have no `kind` and load as MLPs, so every existing model still runs).
+          `ArrivedLatch` is the switching rule, shared by the offline test and the policy so both switch the same way.
+        - `train.py`: the training loop moved unchanged into `fit()`, used for the single MLP and for each split
+          network, so with and without `--split` differ only in the networks. The two networks train one after the
+          other (no shared weights; the arm uses the true flag), each with its own early stopping. **Consequence:**
+          the checkpoint is saved once at the end (a split checkpoint holds both networks), no longer at every
+          improvement: the weights are still the best validation epoch's, but an interrupted run leaves none.
+          Checked: a 1-epoch single-MLP run gives validation loss 0.0091, as before the change.
+        - **`pos_weight` from the frames actually used:** adaptive subsampling keeps relatively more navigation frames
+          (the wheel switches), so "arrived" is only **17.4%** of the training frames (31% of all frames): `pos_weight`
+          4.74, not ~2.
+        - Results columns of split models: `best_val_loss` = (4 x wheel MSE + 7 x torque MSE) / 11 on validation
+          (comparable with the single MLP); `epochs` / `best_epoch` empty, per network instead (`base_epochs`,
+          `base_best_epoch`, `arm_epochs`, `arm_best_epoch`); `val_arrived_bce` (unweighted, so it reads as a plain
+          cross-entropy; early stopping used the weighted one); `split`. Offline test (each test episode replayed as
+          the policy runs it: latch, flag into the arm net, wheels 0 after the latch): `test_arrive_err_median` (s,
+          |latch - expert arrival|, episodes that latched), `test_arrive_early` / `test_arrive_late` (episodes more
+          than 0.1 s early / late or never latched), `test_arrive_timeout`.
+        - Policy script: loads any checkpoint with `load_policy`; for split models the latch, wheels 0 after it, a
+          printed "Arrived flag latched at t=..." line, and `p_arrived`, `nav_done` (the latched flag, under the
+          expert's name so the two compare frame by frame), `arrived_at` and `arrived_source` (network / timeout /
+          never) in the `.npz`. Single-MLP models run the old line unchanged.
+        - **`compare.py` unchanged:** a table of latch time vs expert arrival and the base's distance to the expert's
+          parking spot at the latch was built, then removed to keep `compare.py` simple (it runs split models without
+          any change; the numbers are in the policy `.npz` files if a failure needs diagnosing). Not in `results/`
+          either (closed-loop latch numbers would need new `sim_*` columns that `train.py` also clears).
+        - Smoke test (1 epoch, scratch copy): both modes run end to end; inference 0.17 ms per frame for both networks
+          (single MLP ~0.07 ms), well under the 1 ms step.
+        - **Before tuning a split model:** `tune.py` doesn't pass `--split` yet, and its printout and summary use
+          `best_epoch` / `epochs`, which are empty for split models.
+      - **Result (30 Oct), first trainings + quick tests** (default settings, seed 0): all 0/50.
+        - Offline: `mlp_robotframe_s0` val 0.0014, test wheels 0.063 rad/s, torques 0.111 N*m. Both split models
+          (with / without gravity residual) wheels 0.181, torques 0.77: an offline check on 38 test episodes showed
+          the **arm net is twice as accurate as the single MLP given the true flag** (torques 0.056 vs 0.108 N*m), and
+          the torque error comes from the latch: p(arrived) crosses 0.5 a median 87 ms before the expert's arrival
+          (`pos_weight` 4.74 likely shifts it early), so the arm already reaches while the expert still holds. The
+          3-input base net is worse at the wheels (0.21 vs 0.07 rad/s before arrival, even with the true flag).
+          Gravity residual: no difference (arm val 0.0008 both; base identical, same seed).
+        - Closed loop (final error median): `mlp_robotframe_s0` ~8 m (7 runs flung 400-1,100 m; worse than
+          `mlp_robotframe_old`'s 0.78 m despite the lower val loss), `split_arrived_nograv_s0` ~1.1 m,
+          `split_arrived_s0` ~0.86 m (no blow-ups).
+        - **`split_arrived_s0` navigates like the expert:** the flag latched by the network in 50/50 runs at a median
+          7.7 s (expert 7.9 s; the old robot-frame model got closest to the spot at ~20 s), the base 9 cm from the
+          parking spot (all within 15 cm; expert 7.4 cm), heading error 0.011 rad. The early latch doesn't matter in
+          closed loop. **The arm then fails:** it follows the expert's reach almost exactly for ~1 s, gets to
+          1.5-2.5 cm (closest median 5.1 cm, 25/50 under 5 cm, best 6 mm), drifts off and collapses (error back above
+          20 cm a median 3 s after the latch, torques at the limit). Final errors only measure the collapse: compare
+          models on the closest approach.
+        - **Uniform arm frames tested and rejected** (`split_arrived_armuniform_s0`; base adaptive, arm uniform). Why
+          tried: adaptive keeps only 6.1% of frames within 2 cm of the target vs 16.4% of all frames, where the arm
+          fails. Result: worse, closest approach median 8.5 cm (7/50 under 5 cm), collapse sooner (1.65 s), 2 runs
+          flung > 100 m. The arm learns better from adaptive frames (dense at the start of the reach), so the drift
+          isn't a data-balance problem but compounding error away from the expert's states: next candidates are noise
+          injection (19, Kris) or joint-target outputs (team decision). The `ARM_SUBSAMPLE` switch in `train.py` is
+          commented out (not deleted, it was never committed).
+        - **Gravity residual helps in closed loop** (`split_arrived_s0` vs `split_arrived_nograv_s0`, quick test rerun
+          with its own `--out-dir`): closest approach median **5.1 vs 13.2 cm**, under 5 cm 25 vs 11 of 50, under 2 cm 6
+          vs 1, error back above 20 cm 3.0 vs 1.35 s after the latch; latch time and park error identical (same base
+          net). Offline the two are identical (arm val 0.0008, test torques 0.77 N*m): offline every state is one the
+          expert visited, but in closed loop the arm drifts into poses it never visited, where gravity computed
+          exactly for the actual pose leaves only the small remainder to guess. So the split models keep
+          `--gravity-residual` (`split_arrived_s0` is the main variant), and step 12 has a first closed-loop result in
+          its favour. One seed, quick subset: the number for the report comes from the gravity ablation (23) with
+          several seeds. (The earlier "Gravity residual: no difference" above is offline only.)
+        - Keep each model's quick-test files with `compare.py --out-dir compare_out/<model>` (otherwise each run
+          overwrites `compare_out/test_set_quick/`).
     - **v2: phase head** (after v1, so the comparison shows what it adds; added 29 Oct). The expert's phases only
       move forward (align -> drive -> orient -> arrived; phases can be skipped, never revisited), so the latch
       generalises: the base net outputs 4 phase logits (from `nav_phase` + `nav_done`; "orient" = `orient` and not

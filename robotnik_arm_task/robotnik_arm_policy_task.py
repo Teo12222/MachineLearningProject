@@ -23,7 +23,7 @@ from robotnik_arm_control import (
 
 import torch
 from bc_data import make_features, decode_outputs, arm_gravity
-from bc_model import load_model
+from bc_split import ArrivedLatch, SplitPolicy, load_policy
 
 
 # ==============================================================================
@@ -134,7 +134,11 @@ def main():
     # --------------------------------------------------------------------------
     # TODO: load the trained PyTorch model here. SET HERE WHICH MODEL TO LOAD
     # Default checkpoint is found relative to this file, so the script works from any working directory
-    model = load_model(os.environ.get("ROBOENV_POLICY", os.path.join(cur_dir, "checkpoints", "mlp_baseline.pt")))
+    # A single MLP or split networks (PLAN.md step 15), whichever the checkpoint holds
+    model = load_policy(os.environ.get("ROBOENV_POLICY", os.path.join(cur_dir, "checkpoints", "mlp_baseline.pt")))
+    split = isinstance(model, SplitPolicy)
+    # Split networks: switches control from the base to the arm, same rule as in train.py's offline test
+    latch = ArrivedLatch()
     torch.set_num_threads(1)   # one sample per step: extra threads only add overhead
 
     # Stop conditions (target reached, time cap), see StopCriteria. No stall check: while the base turns in
@@ -156,6 +160,9 @@ def main():
     base_bearing_all = []
     wheel_cmds_all = []
     torque_arm_all = []
+    # Split networks only: the base network's p(arrived) and the latched flag, per frame
+    p_arrived_all = []
+    nav_done_all = []
 
     # --------------------------------------------------------------------------
     # Main Simulation Loop
@@ -184,9 +191,22 @@ def main():
         # 1 + 2. Learned policy: wheel velocities and arm torques from the measurements and the target
         # ----------------------------------------------------------------------
         x = make_features(base_pos, base_bearing, q_mes[4:11], qd_mes[4:11], TARGET_EE_POS, ee_pos)
+        if split:
+            # Base network: wheels + p(arrived). Once the flag is latched the base stops and the arm network,
+            # which gets the flag as an input, reaches (before it holds), like the expert
+            wheels, p_arrived = model.predict_base(x)
+            was_arrived = latch.arrived
+            arrived = latch.update(p_arrived, current_time)
+            if arrived:
+                wheels = np.zeros(4)
+                if not was_arrived:
+                    print(f"Arrived flag latched at t={current_time:.2f}s ({latch.source})")
+            y = np.concatenate([wheels, model.predict_arm(x, float(arrived))])
+        else:
+            y = model.predict(x)
         # Gravity-residual models (PLAN.md step 12) predict torque minus gravity: add this frame's gravity back
         tau_g = arm_gravity(q_mes)[0] if model.config.get("gravity_residual") else None
-        wheel_cmds, torque_arm = decode_outputs(model.predict(x), tau_g)
+        wheel_cmds, torque_arm = decode_outputs(y, tau_g)
         # Safety clips to the expert's own ranges (PLAN.md, "Parked"), so one extreme output can't fling the robot away
         wheel_cmds = np.clip(wheel_cmds, -3.0, 3.0)  # rad/s, the expert's largest command (turning in place at 1 rad/s)
         torque_arm = np.clip(torque_arm, -30.0, 30.0)  # same torque limit the expert uses
@@ -233,6 +253,9 @@ def main():
         base_bearing_all.append(base_bearing)
         wheel_cmds_all.append(wheel_cmds)
         torque_arm_all.append(torque_arm)
+        if split:
+            p_arrived_all.append(p_arrived)
+            nav_done_all.append(arrived)
 
         if not headless:
             time.sleep(0.001)
@@ -252,6 +275,17 @@ def main():
     print(f"Max Finger Deviation (rad)   : {np.max(np.abs(q_mes[11:17] - target_finger_angles)):.6f}")
     print("==================================================================")
 
+    # Split networks: the flag under the expert's name (nav_done), so the two can be compared frame by frame, plus
+    # when and why it latched ("network" / "timeout"; "never" with arrived_at nan)
+    split_fields = {}
+    if split:
+        split_fields = dict(
+            p_arrived=np.array(p_arrived_all, dtype=np.float32),
+            nav_done=np.array(nav_done_all, dtype=bool),
+            arrived_source=latch.source or "never",
+            arrived_at=time_all[int(np.argmax(nav_done_all))] if any(nav_done_all) else np.nan,
+        )
+
     # Same file format as the expert's episodes (float32 per-frame arrays)
     np.savez(
         out_path,
@@ -267,6 +301,7 @@ def main():
         final_error=np.linalg.norm(TARGET_EE_POS - ee_pos),
         stop_message=str(stop_message),
         start_pose=np.array([init_base_pos[0], init_base_pos[1], init_bearing]),   # measured at t = 0
+        **split_fields,
     )
 
     if headless:
