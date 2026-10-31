@@ -12,7 +12,7 @@ from torch import nn
 from torch.nn import functional as F
 
 from bc_data import BASE_INPUTS, ARM_INPUTS, arm_gravity, make_features
-from bc_model import MLP
+from bc_model import MLP, load_model
 
 
 def base_inputs(x):
@@ -117,13 +117,12 @@ def load_dagger_arm(folders, step, gravity_residual):
 
 
 def load_policy(path):
-    """Load a checkpoint saved with bc_model.save_model: a SplitPolicy or a single MLP, whichever it holds."""
+    """Load a checkpoint saved with bc_model.save_model: a SplitPolicy, or whatever single network it holds."""
     ckpt = torch.load(path)
     config = dict(ckpt["config"])
-    if config.pop("kind", None) == "split":
-        model = SplitPolicy(**config)
-    else:
-        model = MLP(**config)
+    if config.pop("kind", None) != "split":
+        return load_model(path)   # MLP, TCN or GRU (PLAN.md step 14): bc_model picks the class
+    model = SplitPolicy(**config)
     model.load_state_dict(ckpt["state_dict"])
     model.eval()
     return model

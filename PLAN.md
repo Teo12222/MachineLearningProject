@@ -5,8 +5,9 @@ COMP0245 assignment: train a PyTorch model that copies the expert controller, i.
 
 ## Files
 
-The shared pipeline lives on `master`, in `robotnik_arm_task/` (updated 30 Oct; the split networks and DAgger, step
-15 and 21, are on the `Matteo` branch until merged). Run everything with `pixi run python <script>` from there.
+The shared pipeline lives on `master`, in `robotnik_arm_task/` (updated 31 Oct: everyone's work is merged, i.e. the
+split networks and DAgger (15, 21), the (v, w) outputs (13) and the history windows, TCN and GRU (14)). Run everything
+with `pixi run python <script>` from there.
 
 | File | What it does |
 |---|---|
@@ -14,12 +15,15 @@ The shared pipeline lives on `master`, in `robotnik_arm_task/` (updated 30 Oct; 
 | `run_batch.py` | Runs the expert on many random targets in parallel to collect data (defaults: `data_main`, from episode 0) |
 | `data_main/` | The dataset: 1,000 expert episodes after the expert fixes (git-ignored, ~3 GB; recollect with `run_batch.py`) |
 | `data_pilot/` | The first 350 episodes, before the expert fixes: no longer used for training (still committed) |
-| `bc_data.py` | Model inputs (27 robot-frame features) and outputs, `decode_outputs`, episode loading, adaptive / uniform subsampling, episode cleaning, gravity torques (`arm_gravity`), the train/val/test split by episode (fixed seed) and the fixed quick-test / validation subsets |
-| `bc_model.py` | The MLP (size set by options) with its normalisation stored inside, plus save/load |
-| `bc_split.py` | Split networks (15): base net (wheels + "arrived" flag) and arm net in one checkpoint, the arrival latch, the DAgger data loader, `load_policy` (loads any checkpoint) |
-| `train.py` | Trains one model (early stopping on the **validation** loss), then tests it offline on the test episodes; writes `results/<model>.csv`. Options: `--model`, settings, `--seed`, `--gravity-residual` (12), `--split` (15), `--dagger` (21), `--no-test` / `--test-only` |
+| `bc_data.py` | Model inputs (27 robot-frame features) and outputs, `decode_outputs`, episode loading, adaptive / uniform subsampling, episode cleaning, gravity torques (`arm_gravity`), the train/val/test split by episode (fixed seed) and the fixed quick-test / validation subsets, (v, w) wheel outputs (`wheels_to_vw` / `vw_to_wheels`, 13), past-frame inputs (`with_history`, and `FrameHistory` at run time, 14), and per-batch windows for the TCN / GRU (`load_frames`, `window_batch`) |
+| `bc_model.py` | The MLP (size set by options) and the TCN and GRU (14), each with its normalisation stored inside, plus save/load (`load_model` picks the class from the checkpoint) |
+| `bc_split.py` | Split networks (15): base net (wheels + "arrived" flag) and arm net in one checkpoint, the arrival latch, the DAgger data loader, `load_policy` (loads any checkpoint: split, or MLP / TCN / GRU via `load_model`) |
+| `train.py` | Trains one model (early stopping on the **validation** loss), then tests it offline on the test episodes; writes `results/<model>.csv`. Options: `--model`, settings, `--seed`, `--gravity-residual` (12), `--vw-outputs` (13), `--history-k` / `--history-spacing` (14), `--split` (15), `--dagger` (21), `--no-test` / `--test-only`; `--split` doesn't combine with `--vw-outputs` or `--history-k` yet |
+| `train_tcn.py` | Trains a TCN (14): same data, split, early stopping and results as `train.py`; windows cut per batch. Options: `--layers`, `--channels`, `--spacing` |
+| `train_gru.py` | Trains a GRU (14): scored on whole windows, memory warmed up at the episode start. Options: `--hidden`, `--window`, `--burn-in` |
+| `analyse_temporal.py` | Failure metrics for the temporal models from their simulation runs (first torque-clip hit, arm deviation, base off the floor), in `quick_*` / `full_*` results columns |
 | `tune.py` | Hyperparameter search for a final model (staged grid via `train.py`, closed-loop check of the best few on the 50 validation episodes) |
-| `robotnik_arm_policy_task.py` | Same simulation as the expert, but a trained model drives the robot (`ROBOENV_POLICY` picks the checkpoint; single MLP or split) |
+| `robotnik_arm_policy_task.py` | Same simulation as the expert, but a trained model drives the robot (`ROBOENV_POLICY` picks the checkpoint; single MLP, history window, TCN / GRU or split) |
 | `compare.py` | Expert vs model in simulation: `--target x,y,z`, `--episode N`, `--test-set` (all 150 test targets, writes the `sim_*` results), `--test-set --quick` (50 test targets, for looking only), `--val-set` (50 validation targets, for every decision) |
 | `expert_relabel.py` | The expert's arm controller run offline along any saved run: what the expert would have commanded there (DAgger labels, 21) |
 | `dagger.py` | DAgger for the split arm (21): runs a split model on training targets, labels it with `expert_relabel.py`, retrains via `train.py --dagger`, several rounds (data in the git-ignored `dagger/`) |
@@ -1196,6 +1200,15 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
 17. **Minimum data needed:** train on 25 / 50 / 100 / 200 / 500 / all episodes and plot test performance (learning
     curve). Also decides whether to extend the dataset towards ~3,000 episodes (see the dataset-size note after
     the expert fixes).
+    - **Base and arm data separately** (split networks, 15): also train the base on fewer episodes than the arm, and
+      the other way round, to show which network needs the data. Possible because the two are trained separately;
+      needs a `train.py` option per network (e.g. `--base-episodes` / `--arm-episodes`).
+    - **No data augmentation, and why** (report point): the simulator gives as many expert episodes as we want, so
+      there is no shortage to make up for. The one imbalance, the "arrived" flag (~17% of used frames), is handled by
+      `pos_weight`. SMOTE / ADASYN would blend existing states into states the expert never visited, with blended
+      labels the expert never gave, and target class imbalance, not our real problem (the policy drifting off the
+      expert's states). The augmentation that fits behaviour cloning is new states labelled by the real expert:
+      DAgger (21, done) and DART (19). The learning curve backs this: if it flattens, more data isn't the bottleneck.
 18. More low-height targets.
 19. Noise injection (DART): noisy commands applied, clean expert commands recorded as labels. Chosen instead of
     plain input-noise augmentation, whose labels would be wrong for the perturbed states.
