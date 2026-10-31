@@ -935,11 +935,11 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
 
         | Model | Reach | Parameters | Val loss | Wheel / torque RMSE | Max torque first hit (s) | Arm dev. at 2 s (rad) | Base off the floor | Spot within 15 cm |
         |---|---|---|---|---|---|---|---|---|
-        | `mlp_gravres_s0` | 1 frame | 141,579 | 0.00131 | 0.057 / 0.104 | 8.73 | 0.013 | 12/50 | 23/50 |
-        | `mlp_gravres_lr1e3_s0` | 1 frame | 141,579 | 0.00211 | 0.075 / 0.125 | 8.97 | 0.014 | 2/50 | 44/50 |
-        | `tcn_L4_d10_gravres_s0` | 160 ms | 29,003 | 0.00174 | 0.059 / 0.117 | 1.25 | 0.58 | 47/50 | 4/50 |
-        | `tcn_L6_d10_gravres_s0` | 640 ms | 45,515 | 0.00227 | 0.064 / 0.130 | 1.09 | 3.15 | 50/50 | 2/50 |
-        | `tcn_L8_d10_gravres_s0` | 2.56 s | 62,027 | 0.00184 | 0.050 / 0.120 | 0.58 | 3.35 | 50/50 | 0/50 |
+        | `mlp_gravres_s0` | 1 frame | 141,579 | 0.00131 | 0.057 / 0.104 | 8.73 | 0.001 | 12/50 | 23/50 |
+        | `mlp_gravres_lr1e3_s0` | 1 frame | 141,579 | 0.00211 | 0.075 / 0.125 | 8.97 | 0.002 | 2/50 | 44/50 |
+        | `tcn_L4_d10_gravres_s0` | 160 ms | 29,003 | 0.00174 | 0.059 / 0.117 | 1.25 | 0.109 | 47/50 | 4/50 |
+        | `tcn_L6_d10_gravres_s0` | 640 ms | 45,515 | 0.00227 | 0.064 / 0.130 | 1.09 | 5.78 | 50/50 | 2/50 |
+        | `tcn_L8_d10_gravres_s0` | 2.56 s | 62,027 | 0.00184 | 0.050 / 0.120 | 0.58 | 5.86 | 50/50 | 0/50 |
 
         - Arm deviation: median over episodes of the mean |q - q_expert| over the 7 joints. Max torque first hit: median
           first time a torque reaches the 30 N*m clip. Off the floor: base height moved over 0.3 m from its start.
@@ -952,7 +952,7 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
         - Not comparable with the MLP on size: these TCNs have 20-45% of its parameters, and val loss is not monotonic in
           L (L6 is worse than L4 and L8), which suggests the plain deep stack trains badly (no residual connections yet).
         - **Old settings on L4, `tcn_L4_d10_gravres_lr1e3_s0` (lr 1e-3, max 20 epochs): no rescue, unlike the MLP.** Val
-          0.00408, wheel / torque RMSE 0.105 / 0.166, 0/50; max torque first hit 1.89 s (L4: 1.25 s), arm dev. at 2 s 0.73
+          0.00408, wheel / torque RMSE 0.105 / 0.166, 0/50; max torque first hit 1.89 s (L4: 1.25 s), arm dev. at 2 s 0.38
           rad, off the floor 49/50, spot within 15 cm 6/50. The arm still fails before the drive starts. Val loss was still
           falling at epoch 20, so this model is underfit; it is not a test of a well-trained TCN at lr 1e-3.
     - Then a **recurrent neural network (RNN)**: a GRU (`torch.nn.GRU`; why not an LSTM: below). It keeps an
@@ -1001,8 +1001,8 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
 
         | Model | Val loss | Wheel / torque RMSE | Max torque first hit (s) | Arm dev. at 2 s (rad) | Base off the floor | Spot within 15 cm | Closest EE median (m) | EE within 10 / 5 / 2 / 1 cm | Final err median (m) |
         |---|---|---|---|---|---|---|---|---|---|
-        | `mlp_gravres_lr1e3_s0` | 0.00211 | 0.075 / 0.125 | 8.97 | 0.014 | 2/50 | 44/50 | 0.102 | 22 / 12 / 2 / 1 | 1.66 |
-        | `tcn_L4_d10_gravres_s0` | 0.00174 | 0.059 / 0.117 | 1.25 | 0.58 | 47/50 | 4/50 | 0.884 | not counted | blow-up |
+        | `mlp_gravres_lr1e3_s0` | 0.00211 | 0.075 / 0.125 | 8.97 | 0.002 | 2/50 | 44/50 | 0.102 | 22 / 12 / 2 / 1 | 1.66 |
+        | `tcn_L4_d10_gravres_s0` | 0.00174 | 0.059 / 0.117 | 1.25 | 0.109 | 47/50 | 4/50 | 0.884 | not counted | blow-up |
         | `gru_h192_w250_gravres_s0` | 0.00521 | 0.075 / 0.189 | 9.89 | 0.003 | 6/50 | 40/50 | 0.101 | 24 / 12 / 4 / 0 | 1.90 |
         | `gru_h192_w1000_gravres_s0` | 0.00306 | 0.077 / 0.150 | 11.43 | 0.002 | 0/50 | 49/50 | 0.087 | 31 / 11 / 1 / 1 | 1.15 |
         | `gru_h192_w2000_gravres_s0` | 0.00390 | 0.094 / 0.168 | 13.30 | 0.003 | 0/50 | 43/50 | 0.152 | 19 / 7 / 2 / 1 | 1.09 |
@@ -1012,6 +1012,26 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
           and it hits the torque clip at 11-13 s, around the end of the expert's reach (median episode 12.1 s).
         - **Not finished training:** `w1000` and `w2000` stopped at the 50-epoch cap with validation still improving (best
           epochs 46 and 49). One seed each; differences between the three windows may be noise.
+      - **Full test (Kris, 31 Oct; all 150 test targets, one seed each, Mac).** The MLP row is the best MLP on the same run.
+
+        | Model | Reached | Spot within 15 cm | Closest EE median (m) | EE within 10 / 5 / 2 / 1 cm | Max torque first hit (s) | Arm dev. at 2 s (rad) | Base off the floor | Wheels at clip | Final err median (m) |
+        |---|---|---|---|---|---|---|---|---|---|
+        | `mlp_gravres_lr1e3_s0` | 0 | 127 | 0.116 | 61 / 28 / 6 / 1 | 9.15 | 0.002 | 6 | 43% | 1.49 |
+        | `gru_h192_w250_gravres_s0` | 0 | 107 | 0.111 | 68 / 39 / 16 / 4 | 9.60 | 0.003 | 18 | 3% | 1.87 |
+        | `gru_h192_w1000_gravres_s0` | 0 | 148 | 0.076 | 107 / 31 / 3 / 1 | 11.20 | 0.002 | 0 | 9% | 1.08 |
+        | `gru_h192_w2000_gravres_s0` | 1 | 114 | 0.156 | 54 / 23 / 7 / 2 | 13.36 | 0.003 | 0 | 4% | 1.25 |
+        | `tcn_L4_d10_gravres_s0` | 0 | 12 | 0.877 | 5 / 2 / 0 / 0 | 2.59 | 0.082 | 139 | 89% | blow-up |
+        | `temporal_window_k4_d50_gravres_s0` | 0 | 15 | 0.333 | 27 / 12 / 1 / 0 | 6.30 | 0.003 | 144 | 78% | blow-up |
+
+        - `gru_h192_w1000_gravres_s0` is the best model: 148/150 parked and no blow-ups. `gru_h192_w2000_gravres_s0` gives the
+          first reached target of any model. The reach is what is left: 0-1 of 150 at the 5 mm target.
+        - **Correction (31 Oct):** the arm deviations first written here counted all 17 `q_mes` columns, wheel angles
+          included. All tables now use the 7 arm joints (`analyse_temporal.py`). So the GRU's arm at 2 s is level with the
+          MLP's, not 7x closer. The window model's arm is also level at 2 s, and hits the torque clip at 6.3 s here: the
+          "2-3 s" arm failure above does not show in this measure. Sweep tables are the 50-target quick test.
+        - The test scripts differ slightly: `compare.py` runs every test episode, including `ep_0297` (expert failed, dropped
+          from training tests), so the full test has 150 targets, not 149.
+        - `compare.py --test-set` rewrites `results/expert.csv`: restored, since it is Matteo's file.
     - **Compare TCN vs RNN** on the same inputs, split and metrics (validation loss, test RMSE, closed loop,
       inference time per step). Report points: (a) the MLP's only temporal information is the joint velocity
       (one-step memory; the lecture's "RNNs vs MLPs"); (b) the TCN needs a fixed window, while the arrival time
