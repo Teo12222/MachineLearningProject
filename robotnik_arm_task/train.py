@@ -99,9 +99,6 @@ if args.no_test and args.test_only:
     parser.error("--no-test and --test-only together would do nothing")
 if args.dagger and not args.split:
     parser.error("--dagger needs --split: DAgger data only has arm labels (a single MLP would also need wheel labels)")
-if args.split and args.vw_outputs:
-    # The split code still reads the labels as 4 wheels + 7 torques; (v, w) support is the next step (PLAN.md step 13)
-    parser.error("--split with --vw-outputs isn't supported yet")
 if args.split and args.history_k:
     # base_inputs / arm_inputs pick the current frame's columns, so the past frames would be silently dropped
     parser.error("--split with --history-k isn't supported yet (temporal + split: PLAN.md step 14)")
@@ -177,12 +174,12 @@ if not args.test_only:
 
     if args.split:
         model = SplitPolicy(hidden=args.hidden, layers=args.layers, dropout=args.dropout,
-                            gravity_residual=args.gravity_residual)
+                            gravity_residual=args.gravity_residual, vw_outputs=args.vw_outputs)
         model.set_normalisation(x_tr, y_tr, a_tr)
         # Removed (30 Oct, see ARM_SUBSAMPLE above): the arm's own training frames, loaded a second time
         # x_arm, y_arm, a_arm = load_episodes(DATA_DIR, train_ids, keep_frac=KEEP_FRAC if ARM_SUBSAMPLE else None,
         #                                     mode=ARM_SUBSAMPLE, gravity_residual=args.gravity_residual, arrived=True)
-        # model.arm.set_normalisation(arm_inputs(x_arm, a_arm), y_arm[:, 4:11])
+        # model.arm.set_normalisation(arm_inputs(x_arm, a_arm), y_arm[:, -7:])
         # Weight of the arrived=True frames, so both classes count equally in the flag's loss (computed on the frames
         # actually used: adaptive subsampling keeps relatively more navigation frames than the full episodes)
         pos_weight = torch.tensor((1 - a_tr).sum() / a_tr.sum())
@@ -192,7 +189,7 @@ if not args.test_only:
             model.base, *normalise(model.base, base_inputs(x_tr), base_labels(y_tr, a_tr)), xbv, ybv,
             lambda out, target: base_loss(out, target, pos_weight), "base ")
         # The arm is trained with the expert's true flag as input (at run time: the latched predicted one)
-        x_arm, y_arm = arm_inputs(x_tr, a_tr), y_tr[:, 4:11]
+        x_arm, y_arm = arm_inputs(x_tr, a_tr), y_tr[:, -7:]   # torques: always the last 7 labels
         dagger_frames = 0
         if args.dagger:
             # Frames the earlier policies visited, labelled with the expert's torques: thinned like the expert data
@@ -204,14 +201,16 @@ if not args.test_only:
                   f"({', '.join(Path(f).name for f in args.dagger)})")
         arm_val, arm_best, arm_epochs = fit(
             model.arm, *normalise(model.arm, x_arm, y_arm),
-            *normalise(model.arm, arm_inputs(x_va, a_va), y_va[:, 4:11]), nn.MSELoss(), "arm  ")
-        # Validation loss on the same scale as the single MLP's (mean squared error over the 11 normalised outputs;
-        # same frames, so the same normalisation): the base's wheel part (without the flag's loss) + the arm's
+            *normalise(model.arm, arm_inputs(x_va, a_va), y_va[:, -7:]), nn.MSELoss(), "arm  ")
+        # Validation loss on the same scale as the single MLP's (mean squared error over all normalised outputs;
+        # same frames, so the same normalisation): the base's wheel part (without the flag's loss) + the arm's.
+        # Not comparable between wheel formats (different quantities): compare those on test_wheel_rmse
         with torch.no_grad():
-            wheel_val = nn.functional.mse_loss(model.base(xbv)[:, :4], ybv[:, :4]).item()
+            n_wheel = ybv.shape[1] - 1
+            wheel_val = nn.functional.mse_loss(model.base(xbv)[:, :-1], ybv[:, :-1]).item()
             # Recorded unweighted, so it reads as a plain cross-entropy (early stopping used the weighted one)
-            flag_val = nn.functional.binary_cross_entropy_with_logits(model.base(xbv)[:, 4], ybv[:, 4]).item()
-        best_val, best_epoch, epoch = (4 * wheel_val + 7 * arm_val) / 11, None, None
+            flag_val = nn.functional.binary_cross_entropy_with_logits(model.base(xbv)[:, -1], ybv[:, -1]).item()
+        best_val, best_epoch, epoch = (n_wheel * wheel_val + 7 * arm_val) / (n_wheel + 7), None, None
         split_columns = dict(base_epochs=base_epochs, base_best_epoch=base_best, arm_epochs=arm_epochs,
                              arm_best_epoch=arm_best, val_arrived_bce=flag_val,
                              dagger=";".join(Path(f).name for f in args.dagger) if args.dagger else "",

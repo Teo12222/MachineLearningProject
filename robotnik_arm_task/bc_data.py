@@ -5,7 +5,6 @@ so the model always sees inputs built the same way.
 """
 import numpy as np
 from collections import deque
-from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
 
@@ -44,30 +43,25 @@ BASE_INPUTS = slice(0, 3)    # target forward, left of the base, target height
 ARM_INPUTS = slice(3, 27)    # target relative to the EE, sin/cos of the joint angles, joint velocities
 
 
-@dataclass(frozen=True)
-class WheelGeometry:
-    """Base wheel geometry the expert uses to turn (v, w) into wheel commands (PLAN.md step 13).
-
-    Same names and values as BaseControllerParams in robotnik_arm_control.py: keep the two in step.
-    """
-    wheel_radius: float = 0.11
-    # Effective track width for skid-steer (calibrated in simulation: yaw rate ~0.34 rad/s per rad/s of wheel speed)
-    wheel_base_width: float = 0.66
+# Base wheel geometry the expert uses to turn (v, w) into wheel commands (PLAN.md step 13): the values of
+# BaseControllerParams in robotnik_arm_control.py, keep the two in step
+WHEEL_RADIUS = 0.11       # m
+WHEEL_BASE_WIDTH = 0.66   # m, effective track width for skid-steer (calibrated in simulation)
 
 
-def wheels_to_vw(wheel_cmds, geom=WheelGeometry()):
+def wheels_to_vw(wheel_cmds):
     """4 wheel commands [front_right, front_left, back_left, back_right] (rad/s) to forward speed v (m/s) and turn
     rate w (rad/s), (..., 2). Exact for the expert's commands: each side's two wheels always get the same command."""
     right, left = wheel_cmds[..., 0], wheel_cmds[..., 1]
-    return np.stack([geom.wheel_radius * (right + left) / 2,
-                     geom.wheel_radius * (right - left) / geom.wheel_base_width], axis=-1)
+    return np.stack([WHEEL_RADIUS * (right + left) / 2,
+                     WHEEL_RADIUS * (right - left) / WHEEL_BASE_WIDTH], axis=-1)
 
 
-def vw_to_wheels(vw, geom=WheelGeometry()):
+def vw_to_wheels(vw):
     """Inverse of wheels_to_vw: the expert's own formula (base_controller in robotnik_arm_control.py)."""
     v, w = vw[..., 0], vw[..., 1]
-    right = (v + w * geom.wheel_base_width / 2) / geom.wheel_radius
-    left = (v - w * geom.wheel_base_width / 2) / geom.wheel_radius
+    right = (v + w * WHEEL_BASE_WIDTH / 2) / WHEEL_RADIUS
+    left = (v - w * WHEEL_BASE_WIDTH / 2) / WHEEL_RADIUS
     return np.stack([right, left, left, right], axis=-1)
 
 

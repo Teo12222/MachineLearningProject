@@ -201,7 +201,7 @@ def main():
             was_arrived = latch.arrived
             arrived = latch.update(p_arrived, current_time)
             if arrived:
-                wheels = np.zeros(4)
+                wheels = np.zeros_like(wheels)   # 4 commands or (v, w): zero either way means stopped
                 if not was_arrived:
                     print(f"Arrived flag latched at t={current_time:.2f}s ({latch.source})")
             y = np.concatenate([wheels, model.predict_arm(x, float(arrived))])

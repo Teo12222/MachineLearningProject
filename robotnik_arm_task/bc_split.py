@@ -27,30 +27,37 @@ def arm_inputs(x, arrived):
 
 
 class SplitPolicy(nn.Module):
-    """Base network: 3 inputs -> 4 wheel commands + 1 "arrived" logit. Arm network: 25 inputs -> 7 torques."""
+    """Base network: 3 inputs -> 4 wheel commands (or v, w) + 1 "arrived" logit. Arm network: 25 inputs -> 7 torques.
 
-    def __init__(self, hidden=256, layers=3, dropout=0.0, gravity_residual=False):
+    Labels and base outputs are indexed from the end (torques = last 7 labels, logit = last base output), so the same
+    code serves both wheel formats.
+    """
+
+    def __init__(self, hidden=256, layers=3, dropout=0.0, gravity_residual=False, vw_outputs=False):
         super().__init__()
-        # kind tells load_policy which class to build; gravity_residual is read by whoever runs the model, as for the MLP
+        # kind tells load_policy which class to build; gravity_residual and vw_outputs are read by whoever runs the
+        # model (decode_outputs), as for the MLP
         self.config = dict(kind="split", hidden=hidden, layers=layers, dropout=dropout,
-                           gravity_residual=gravity_residual)
+                           gravity_residual=gravity_residual, vw_outputs=vw_outputs)
         n_base = BASE_INPUTS.stop - BASE_INPUTS.start
         n_arm = ARM_INPUTS.stop - ARM_INPUTS.start + 1   # + the flag
-        self.base = MLP(n_base, 5, hidden=hidden, layers=layers, dropout=dropout)
+        n_wheel = 2 if vw_outputs else 4
+        self.base = MLP(n_base, n_wheel + 1, hidden=hidden, layers=layers, dropout=dropout)
         self.arm = MLP(n_arm, 7, hidden=hidden, layers=layers, dropout=dropout)
 
     def set_normalisation(self, x, y, arrived):
-        """Normalisation of both networks from the TRAINING frames (x: 27 inputs, y: 11 labels, arrived: 0/1)."""
+        """Normalisation of both networks from the TRAINING frames (x: 27 inputs, y: wheel + 7 torque labels,
+        arrived: 0/1)."""
         self.base.set_normalisation(base_inputs(x), base_labels(y, arrived))
         # The arrived output is a logit, not a quantity to rescale: mean 0 / std 1 leave it as it is
-        self.base.y_mean[4], self.base.y_std[4] = 0.0, 1.0
-        self.arm.set_normalisation(arm_inputs(x, arrived), y[:, 4:11])
+        self.base.y_mean[-1], self.base.y_std[-1] = 0.0, 1.0
+        self.arm.set_normalisation(arm_inputs(x, arrived), y[:, -7:])
 
     def predict_base(self, x):
-        """Wheel commands (rad/s) and the probability that the base has arrived, from make_features' inputs."""
+        """Wheel outputs (4 commands in rad/s, or v, w) and the probability that the base has arrived."""
         out = self.base.predict(base_inputs(x))
         # Sigmoid written with tanh: the same curve, but no overflow warning for very negative logits
-        return out[..., :4], 0.5 * (1.0 + np.tanh(0.5 * out[..., 4]))
+        return out[..., :-1], 0.5 * (1.0 + np.tanh(0.5 * out[..., -1]))
 
     def predict_arm(self, x, arrived):
         """Arm torques (N*m; minus gravity for gravity-residual models) given the "arrived" flag (0/1)."""
@@ -58,17 +65,17 @@ class SplitPolicy(nn.Module):
 
 
 def base_labels(y, arrived):
-    """Base network labels: the 4 wheel commands + the arrived flag."""
-    return np.concatenate([y[:, :4], arrived[:, None]], axis=1).astype(np.float32)
+    """Base network labels: the wheel labels (4 commands, or v, w) + the arrived flag."""
+    return np.concatenate([y[:, :-7], arrived[:, None]], axis=1).astype(np.float32)
 
 
 def base_loss(out, target, pos_weight):
-    """MSE on the (normalised) wheel commands + weighted cross-entropy on the arrived logit, 1:1.
+    """MSE on the (normalised) wheel outputs + weighted cross-entropy on the arrived logit, 1:1.
 
     pos_weight = arrived-False frames / arrived-True frames in the training data, so both classes count equally.
     """
-    wheels = F.mse_loss(out[:, :4], target[:, :4])
-    flag = F.binary_cross_entropy_with_logits(out[:, 4], target[:, 4], pos_weight=pos_weight)
+    wheels = F.mse_loss(out[:, :-1], target[:, :-1])
+    flag = F.binary_cross_entropy_with_logits(out[:, -1], target[:, -1], pos_weight=pos_weight)
     return wheels + flag
 
 
