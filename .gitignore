@@ -11,8 +11,9 @@ __pycache__
 robotnik_arm_task/configs
 robotnik_arm_task/models
 
-# trained weights and comparison outputs (regenerated locally, not submitted)
-robotnik_arm_task/checkpoints
+# comparison outputs (regenerated locally, not submitted)
+# Removed (31 Oct): checkpoints/ is now committed, so everyone's models and test plots are in one place (PLAN.md, How we work)
+# robotnik_arm_task/checkpoints
 robotnik_arm_task/compare_out
 
 # main dataset (~3 GB, regenerated with run_batch.py, not submitted)

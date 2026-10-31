@@ -38,7 +38,9 @@ Look there for the current state of each model instead of this file.
 - **Keep the split and the evaluation identical on every branch** (`split_episodes` with the default seed, same
   test set, same `compare.py`), otherwise results can't be compared in the report.
 - Fixes to shared files go to `master` first, then get merged into the branches.
-- Don't commit `checkpoints/` or `compare_out/` (already in `.gitignore`); name checkpoints after the branch.
+- `checkpoints/` is committed (31 Oct: everyone's models and test plots in one place for the report); don't commit
+  `compare_out/` (in `.gitignore`). Name every model uniquely (results and checkpoints share the name): git can't
+  merge two versions of a checkpoint, so two people retraining the same name means picking one.
 - Run with `pixi run python <script>` from `robotnik_arm_task/`. In PyCharm, scripts that import torch set
   `KMP_DUPLICATE_LIB_OK` themselves (needed on Windows).
 
