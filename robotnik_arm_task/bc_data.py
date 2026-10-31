@@ -233,12 +233,13 @@ def load_episodes(data_dir, episode_ids, keep_frac=None, mode="adaptive", seed=0
 
 
 def load_frames(data_dir, episode_ids, keep_frac=None, mode="adaptive", seed=0, gravity_residual=False,
-                all_labels=False):
+                all_labels=False, vw_outputs=False):
     """For models that cut their windows per batch (TCN): every frame stored once, plus which ones are samples.
 
     Returns x (all frames of all episodes), y (labels of the kept frames only), frames (their rows in x) and starts
     (the row where each one's episode begins, so windows stop there). Same frames as load_episodes.
     all_labels: y has every frame's labels, in the same rows as x (the GRU scores whole windows).
+    vw_outputs: wheel labels as (v, w) (see load_episode).
     """
     xs, ys, frames, starts = [], [], [], []
     total = 0
@@ -252,6 +253,9 @@ def load_frames(data_dir, episode_ids, keep_frac=None, mode="adaptive", seed=0, 
         y = y[labelled]
         if gravity_residual:
             y[:, 4:11] -= arm_gravity(np.load(path)["q_mes"][labelled])
+        if vw_outputs:
+            # Converted after picking the frames, so every output format trains on the same frames too
+            y = np.concatenate([wheels_to_vw(y[:, :4]), y[:, 4:]], axis=1)
         xs.append(x)
         ys.append(y)
         frames.append(keep + total)

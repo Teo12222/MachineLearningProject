@@ -120,10 +120,11 @@ class GRU(MLP):
     frame, which is what the training windows at an episode's start look like. Normalisation is the MLP's.
     """
 
-    def __init__(self, n_in, n_out, hidden=192, burn_in=200, gravity_residual=False):
-        super().__init__(n_in, n_out, hidden=hidden, layers=1, gravity_residual=gravity_residual)
+    def __init__(self, n_in, n_out, hidden=192, burn_in=200, gravity_residual=False, vw_outputs=False):
+        super().__init__(n_in, n_out, hidden=hidden, layers=1, gravity_residual=gravity_residual,
+                         vw_outputs=vw_outputs)
         self.config = dict(arch="gru", n_in=n_in, n_out=n_out, hidden=hidden, burn_in=burn_in,
-                           gravity_residual=gravity_residual)
+                           gravity_residual=gravity_residual, vw_outputs=vw_outputs)
         self.gru = nn.GRU(n_in, hidden, batch_first=True)
         self.head = nn.Linear(hidden, n_out)
         del self.net                              # the MLP's layers: only its normalisation is reused

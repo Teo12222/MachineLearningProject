@@ -6,6 +6,7 @@ default.
 
 Usage (from the robotnik_arm_task folder):
     pixi run python train_gru.py --model gru_h192_w1000_gravres_s0 --window 1000
+    pixi run python train_gru.py --model gru_h192_w1000_vw_gravres_s0 --window 1000 --vw-outputs   # (v, w) (step 13)
     pixi run python train_gru.py --model X --test-only     # test the saved checkpoint, no training
 
 Results go to results/<model>.csv (see results.py); closed loop with compare.py --test-set --model <model>.
@@ -43,6 +44,8 @@ parser.add_argument("--max-epochs", type=int, default=50, help="upper limit on t
 parser.add_argument("--patience", type=int, default=10, help="stop after this many epochs without improvement")
 parser.add_argument("--gravity-residual", action=argparse.BooleanOptionalAction, default=True,
                     help="torque outputs are torque minus arm gravity (PLAN.md step 12)")
+parser.add_argument("--vw-outputs", action=argparse.BooleanOptionalAction, default=False,
+                    help="wheel outputs are forward speed v and turn rate w instead of 4 wheel commands (PLAN.md step 13)")
 parser.add_argument("--seed", type=int, default=0, help="training seed (weights, batch order); put it in --model too")
 parser.add_argument("--threads", type=int, help="torch CPU threads (several runs at once share the cores)")
 args = parser.parse_args()
@@ -72,9 +75,11 @@ def evaluate(model, x, y, frames, starts):
 
 if not args.test_only:
     x_tr, y_tr, frames_tr, starts_tr = load_frames(DATA_DIR, train_ids, KEEP_FRAC, SUBSAMPLE,
-                                                   gravity_residual=args.gravity_residual, all_labels=True)
+                                                   gravity_residual=args.gravity_residual, all_labels=True,
+                                                   vw_outputs=args.vw_outputs)
     x_va, y_va, frames_va, starts_va = load_frames(DATA_DIR, val_ids, KEEP_FRAC, "uniform",
-                                                   gravity_residual=args.gravity_residual, all_labels=True)
+                                                   gravity_residual=args.gravity_residual, all_labels=True,
+                                                   vw_outputs=args.vw_outputs)
     # An epoch shows about as many frames as the training set has, not one window per kept frame
     n_windows = len(x_tr) // args.window
     n_frames = args.burn_in + args.window
@@ -82,7 +87,7 @@ if not args.test_only:
           f"(window ends: {SUBSAMPLE}, gravity residual: {'on' if args.gravity_residual else 'off'})")
 
     model = GRU(x_tr.shape[1], y_tr.shape[1], hidden=args.hidden, burn_in=args.burn_in,
-                gravity_residual=args.gravity_residual)
+                gravity_residual=args.gravity_residual, vw_outputs=args.vw_outputs)
     print(f"{sum(p.numel() for p in model.parameters())} parameters")
     # Normalised on the kept frames, like the MLP
     model.set_normalisation(x_tr[frames_tr], y_tr[frames_tr])
@@ -131,7 +136,8 @@ if not args.test_only:
         hidden=args.hidden, layers=1, best_val_loss=best_val, best_epoch=best_epoch,
         train_time_s=train_time, parameters=sum(p.numel() for p in model.parameters()),
         subsample=SUBSAMPLE, keep_frac=KEEP_FRAC, weight_decay=0.0, dropout=0.0, max_epochs=args.max_epochs,
-        patience=args.patience, gravity_residual=args.gravity_residual, architecture="gru", seed=args.seed,
+        patience=args.patience, gravity_residual=args.gravity_residual, vw_outputs=args.vw_outputs,
+        architecture="gru", seed=args.seed,
         window=args.window, burn_in=args.burn_in,
         inference_ms=None, test_wheel_rmse=None, test_torque_rmse=None, **{c: None for c in SIM_COLUMNS},
     )
@@ -153,7 +159,8 @@ for i in test_ids:
     d = np.load(path)
     y = best.predict(x[None])[0]
     tau_g = arm_gravity(d["q_mes"]) if best.config["gravity_residual"] else None
-    wheel_pred, torque_pred = decode_outputs(y, tau_g)
+    # (v, w) models: converted back to 4 wheel commands, so test_wheel_rmse is measured the same way for every model
+    wheel_pred, torque_pred = decode_outputs(y, tau_g, best.config.get("vw_outputs", False))
     wheel_rmse.append(np.sqrt(np.mean((wheel_pred - d["wheel_cmds"]) ** 2)))
     torque_rmse.append(np.sqrt(np.mean((torque_pred - d["torque_arm"]) ** 2)))
 print(f"average RMSE: wheels {np.mean(wheel_rmse):.4f} rad/s, torques {np.mean(torque_rmse):.4f} N*m "
