@@ -96,6 +96,9 @@ if args.no_test and args.test_only:
     parser.error("--no-test and --test-only together would do nothing")
 if args.dagger and not args.split:
     parser.error("--dagger needs --split: DAgger data only has arm labels (a single MLP would also need wheel labels)")
+if args.split and args.vw_outputs:
+    # The split code still reads the labels as 4 wheels + 7 torques; (v, w) support is the next step (PLAN.md step 13)
+    parser.error("--split with --vw-outputs isn't supported yet")
 CHECKPOINT = SCRIPT_DIR / "checkpoints" / f"{args.model}.pt"
 if args.threads:
     torch.set_num_threads(args.threads)
@@ -105,20 +108,6 @@ train_ids, val_ids, test_ids = split_episodes(DATA_DIR)
 # Bad episodes are dropped after the split, so the good ones always stay in the same set
 train_ids, val_ids, test_ids = (clean_ids(DATA_DIR, ids) for ids in (train_ids, val_ids, test_ids))
 
-if not args.test_only:
-    keep_frac = KEEP_FRAC if SUBSAMPLE else None
-    x_tr, y_tr = load_episodes(DATA_DIR, train_ids, keep_frac=keep_frac, mode=SUBSAMPLE,
-                               gravity_residual=args.gravity_residual, vw_outputs=args.vw_outputs)
-    # Validation is always subsampled uniformly, so runs with different SUBSAMPLE modes are judged on the same frames
-    x_va, y_va = load_episodes(DATA_DIR, val_ids, keep_frac=keep_frac, mode="uniform",
-                               gravity_residual=args.gravity_residual, vw_outputs=args.vw_outputs)
-    print(f"train frames {len(x_tr)}, val frames {len(x_va)} (subsampling: {SUBSAMPLE or 'off'}, "
-          f"gravity residual: {'on' if args.gravity_residual else 'off'}, "
-          f"wheel outputs: {'v, w' if args.vw_outputs else '4 wheels'})")
-
-    model = MLP(x_tr.shape[1], y_tr.shape[1], hidden=args.hidden, layers=args.layers, dropout=args.dropout,
-                gravity_residual=args.gravity_residual, vw_outputs=args.vw_outputs)
-    model.set_normalisation(x_tr, y_tr)
 
 def normalise(net, x, y):
     """Inputs and labels as tensors in the network's normalised units (normalised once up front, so the training
@@ -168,12 +157,13 @@ if not args.test_only:
     keep_frac = KEEP_FRAC if SUBSAMPLE else None
     # a_tr / a_va: the expert's "arrived" flag of the same frames (split networks only)
     x_tr, y_tr, a_tr = load_episodes(DATA_DIR, train_ids, keep_frac=keep_frac, mode=SUBSAMPLE,
-                                     gravity_residual=args.gravity_residual, arrived=True)
+                                     gravity_residual=args.gravity_residual, vw_outputs=args.vw_outputs, arrived=True)
     # Validation is always subsampled uniformly, so runs with different SUBSAMPLE modes are judged on the same frames
     x_va, y_va, a_va = load_episodes(DATA_DIR, val_ids, keep_frac=keep_frac, mode="uniform",
-                                     gravity_residual=args.gravity_residual, arrived=True)
+                                     gravity_residual=args.gravity_residual, vw_outputs=args.vw_outputs, arrived=True)
     print(f"train frames {len(x_tr)}, val frames {len(x_va)} (subsampling: {SUBSAMPLE or 'off'}, "
-          f"gravity residual: {'on' if args.gravity_residual else 'off'}, split: {'on' if args.split else 'off'})")
+          f"gravity residual: {'on' if args.gravity_residual else 'off'}, "
+          f"wheel outputs: {'v, w' if args.vw_outputs else '4 wheels'}, split: {'on' if args.split else 'off'})")
     CHECKPOINT.parent.mkdir(parents=True, exist_ok=True)
     start = time.perf_counter()
 
@@ -220,7 +210,7 @@ if not args.test_only:
                              dagger_frames=dagger_frames)
     else:
         model = MLP(x_tr.shape[1], y_tr.shape[1], hidden=args.hidden, layers=args.layers, dropout=args.dropout,
-                    gravity_residual=args.gravity_residual)
+                    gravity_residual=args.gravity_residual, vw_outputs=args.vw_outputs)
         model.set_normalisation(x_tr, y_tr)
         best_val, best_epoch, epoch = fit(model, *normalise(model, x_tr, y_tr), *normalise(model, x_va, y_va),
                                           nn.MSELoss())

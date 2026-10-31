@@ -36,6 +36,13 @@ def make_features(base_pos, base_bearing, q_arm, qd_arm, target, ee_pos):
     ], axis=-1).astype(np.float32)                 # 27 inputs
 
 
+# Columns of make_features each split network uses (PLAN.md step 15). The base only needs where the target is: the
+# expert's wheel commands don't depend on the arm. The arm doesn't need the target relative to the base: the target
+# relative to the shoulder follows from the EE-relative target and the joint angles.
+BASE_INPUTS = slice(0, 3)    # target forward, left of the base, target height
+ARM_INPUTS = slice(3, 27)    # target relative to the EE, sin/cos of the joint angles, joint velocities
+
+
 @dataclass(frozen=True)
 class WheelGeometry:
     """Base wheel geometry the expert uses to turn (v, w) into wheel commands (PLAN.md step 13).
@@ -54,11 +61,6 @@ def wheels_to_vw(wheel_cmds, geom=WheelGeometry()):
     return np.stack([geom.wheel_radius * (right + left) / 2,
                      geom.wheel_radius * (right - left) / geom.wheel_base_width], axis=-1)
 
-# Columns of make_features each split network uses (PLAN.md step 15). The base only needs where the target is: the
-# expert's wheel commands don't depend on the arm. The arm doesn't need the target relative to the base: the target
-# relative to the shoulder follows from the EE-relative target and the joint angles.
-BASE_INPUTS = slice(0, 3)    # target forward, left of the base, target height
-ARM_INPUTS = slice(3, 27)    # target relative to the EE, sin/cos of the joint angles, joint velocities
 
 def vw_to_wheels(vw, geom=WheelGeometry()):
     """Inverse of wheels_to_vw: the expert's own formula (base_controller in robotnik_arm_control.py)."""
