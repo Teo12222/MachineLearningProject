@@ -22,7 +22,7 @@ from robotnik_arm_control import (
 )
 
 import torch
-from bc_data import make_features, decode_outputs, arm_gravity
+from bc_data import make_features, decode_outputs, arm_gravity, FrameHistory
 from bc_split import ArrivedLatch, SplitPolicy, load_policy
 
 
@@ -140,6 +140,9 @@ def main():
     # Split networks: switches control from the base to the arm, same rule as in train.py's offline test
     latch = ArrivedLatch()
     torch.set_num_threads(1)   # one sample per step: extra threads only add overhead
+    # Past frames the model was trained with (PLAN.md step 14); does nothing for a single-frame model
+    history = FrameHistory(model.config.get("history_k", 0), model.config.get("history_spacing", 1))
+    stateful = model.config.get("arch") in ("tcn", "gru")   # these keep their own past between steps (step)
 
     # Stop conditions (target reached, time cap), see StopCriteria. No stall check: while the base turns in
     # place the EE error can go well over 2 s without improving, so a stall rule could cut off a run that
@@ -203,7 +206,7 @@ def main():
                     print(f"Arrived flag latched at t={current_time:.2f}s ({latch.source})")
             y = np.concatenate([wheels, model.predict_arm(x, float(arrived))])
         else:
-            y = model.predict(x)
+            y = model.step(x) if stateful else model.predict(history.add(x))
         # Gravity-residual models (PLAN.md step 12) predict torque minus gravity: add this frame's gravity back
         tau_g = arm_gravity(q_mes)[0] if model.config.get("gravity_residual") else None
         wheel_cmds, torque_arm = decode_outputs(y, tau_g, model.config.get("vw_outputs", False))

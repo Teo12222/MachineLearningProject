@@ -14,6 +14,7 @@ Usage (from the robotnik_arm_task folder):
     pixi run python train.py --model split_arrived_s0 --split --gravity-residual   # split networks (PLAN.md step 15)
     pixi run python train.py --model X --split --gravity-residual --dagger dagger/split_dagger_r1   # + DAgger data
                                                    # for the arm network (dagger.py output, PLAN.md step 21)
+    pixi run python train.py --model temporal_window_k4_d50_s0 --history-k 4 --history-spacing 50   # past frames
 
 Results go to results/<model>.csv (see results.py): training columns after training, test columns after testing.
 Training stops early once the validation loss hasn't improved for --patience epochs (at most --max-epochs).
@@ -30,7 +31,7 @@ import numpy as np
 import torch
 from torch import nn
 
-from bc_data import split_episodes, clean_ids, load_episode, load_episodes, decode_outputs, arm_gravity
+from bc_data import split_episodes, clean_ids, load_episode, load_episodes, decode_outputs, arm_gravity, with_history
 from bc_model import MLP, save_model
 from bc_split import (SplitPolicy, ArrivedLatch, arm_inputs, base_inputs, base_labels, base_loss, load_dagger_arm,
                       load_policy)
@@ -89,6 +90,8 @@ parser.add_argument("--split", action=argparse.BooleanOptionalAction, default=Fa
 parser.add_argument("--dagger", nargs="+", metavar="FOLDER",
                     help="with --split: DAgger episode folders (dagger.py output) whose expert-labelled frames are added "
                          "to the arm network's training data (PLAN.md step 21); leave out for the ablation")
+parser.add_argument("--history-k", type=int, default=0, help="past frames added to each input (PLAN.md step 14)")
+parser.add_argument("--history-spacing", type=int, default=50, help="frames between them (1 frame = 1 ms)")
 parser.add_argument("--seed", type=int, default=0, help="training seed (weights, batch order); put it in --model too")
 parser.add_argument("--threads", type=int, help="torch CPU threads (several runs at once share the cores)")
 args = parser.parse_args()
@@ -99,6 +102,9 @@ if args.dagger and not args.split:
 if args.split and args.vw_outputs:
     # The split code still reads the labels as 4 wheels + 7 torques; (v, w) support is the next step (PLAN.md step 13)
     parser.error("--split with --vw-outputs isn't supported yet")
+if args.split and args.history_k:
+    # base_inputs / arm_inputs pick the current frame's columns, so the past frames would be silently dropped
+    parser.error("--split with --history-k isn't supported yet (temporal + split: PLAN.md step 14)")
 CHECKPOINT = SCRIPT_DIR / "checkpoints" / f"{args.model}.pt"
 if args.threads:
     torch.set_num_threads(args.threads)
@@ -157,10 +163,12 @@ if not args.test_only:
     keep_frac = KEEP_FRAC if SUBSAMPLE else None
     # a_tr / a_va: the expert's "arrived" flag of the same frames (split networks only)
     x_tr, y_tr, a_tr = load_episodes(DATA_DIR, train_ids, keep_frac=keep_frac, mode=SUBSAMPLE,
-                                     gravity_residual=args.gravity_residual, vw_outputs=args.vw_outputs, arrived=True)
+                                     gravity_residual=args.gravity_residual, vw_outputs=args.vw_outputs, arrived=True,
+                                     history_k=args.history_k, history_spacing=args.history_spacing)
     # Validation is always subsampled uniformly, so runs with different SUBSAMPLE modes are judged on the same frames
     x_va, y_va, a_va = load_episodes(DATA_DIR, val_ids, keep_frac=keep_frac, mode="uniform",
-                                     gravity_residual=args.gravity_residual, vw_outputs=args.vw_outputs, arrived=True)
+                                     gravity_residual=args.gravity_residual, vw_outputs=args.vw_outputs, arrived=True,
+                                     history_k=args.history_k, history_spacing=args.history_spacing)
     print(f"train frames {len(x_tr)}, val frames {len(x_va)} (subsampling: {SUBSAMPLE or 'off'}, "
           f"gravity residual: {'on' if args.gravity_residual else 'off'}, "
           f"wheel outputs: {'v, w' if args.vw_outputs else '4 wheels'}, split: {'on' if args.split else 'off'})")
@@ -210,7 +218,8 @@ if not args.test_only:
                              dagger_frames=dagger_frames)
     else:
         model = MLP(x_tr.shape[1], y_tr.shape[1], hidden=args.hidden, layers=args.layers, dropout=args.dropout,
-                    gravity_residual=args.gravity_residual, vw_outputs=args.vw_outputs)
+                    gravity_residual=args.gravity_residual, vw_outputs=args.vw_outputs, history_k=args.history_k,
+                    history_spacing=args.history_spacing)
         model.set_normalisation(x_tr, y_tr)
         best_val, best_epoch, epoch = fit(model, *normalise(model, x_tr, y_tr), *normalise(model, x_va, y_va),
                                           nn.MSELoss())
@@ -227,7 +236,9 @@ if not args.test_only:
         train_time_s=train_time, parameters=sum(p.numel() for p in model.parameters()),
         subsample=SUBSAMPLE or "off", keep_frac=KEEP_FRAC if SUBSAMPLE else None,
         weight_decay=args.weight_decay, dropout=args.dropout, max_epochs=args.max_epochs, patience=args.patience,
-        gravity_residual=args.gravity_residual, vw_outputs=args.vw_outputs, split=args.split, **split_columns,
+        gravity_residual=args.gravity_residual, vw_outputs=args.vw_outputs, split=args.split, history_k=args.history_k,
+        history_spacing=args.history_spacing if args.history_k else None, architecture="mlp", seed=args.seed,
+        **split_columns,
         inference_ms=None, test_wheel_rmse=None, test_torque_rmse=None, **{c: None for c in SIM_COLUMNS},
         **({c: None for c in ARRIVE_COLUMNS} if args.split else {}),
     )
@@ -273,6 +284,8 @@ print(f"{'episode':>8} {'wheels (rad/s)':>15} {'torques (N*m)':>14}")
 for i in test_ids:
     path = Path(DATA_DIR) / f"ep_{i:04d}.npz"
     x, _ = load_episode(path)
+    # Read from the checkpoint, so --test-only builds the inputs the model was trained on
+    x = with_history(x, np.arange(len(x)), best.config.get("history_k", 0), best.config.get("history_spacing", 1))
     # Scored on the decoded commands against the expert's own, so every output format is measured the same way
     d = np.load(path)
     # Gravity-residual models: add gravity back, so the error is on the full torque like every other model;
