@@ -90,6 +90,9 @@ parser.add_argument("--split", action=argparse.BooleanOptionalAction, default=Fa
 parser.add_argument("--dagger", nargs="+", metavar="FOLDER",
                     help="with --split: DAgger episode folders (dagger.py output) whose expert-labelled frames are added "
                          "to the arm network's training data (PLAN.md step 21); leave out for the ablation")
+parser.add_argument("--arm-from", metavar="MODEL",
+                    help="with --split: copy the arm network of this split checkpoint instead of training one, so two "
+                         "models differ only in the base (e.g. vw vs 4 wheels, GRU vs MLP base)")
 parser.add_argument("--history-k", type=int, default=0, help="past frames added to each input (PLAN.md step 14)")
 parser.add_argument("--history-spacing", type=int, default=50, help="frames between them (1 frame = 1 ms)")
 parser.add_argument("--seed", type=int, default=0, help="training seed (weights, batch order); put it in --model too")
@@ -99,6 +102,19 @@ if args.no_test and args.test_only:
     parser.error("--no-test and --test-only together would do nothing")
 if args.dagger and not args.split:
     parser.error("--dagger needs --split: DAgger data only has arm labels (a single MLP would also need wheel labels)")
+if args.arm_from and not args.split:
+    parser.error("--arm-from needs --split")
+if args.arm_from and args.dagger:
+    # The copied arm keeps its own training data; DAgger frames would have nothing to train
+    parser.error("--arm-from copies a trained arm: --dagger has no arm to train")
+if args.arm_from:
+    # Loaded and checked up front, so a wrong source stops the run before any training
+    arm_source = load_policy(SCRIPT_DIR / "checkpoints" / f"{args.arm_from}.pt")
+    if not isinstance(arm_source, SplitPolicy):
+        parser.error(f"--arm-from {args.arm_from} is not a split model")
+    if arm_source.config["gravity_residual"] != args.gravity_residual:
+        # Its torques would be decoded with or without gravity added back, i.e. wrongly
+        parser.error(f"--arm-from {args.arm_from} has gravity_residual={arm_source.config['gravity_residual']}")
 if args.split and args.history_k:
     # base_inputs / arm_inputs pick the current frame's columns, so the past frames would be silently dropped
     parser.error("--split with --history-k isn't supported yet (temporal + split: PLAN.md step 14)")
@@ -188,20 +204,32 @@ if not args.test_only:
         base_val, base_best, base_epochs = fit(
             model.base, *normalise(model.base, base_inputs(x_tr), base_labels(y_tr, a_tr)), xbv, ybv,
             lambda out, target: base_loss(out, target, pos_weight), "base ")
-        # The arm is trained with the expert's true flag as input (at run time: the latched predicted one)
-        x_arm, y_arm = arm_inputs(x_tr, a_tr), y_tr[:, -7:]   # torques: always the last 7 labels
         dagger_frames = 0
-        if args.dagger:
-            # Frames the earlier policies visited, labelled with the expert's torques: thinned like the expert data
-            # (every 1 / KEEP_FRAC-th labelled frame). Added after the normalisation, which stays the expert data's,
-            # so best_val_loss stays comparable with models trained without DAgger; validation stays the expert's
-            x_dag, y_dag = load_dagger_arm(args.dagger, round(1 / KEEP_FRAC), args.gravity_residual)
-            x_arm, y_arm, dagger_frames = np.concatenate([x_arm, x_dag]), np.concatenate([y_arm, y_dag]), len(x_dag)
-            print(f"arm training frames: {len(x_arm) - dagger_frames} expert + {dagger_frames} DAgger "
-                  f"({', '.join(Path(f).name for f in args.dagger)})")
-        arm_val, arm_best, arm_epochs = fit(
-            model.arm, *normalise(model.arm, x_arm, y_arm),
-            *normalise(model.arm, arm_inputs(x_va, a_va), y_va[:, -7:]), nn.MSELoss(), "arm  ")
+        if args.arm_from:
+            # The other model's arm network, unchanged (weights and its own normalisation): its training already
+            # happened, so the two models' arms are identical, not just trained on the same data (PLAN.md step 15)
+            model.arm = arm_source.arm
+            arm_best = arm_epochs = None
+            xav, yav = normalise(model.arm, arm_inputs(x_va, a_va), y_va[:, -7:])
+            with torch.no_grad():
+                arm_val = nn.functional.mse_loss(model.arm(xav), yav).item()
+            print(f"arm network copied from {args.arm_from}: val {arm_val:.4f}")
+        else:
+            # The arm is trained with the expert's true flag as input (at run time: the latched predicted one)
+            x_arm, y_arm = arm_inputs(x_tr, a_tr), y_tr[:, -7:]   # torques: always the last 7 labels
+            if args.dagger:
+                # Frames the earlier policies visited, labelled with the expert's torques: thinned like the expert
+                # data (every 1 / KEEP_FRAC-th labelled frame). Added after the normalisation, which stays the expert
+                # data's, so best_val_loss stays comparable with models trained without DAgger; validation stays the
+                # expert's
+                x_dag, y_dag = load_dagger_arm(args.dagger, round(1 / KEEP_FRAC), args.gravity_residual)
+                x_arm, y_arm = np.concatenate([x_arm, x_dag]), np.concatenate([y_arm, y_dag])
+                dagger_frames = len(x_dag)
+                print(f"arm training frames: {len(x_arm) - dagger_frames} expert + {dagger_frames} DAgger "
+                      f"({', '.join(Path(f).name for f in args.dagger)})")
+            arm_val, arm_best, arm_epochs = fit(
+                model.arm, *normalise(model.arm, x_arm, y_arm),
+                *normalise(model.arm, arm_inputs(x_va, a_va), y_va[:, -7:]), nn.MSELoss(), "arm  ")
         # Validation loss on the same scale as the single MLP's (mean squared error over all normalised outputs;
         # same frames, so the same normalisation): the base's wheel part (without the flag's loss) + the arm's.
         # Not comparable between wheel formats (different quantities): compare those on test_wheel_rmse
@@ -214,7 +242,7 @@ if not args.test_only:
         split_columns = dict(base_epochs=base_epochs, base_best_epoch=base_best, arm_epochs=arm_epochs,
                              arm_best_epoch=arm_best, val_arrived_bce=flag_val,
                              dagger=";".join(Path(f).name for f in args.dagger) if args.dagger else "",
-                             dagger_frames=dagger_frames)
+                             dagger_frames=dagger_frames, arm_from=args.arm_from or "")
     else:
         model = MLP(x_tr.shape[1], y_tr.shape[1], hidden=args.hidden, layers=args.layers, dropout=args.dropout,
                     gravity_residual=args.gravity_residual, vw_outputs=args.vw_outputs, history_k=args.history_k,

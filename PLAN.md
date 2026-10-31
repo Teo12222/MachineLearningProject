@@ -18,7 +18,7 @@ with `pixi run python <script>` from there.
 | `bc_data.py` | Model inputs (27 robot-frame features) and outputs, `decode_outputs`, episode loading, adaptive / uniform subsampling, episode cleaning, gravity torques (`arm_gravity`), the train/val/test split by episode (fixed seed) and the fixed quick-test / validation subsets, (v, w) wheel outputs (`wheels_to_vw` / `vw_to_wheels`, 13), past-frame inputs (`with_history`, and `FrameHistory` at run time, 14), and per-batch windows for the TCN / GRU (`load_frames`, `window_batch`) |
 | `bc_model.py` | The MLP (size set by options) and the TCN and GRU (14), each with its normalisation stored inside, plus save/load (`load_model` picks the class from the checkpoint) |
 | `bc_split.py` | Split networks (15): base net (wheels + "arrived" flag) and arm net in one checkpoint, the arrival latch, the DAgger data loader, `load_policy` (loads any checkpoint: split, or MLP / TCN / GRU via `load_model`) |
-| `train.py` | Trains one model (early stopping on the **validation** loss), then tests it offline on the test episodes; writes `results/<model>.csv`. Options: `--model`, settings, `--seed`, `--gravity-residual` (12), `--vw-outputs` (13), `--history-k` / `--history-spacing` (14), `--split` (15), `--dagger` (21), `--no-test` / `--test-only`; `--split` doesn't combine with `--vw-outputs` or `--history-k` yet |
+| `train.py` | Trains one model (early stopping on the **validation** loss), then tests it offline on the test episodes; writes `results/<model>.csv`. Options: `--model`, settings, `--seed`, `--gravity-residual` (12), `--vw-outputs` (13), `--history-k` / `--history-spacing` (14), `--split` (15), `--dagger` (21), `--arm-from` (copy a trained split arm, so models differ only in the base), `--no-test` / `--test-only`; `--split` doesn't combine with `--vw-outputs` or `--history-k` yet |
 | `train_tcn.py` | Trains a TCN (14): same data, split, early stopping and results as `train.py`; windows cut per batch. Options: `--layers`, `--channels`, `--spacing` |
 | `train_gru.py` | Trains a GRU (14): scored on whole windows, memory warmed up at the episode start. Options: `--hidden`, `--window`, `--burn-in` |
 | `analyse_temporal.py` | Failure metrics for the temporal models from their simulation runs (first torque-clip hit, arm deviation, base off the floor), in `quick_*` / `full_*` results columns |
@@ -853,6 +853,28 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
 ### Branches: model ideas (rough order)
 12. **Gravity-residual torques:** learn torque minus the gravity torque, add it back at run time (aimed at low targets).
 13. **`(v, w)` wheel outputs:** forward speed + turn rate instead of 4 wheel speeds.
+    - **Code (31 Oct):** `--vw-outputs` in `train.py` (single MLP, Jamie), with `--split` (labels and base outputs
+      indexed from the end: torques = last 7, logit = last base output, so one code path serves both formats) and in
+      `train_gru.py`. `test_wheel_rmse` is always measured on the decoded 4 wheels; `best_val_loss` is not comparable
+      between formats (different quantities).
+    - **Split + vw (Matteo, 31 Oct; validation, 50 episodes, one seed): better base, much worse reach.**
+
+      | Model | Reached | Closest median | Ever < 1 cm | Parking vs expert, median / 90% | Latch vs expert | Wheel RMSE |
+      |---|---|---|---|---|---|---|
+      | `split_dagger_r5_s0` (4 wheels) | 26/50 | 0.5 cm | 32 | 2.4 / 27.9 cm | 0.25 s early | 0.181 |
+      | `split_dagger_vw_s0` (vw base + its own arm, DAgger r1-r5) | 12/50 | 1.8 cm | 16 | - | - | 0.156 |
+      | `split_vwbase_r5arm_s0` (vw base + r5's exact arm) | 6/50 | 1.8 cm | 13 | 1.6 / 3.2 cm | 0.40 s late | 0.156 |
+
+      - First guess, wrong: the drop came from the arm being retrained with a different random state (the base's
+        size and epoch count shift the shared seed). `--arm-from` (copies a trained arm unchanged) ruled it out:
+        with r5's exact arm the vw base does worse still.
+      - Likely reason: the arm's DAgger data was all collected behind 4-wheel bases, which latch early and sometimes
+        park badly; its corrections fit those starting states. The vw base parks far more accurately and latches
+        ~0.65 s later, handing the arm states its DAgger data barely covers. Not proven.
+      - **Decision: keep the 4-wheel base** (deadline). Report point: DAgger's corrections fit the policy whose
+        mistakes they were collected from; a better base doesn't help an arm trained behind a different one.
+      - Not done (if time is left): DAgger rounds behind the vw base (`dagger.py` needs `--vw-outputs` pass-through
+        and a `--prior` option to keep r1-r5), ~30 min per round.
 14. **Temporal data** (aimed at the early stop of turning and the phase switches). Also a discussion point: why
     temporal data is needed (the expert has hidden state: navigation phase, accumulated joint targets).
     - First, **past-frame windows** into the MLP: stack k frames with a spacing, sweep both.
