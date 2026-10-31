@@ -947,13 +947,13 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
           30 s. The arm is at the torque clip almost throughout, the physics blows up, and in the worst runs the robot
           ends over 1 km below the floor. In the median run it leaves the floor at 7.2 / 1.9 / 2.4 s.
         - Not a run-time bug: `step` and `predict` agree within 5e-6 over 4,000 frames of a real episode for all three.
-        - The arm fails before the base has started driving (expert drive start 1.36 s), and a longer reach fails sooner.
-          Same direction as the windows (arm fails at 2-3 s). Why is not established.
+        - A longer reach hits the torque clip sooner. L6 and L8 get there before the expert's drive start (1.36 s), L4 at
+          about the same time here but at 2.59 s on the full test below. Why is not established.
         - Not comparable with the MLP on size: these TCNs have 20-45% of its parameters, and val loss is not monotonic in
           L (L6 is worse than L4 and L8), which suggests the plain deep stack trains badly (no residual connections yet).
         - **Old settings on L4, `tcn_L4_d10_gravres_lr1e3_s0` (lr 1e-3, max 20 epochs): no rescue, unlike the MLP.** Val
           0.00408, wheel / torque RMSE 0.105 / 0.166, 0/50; max torque first hit 1.89 s (L4: 1.25 s), arm dev. at 2 s 0.38
-          rad, off the floor 49/50, spot within 15 cm 6/50. The arm still fails before the drive starts. Val loss was still
+          rad, off the floor 49/50, spot within 15 cm 6/50. Val loss was still
           falling at epoch 20, so this model is underfit; it is not a test of a well-trained TCN at lr 1e-3.
     - Then a **recurrent neural network (RNN)**: a GRU (`torch.nn.GRU`; why not an LSTM: below). It keeps an
       internal memory that is updated every step, so it can learn the expert's hidden state (which phase it is in)
@@ -1008,8 +1008,8 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
         | `gru_h192_w2000_gravres_s0` | 0.00390 | 0.094 / 0.168 | 13.30 | 0.003 | 0/50 | 43/50 | 0.152 | 19 / 7 / 2 / 1 | 1.09 |
 
         - **Base solved on these targets, reach not:** `w1000` parks within 15 cm in 49/50, with wheels at the clip in 7% of
-          frames (MLP 43%). The arm then reaches to about 9 cm (median closest) but no run gets within the 5 mm target,
-          and it hits the torque clip at 11-13 s, around the end of the expert's reach (median episode 12.1 s).
+          frames (MLP 43%). The arm comes to about 9 cm (median closest) but no run gets within the 5 mm target, and the
+          torque clip is first hit at 10-13 s across the windows, around the end of the expert's reach (median 12.1 s).
         - **Not finished training:** `w1000` and `w2000` stopped at the 50-epoch cap with validation still improving (best
           epochs 46 and 49). One seed each; differences between the three windows may be noise.
       - **Full test (Kris, 31 Oct; all 150 test targets, one seed each, Mac).** The MLP row is the best MLP on the same run.
@@ -1023,12 +1023,22 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
         | `tcn_L4_d10_gravres_s0` | 0 | 12 | 0.877 | 5 / 2 / 0 / 0 | 2.59 | 0.082 | 139 | 89% | blow-up |
         | `temporal_window_k4_d50_gravres_s0` | 0 | 15 | 0.333 | 27 / 12 / 1 / 0 | 6.30 | 0.003 | 144 | 78% | blow-up |
 
-        - `gru_h192_w1000_gravres_s0` is the best model: 148/150 parked and no blow-ups. `gru_h192_w2000_gravres_s0` gives the
-          first reached target of any model. The reach is what is left: 0-1 of 150 at the 5 mm target.
+        - `gru_h192_w1000_gravres_s0` is the best for the base and for stability: 148/150 parked and no blow-ups.
+        - **No model has really reached a target.** The one reached run (`gru_h192_w2000_gravres_s0`, `ep_0069`, 28.0 s, 15 s
+          after the expert) is a fluke: the end-effector swung through the target from 1.2 m away, under 5 mm for 1 frame,
+          and was 1.67 m away 1 s later. compare.py counts it, so the 1 stays in the results file; the real count is 0/150.
+        - **Closest approach flatters a swinging arm, and the MLP holds position better than the GRU.** Runs that stay
+          within 10 / 5 / 2 cm of the target for 0.5 s: MLP 42 / 13 / 1; GRU 250 ms 26 / 10 / 0; GRU 1000 ms 33 / 1 / 0; GRU 2000
+          ms 20 / 5 / 1; TCN L4 0 / 0 / 0; window 4 / 0 / 0. So the GRU's gain is the base and stability, not the reach: a
+          reason to try it in the base network only (15).
         - **Correction (31 Oct):** the arm deviations first written here counted all 17 `q_mes` columns, wheel angles
           included. All tables now use the 7 arm joints (`analyse_temporal.py`). So the GRU's arm at 2 s is level with the
           MLP's, not 7x closer. The window model's arm is also level at 2 s, and hits the torque clip at 6.3 s here: the
           "2-3 s" arm failure above does not show in this measure. Sweep tables are the 50-target quick test.
+        - The 6 s arm deviations in the earlier tables (0.75, 0.84, 0.056, 0.54 rad) are a different, older measure that
+          could not be reproduced exactly. Mean over the 7 joints at 6 s, quick test: `mlp_robotframe_s0` 0.346,
+          `mlp_robotframe_uniform_s0` 0.520, `mlp_gravres_s0` 0.012, `mlp_gravres_lr1e3_s0` 0.005, windows d10 / d50 / d125
+          6.06 / 18.3 / 2.62, window d50 + residual 0.246, GRU 1000 ms 0.004. The ordering and the gravity-residual gain hold.
         - The test scripts differ slightly: `compare.py` runs every test episode, including `ep_0297` (expert failed, dropped
           from training tests), so the full test has 150 targets, not 149.
         - `compare.py --test-set` rewrites `results/expert.csv`: restored, since it is Matteo's file.
