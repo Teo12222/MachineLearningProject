@@ -10,6 +10,7 @@ Usage (from the robotnik_arm_task folder):
     pixi run python train.py --test-only           # test the saved checkpoint, no training (checkpoint is not changed)
     pixi run python train.py --model X --lr 3e-3 --hidden 512 --dropout 0.1   # other settings (tune.py uses these)
     pixi run python train.py --model gravres_s0 --gravity-residual   # learn torque minus gravity (PLAN.md step 12)
+    pixi run python train.py --model vw_s0 --vw-outputs              # (v, w) instead of 4 wheel speeds (PLAN.md step 13)
     pixi run python train.py --model split_arrived_s0 --split --gravity-residual   # split networks (PLAN.md step 15)
     pixi run python train.py --model X --split --gravity-residual --dagger dagger/split_dagger_r1   # + DAgger data
                                                    # for the arm network (dagger.py output, PLAN.md step 21)
@@ -79,6 +80,9 @@ parser.add_argument("--patience", type=int, default=PATIENCE,
 parser.add_argument("--gravity-residual", action=argparse.BooleanOptionalAction, default=False,
                     help="torque outputs are torque minus arm gravity, added back when the model is run (PLAN.md "
                          "step 12); --no-gravity-residual for the ablation")
+parser.add_argument("--vw-outputs", action=argparse.BooleanOptionalAction, default=False,
+                    help="wheel outputs are forward speed v and turn rate w instead of 4 wheel commands, converted back "
+                         "when the model is run (PLAN.md step 13); --no-vw-outputs for the ablation")
 parser.add_argument("--split", action=argparse.BooleanOptionalAction, default=False,
                     help="separate base and arm networks with an 'arrived' flag (PLAN.md step 15); --no-split for "
                          "the ablation")
@@ -101,6 +105,20 @@ train_ids, val_ids, test_ids = split_episodes(DATA_DIR)
 # Bad episodes are dropped after the split, so the good ones always stay in the same set
 train_ids, val_ids, test_ids = (clean_ids(DATA_DIR, ids) for ids in (train_ids, val_ids, test_ids))
 
+if not args.test_only:
+    keep_frac = KEEP_FRAC if SUBSAMPLE else None
+    x_tr, y_tr = load_episodes(DATA_DIR, train_ids, keep_frac=keep_frac, mode=SUBSAMPLE,
+                               gravity_residual=args.gravity_residual, vw_outputs=args.vw_outputs)
+    # Validation is always subsampled uniformly, so runs with different SUBSAMPLE modes are judged on the same frames
+    x_va, y_va = load_episodes(DATA_DIR, val_ids, keep_frac=keep_frac, mode="uniform",
+                               gravity_residual=args.gravity_residual, vw_outputs=args.vw_outputs)
+    print(f"train frames {len(x_tr)}, val frames {len(x_va)} (subsampling: {SUBSAMPLE or 'off'}, "
+          f"gravity residual: {'on' if args.gravity_residual else 'off'}, "
+          f"wheel outputs: {'v, w' if args.vw_outputs else '4 wheels'})")
+
+    model = MLP(x_tr.shape[1], y_tr.shape[1], hidden=args.hidden, layers=args.layers, dropout=args.dropout,
+                gravity_residual=args.gravity_residual, vw_outputs=args.vw_outputs)
+    model.set_normalisation(x_tr, y_tr)
 
 def normalise(net, x, y):
     """Inputs and labels as tensors in the network's normalised units (normalised once up front, so the training
@@ -219,7 +237,7 @@ if not args.test_only:
         train_time_s=train_time, parameters=sum(p.numel() for p in model.parameters()),
         subsample=SUBSAMPLE or "off", keep_frac=KEEP_FRAC if SUBSAMPLE else None,
         weight_decay=args.weight_decay, dropout=args.dropout, max_epochs=args.max_epochs, patience=args.patience,
-        gravity_residual=args.gravity_residual, split=args.split, **split_columns,
+        gravity_residual=args.gravity_residual, vw_outputs=args.vw_outputs, split=args.split, **split_columns,
         inference_ms=None, test_wheel_rmse=None, test_torque_rmse=None, **{c: None for c in SIM_COLUMNS},
         **({c: None for c in ARRIVE_COLUMNS} if args.split else {}),
     )
@@ -267,11 +285,12 @@ for i in test_ids:
     x, _ = load_episode(path)
     # Scored on the decoded commands against the expert's own, so every output format is measured the same way
     d = np.load(path)
-    # Gravity-residual models: add gravity back, so the error is on the full torque like every other model.
+    # Gravity-residual models: add gravity back, so the error is on the full torque like every other model;
+    # (v, w) models: converted back to 4 wheel commands, so the wheel error is measured the same way too.
     # Read from the checkpoint, so --test-only scores a saved model the way it was trained.
     tau_g = arm_gravity(d["q_mes"]) if best.config.get("gravity_residual") else None
     y_pred, t_latch, source = predict_episode(x, d["time"])
-    wheel_pred, torque_pred = decode_outputs(y_pred, tau_g)
+    wheel_pred, torque_pred = decode_outputs(y_pred, tau_g, best.config.get("vw_outputs", False))
     if split:
         # Latch time minus the expert's arrival (nan: never latched within the episode)
         arrive_err.append(t_latch - d["time"][np.argmax(d["nav_done"])])
