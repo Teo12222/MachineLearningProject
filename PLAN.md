@@ -1354,7 +1354,12 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
     noise up to 60, then falls at 100, where over half the expert's runs fail. More noisy data helps: 300 episodes at 60
     give 30/50, the best so far (DAgger 23 here, 26 on Matteo's PC), one seed. DART also never loses the arm: 50/50 stay
     within 5 cm in every noisy model, against 43. What's left is the last 2 cm down to 5 mm. It needs no policy runs, and
-    150 episodes take under 2 minutes. Validation only so far, no 150-target test.
+    150 episodes take under 2 minutes.
+    **Full test set, `split_dart_a60x2_s0`: 76/150 reached (50.7%)** (expert 149/150), Mac, recomputed from the episode
+    files. Against `split_dagger_r5_s0`'s 62/150 (Matteo's PC, a machine difference of a few episodes is possible). Final
+    error median 1.1 cm, mean 2.5 cm. Held 10 / 5 / 2 cm: 150 / 148 / 136. Parked 150, arm spins 0, off floor 0,
+    no reach shorter than 50 ms within 5 mm, no latch by timeout. Mean time to reach 15.5 s. One seed. Picked on validation
+    before this test ran.
 20. **Randomised arm starting pose:** genuinely new situations that changing the target can't produce (the cart
     start is already covered by robot-frame inputs, see 6). Randomise it and collect data for it if we want to
     claim generalisation to new initial conditions.
