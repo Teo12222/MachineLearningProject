@@ -46,6 +46,37 @@ Look there for the current state of each model instead of this file.
 
 ## Who does what
 
+### Plan from 1 Nov (decided 1 Nov; overrides the lists below where they differ)
+
+Everything is merged into `master`. Commit small changes straight to `master` and pull often; use a branch only for
+bigger code (Kris's GRU in the split model, Matteo's camera work) and merge it as soon as it is tested.
+
+| When | Matteo | Kris | Jamie |
+|---|---|---|---|
+| **1 Nov** | GRU vw results (14); send Kris the GRU-in-split brief | **GRU in the split model** (15): answer by the end of the day (1) is split worth it compared with the temporal model, (2) can the GRU be used inside the split model, (3) which configuration is best (GRU base / GRU arm / both). Then **DART (19)** straight after | Quick **decision tree** for the results table (start from current `master`, not the old `DecisionTree` branch) |
+| **2 Nov** | Pick the final model (rule below); **DAgger behind that exact model**; full test set (150) on it; start the **camera extension** | DART; then the **learning curve (17)**, incl. base vs arm data separately | Results table (22) with the numbers so far |
+| **3-4 Nov** | Camera extension; start-pose test (24) | Robustness (24); learning curve | Out-of-range targets (24); efficiency table (24) |
+| **all** | Seeds: 3 per final candidate, for your own models; the final model's seeds and removal runs (23) shared over the three machines | | |
+| **by 4 Nov evening** | Own report sections drafted (as listed below) | | |
+| **5 Nov** | Final edit, README | Fixes to own sections | Results table final, conclusion, contribution statement |
+| **6 Nov** | Buffer only (deadline) | | |
+
+- **Choosing the final model:** the best on the 50 validation episodes; if no GRU-in-split variant beats
+  `split_dagger_r5_s0` (26/50), r5 stays. Then DAgger behind the winner (its corrections only fit the policy they were
+  collected from, step 13's vw result), then the full test set on it.
+- **Ablations: light version** (step 23, replaces the full grid). The report shows a "component evidence" table built
+  from the paired comparisons already made (robot frame, adaptive subsampling, gravity residual, split, DAgger rounds,
+  (v, w), temporal models), each labelled with the model and seeds it comes from, plus on the final model only: 3 seeds
+  and 2-3 removal runs (gravity residual off, DAgger off, GRU vs MLP base if the GRU wins).
+- **Extensions:** camera first (Matteo). Then, **if the final model works well**, parking-pose prediction + starting
+  the arm early (Matteo, the rest of 15). Why second: they change when and where the arm starts, the part that still
+  fails (step 13's vw result showed how sensitive the arm is to that), for a gain in speed rather than success.
+  **If either extension isn't done, describe it in the report as future work** (design, why it should work, what it
+  would need, e.g. its own DAgger rounds behind the early-starting arm), using the designs in steps 15 and the
+  camera section.
+- **Dropped:** shallow vs deep check (16), base DAgger (21), tuning of the final model, DAgger rounds behind the vw base.
+- **Open, to decide later:** report success at 1 cm too (the brief's tolerance) next to our 5 mm.
+
 Numbers refer to the steps in the plan below. Everyone tunes the hyperparameters of their own models (on validation
 only), runs several seeds for their final candidates, records everything in `results/`, and writes the report sections
 for their own work as they go.
@@ -96,8 +127,7 @@ for their own work as they go.
 **Jamie: outputs, results and report tables**
 1. Gravity-residual torques (12) and `(v, w)` outputs (13).
 2. Analysis plots (25); low priority: RANSAC preprocessing (9).
-3. One shallow vs deep check (16) on the final model, at the end.
-4. **Report:** output-format results, shallow vs deep check and efficiency, plus:
+3. **Report:** output-format results and efficiency (parameters, inference time per step, 24), plus:
    - the **overall results table** (22) and keeping all tables/figures consistent (same units, names, seeds format);
    - the **conclusion** (limitations of the method and experiments, how they could be improved);
    - the **contribution statement** (draft from what everyone did, checked by all).
@@ -1216,9 +1246,9 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
       (arm and base move together), so check: arm torques while the base drives (never in the training data),
       re-aiming if the base parks slightly off, and stability with a stretched arm on a moving base. If it works it
       should reach targets faster than the expert (time to reach is in `compare.py`'s table).
-16. **Shallow vs deep check (once, at the end):** no full sweep. Once the final model works, train one shallower and
-    one deeper variant of it (e.g. 1 and 5 layers) to show the chosen size is reasonable; report accuracy against
-    parameters and inference time (also covers efficiency).
+16. **Dropped (1 Nov, Matteo): shallow vs deep check.** Was: train one shallower and one deeper variant of the final
+    model to show its size is reasonable. Why dropped: the time goes to the final model and its tests instead;
+    efficiency (parameters, inference time per step) is still reported from the existing models (24).
 
 ### New data (`run_batch.py` into new folders)
 17. **Minimum data needed:** train on 25 / 50 / 100 / 200 / 500 / all episodes and plot test performance (learning
@@ -1273,8 +1303,9 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
     - Checked offline: labelling 3 policy runs takes 3.3 s (200 per round: ~1 min with 16 processes); the labels
       differ from the policy's torques by 0.4-1.7 N*m in the first 0.5 s, as in the diagnosis; a 1-epoch training with
       DAgger data runs and records the new columns. Not yet run: the policy runs on training targets (round 1).
-    - Later: base DAgger, tested separately (replay the expert's base state machine along policy runs for wheel and
-      "arrived" labels); DAgger on Kris's temporal single model once base labels exist. Ablation: DAgger on / off.
+    - **Dropped (1 Nov): base DAgger** (was: replay the expert's base state machine along policy runs for wheel and
+      "arrived" labels; DAgger on Kris's temporal single model once base labels exist). Why: the base already parks
+      well, the arm is the bottleneck, and it needs new code with 5 days left. Ablation: DAgger on / off.
     - **Result (30 Oct): DAgger works, the first targets reached.** `dagger.py --start split_arrived_s0 --rounds 3
       --val-set` (default settings, seed 0), closed loop on the 50 validation episodes:
 
@@ -1313,7 +1344,9 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
 ### Evaluation and report
 22. **Compare all models:** one results table with every model (baseline, each branch, final), offline error and
     closed-loop success / final error, all on the same test set.
-23. **Ablations** (done once the winning branches are combined into one final model): remove one component at a
+23. **Light version decided 1 Nov (see "Plan from 1 Nov"):** paired comparisons already made + 3 seeds and 2-3
+    removal runs on the final model, instead of the full grid below (kept for the reasoning).
+    **Ablations** (done once the winning branches are combined into one final model): remove one component at a
     time (robot-frame inputs, robot-frame polar vs Cartesian, gravity residual, history window, adaptive subsampling,
     noise data, DAgger data, split networks),
     retrain, and report offline error + closed-loop success for each vs the full model. This shows how much each
