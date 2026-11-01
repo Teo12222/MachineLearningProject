@@ -148,17 +148,20 @@ def load_dagger_arm(folders, step, gravity_residual):
     Every step-th frame with an expert label (arm_label_mask: the arm phase after the latch), as arm-network inputs
     with the flag set, and the expert's relabelled torques as labels (minus gravity for gravity-residual models).
     The episodes store the full torque, so the same data serves models with and without the gravity residual.
+    DART episodes (run_batch.py --noise, PLAN.md step 19) come from the expert, so every frame has a label: all count,
+    with the expert's own flag.
     """
     xs, ys = [], []
     for path in sorted(p for folder in folders for p in Path(folder).glob("ep_*.npz")):
         d = np.load(path)
-        keep = np.flatnonzero(d["arm_label_mask"])[::step]
+        dagger = "arm_label_mask" in d.files
+        keep = np.flatnonzero(d["arm_label_mask"] if dagger else np.ones(len(d["time"]), dtype=bool))[::step]
         x = make_features(d["base_pos"][keep], d["base_bearing"][keep], d["q_mes"][keep, 4:11], d["qd_mes"][keep, 4:11],
                           d["target"], d["ee_pos"][keep])
         y = d["torque_arm"][keep].astype(np.float32)
         if gravity_residual:
             y -= arm_gravity(d["q_mes"][keep])
-        xs.append(arm_inputs(x, 1.0))
+        xs.append(arm_inputs(x, 1.0 if dagger else d["nav_done"][keep]))
         ys.append(y)
     return np.concatenate(xs), np.concatenate(ys)
 

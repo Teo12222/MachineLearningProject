@@ -1304,9 +1304,9 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
     moves over 1 rad from its start before the latch in 10/50 episodes (worst 63 rad, about 10 turns; from 1 to 1.6 s
     in the worst three), and only 2 of those reach, against 21/40 for the others. `split_arrived_s0`, same base, never does (0/50;
     its arm stays within 0.06 rad), and its parking stays within 3.8 cm of the expert's spot, against up to 136 cm with the
-    r5 arm, so the spinning arm also disturbs the drive. Likely cause, not proven: DAgger adds only flag = 1 frames, so
-    flag = 0 behaviour gets no new data and each retrain is free to worsen it. Worth fixing before the final
-    DAgger: hold the arm during the drive with the pre-DAgger network, or add flag-0 frames to the DAgger rounds.
+    r5 arm, so the spinning arm also disturbs the drive. Cause not known. It isn't DAgger as such: the no-noise DART control
+    (19) spins in 15/50 and has flag-0 frames in its extra data. The noisy DART arms spin in 0/50 (19). So the arm
+    needs recovery examples in the drive too: use DART data alongside the final DAgger.
 16. **Dropped (1 Nov, Matteo): shallow vs deep check.** Was: train one shallower and one deeper variant of the final
     model to show its size is reasonable. Why dropped: the time goes to the final model and its tests instead;
     efficiency (parameters, inference time per step) is still reported from the existing models (24).
@@ -1327,6 +1327,30 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
 18. More low-height targets.
 19. Noise injection (DART): noisy commands applied, clean expert commands recorded as labels. Chosen instead of
     plain input-noise augmentation, whose labels would be wrong for the perturbed states.
+    **Done (1 Nov, Kris): it works, 0 to 20/50 without DAgger.** `run_batch.py --noise A --wheel-noise W`: slowly varying
+    noise (correlation 0.1 s) on the applied commands, clean expert commands stored as labels. Scale 1 = the split MLP's
+    error on expert frames (0.01-0.08 N*m by joint, 0.24 rad/s; 20 validation episodes), 0.1 s is that error's
+    correlation time. The frames go in through `--dagger` (`load_dagger_arm`): all frames, the expert's own flag.
+    - **Pilot, 16 targets per level:** wheel noise is the wrong tool. Scale 5 on the wheels shifts the parking spot by a
+      median 1.7 m and only 6/16 reach, because the expert has to replan a whole drive. Arm noise alone keeps parking within
+      2 cm: 16/16 at 5 and 20, 12/16 at 60. So the runs use arm noise only. The expert is stiff, so even at 60 its arm
+      is only 0.015 rad off its clean run; the policy drifts 0.03 rad at 1 s and 0.17 at 2 s after the latch.
+    - **Runs:** 150 expert episodes on new targets (`--seed 2`, nearest is 12 cm from any validation target) added to the
+      arm's training; base copied from `split_arrived_s0` (checked identical). Same validation and "held" as step 15.
+      Failed noisy episodes stay in: their labels are still the expert's.
+
+    | model | extra data | reached | held 10 / 5 / 2 cm | arm spins in drive | off floor | median final error |
+    |---|---|---|---|---|---|---|
+    | `split_arrived_s0` | none | 0 | 38 / 16 / 0 | 0 | 3 | 0.892 m |
+    | `split_dart_a0_s0` | 150 clean (control) | 1 | 10 / 3 / 0 | 15 | 1 | 0.926 m |
+    | `split_dart_a20_s0` | 150 at 20 (149 reached) | 5 | 50 / 48 / 33 | 0 | 0 | 0.042 m |
+    | `split_dart_a60_s0` | 150 at 60 (116 reached) | 20 | 50 / 50 / 47 | 0 | 0 | 0.014 m |
+    | `split_dart_a60_s1` | same, training seed 1 | 21 | 50 / 50 / 39 | 0 | 0 | 0.026 m |
+    | `split_dagger_r5_s0` | 5 DAgger rounds | 23 | 43 / 43 / 33 | 10 | 1 | 0.034 m |
+
+    The gain is the noise, not the extra data: same targets without noise give 1, and success rises with the noise.
+    Reached is about level with DAgger's, but DART never loses the arm: 50/50 stay within 5 cm, against 43. What's left
+    is the last 2 cm down to 5 mm. It needs no policy runs and its data costs under 2 minutes. Only validation so far, no 150-target test.
 20. **Randomised arm starting pose:** genuinely new situations that changing the target can't produce (the cart
     start is already covered by robot-frame inputs, see 6). Randomise it and collect data for it if we want to
     claim generalisation to new initial conditions.

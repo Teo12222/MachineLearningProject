@@ -31,6 +31,13 @@ TARGET_EE_POS = np.array([float(v) for v in _target_str.split(",")])
 # Start pose of the base (x m, y m, yaw rad), e.g. ROBOENV_START=1.0,-0.5,1.57. Default: the origin facing +x,
 # which all training data uses (PLAN.md step 0, fix 4).
 START_POSE = parse_start_pose(os.environ.get("ROBOENV_START", "0,0,0"))
+# DART (PLAN.md step 19): "arm scale,wheel scale,correlation time (s),seed" adds noise to the applied commands; the
+# clean commands stay the labels. Scale 1 = the split MLP's error on expert frames, measured on 20 validation episodes,
+# which also gave the 0.1 s correlation time. White noise at 1 kHz would average out in the joints
+_noise = [float(v) for v in os.environ.get("ROBOENV_NOISE", "0,0,0.1,0").split(",")]
+ARM_NOISE, WHEEL_NOISE, NOISE_TAU, NOISE_SEED = _noise[0], _noise[1], _noise[2], int(_noise[3])
+ARM_NOISE_STD = np.array([0.050, 0.064, 0.035, 0.066, 0.043, 0.077, 0.011])   # N*m
+WHEEL_NOISE_STD = 0.24   # rad/s
 
 # Fixed gripper finger configuration (angles in radians, held fixed during simulation):
 # [finger_1, finger_tip_1, finger_2, finger_tip_2, finger_3, finger_tip_3]
@@ -198,6 +205,9 @@ def main():
     # Main Simulation Loop
     # --------------------------------------------------------------------------
     stop_message = None
+    noise_rng = np.random.default_rng(NOISE_SEED)
+    noise_keep = np.exp(-time_step / NOISE_TAU)
+    arm_noise, wheel_noise = np.zeros(7), np.zeros(4)
     while True:
         # Measure current states
         base_pos = np.array(sim.GetBasePosition())
@@ -245,6 +255,15 @@ def main():
         # ----------------------------------------------------------------------
         # 4 wheels (velocity) + 7 arm joints (torque) + 6 fingers (torque)
         cmd_all = np.concatenate((wheel_cmds, torque_arm, torque_fingers))
+        if ARM_NOISE > 0 or WHEEL_NOISE > 0:
+            # Correlated noise, std unchanged by the correlation. Wheels only while driving: the base stands still
+            # once it has arrived, under the policy too
+            spread = np.sqrt(1 - noise_keep ** 2)
+            arm_noise = noise_keep * arm_noise + spread * ARM_NOISE * ARM_NOISE_STD * noise_rng.standard_normal(7)
+            wheel_noise = noise_keep * wheel_noise + spread * WHEEL_NOISE * WHEEL_NOISE_STD * noise_rng.standard_normal(4)
+            cmd_all[4:11] += arm_noise
+            if not base_navigation_done:
+                cmd_all[:4] += wheel_noise
         control_modes = ["velocity"] * 4 + ["torque"] * 7 + ["torque"] * 6
         cmd.SetControlCmd(cmd_all, control_modes)
         sim.Step(cmd, "torque")
