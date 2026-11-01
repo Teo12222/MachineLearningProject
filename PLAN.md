@@ -1346,11 +1346,15 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
     | `split_dart_a20_s0` | 150 at 20 (149 reached) | 5 | 50 / 48 / 33 | 0 | 0 | 0.042 m |
     | `split_dart_a60_s0` | 150 at 60 (116 reached) | 20 | 50 / 50 / 47 | 0 | 0 | 0.014 m |
     | `split_dart_a60_s1` | same, training seed 1 | 21 | 50 / 50 / 39 | 0 | 0 | 0.026 m |
+    | `split_dart_a100_s0` | 150 at 100 (69 reached) | 15 | 50 / 50 / 39 | 0 | 0 | 0.039 m |
+    | `split_dart_a60x2_s0` | 300 at 60 (`--seed 2` and `3`; 228 reached) | **30** | 50 / 50 / 45 | 0 | 0 | 0.007 m |
     | `split_dagger_r5_s0` | 5 DAgger rounds | 23 | 43 / 43 / 33 | 10 | 1 | 0.034 m |
 
-    The gain is the noise, not the extra data: same targets without noise give 1, and success rises with the noise.
-    Reached is about level with DAgger's, but DART never loses the arm: 50/50 stay within 5 cm, against 43. What's left
-    is the last 2 cm down to 5 mm. It needs no policy runs and its data costs under 2 minutes. Only validation so far, no 150-target test.
+    The gain is the noise, not the extra data alone: the same targets without noise give 1, and success rises with the
+    noise up to 60, then falls at 100, where over half the expert's runs fail. More noisy data helps: 300 episodes at 60
+    give 30/50, the best so far (DAgger 23 here, 26 on Matteo's PC), one seed. DART also never loses the arm: 50/50 stay
+    within 5 cm in every noisy model, against 43. What's left is the last 2 cm down to 5 mm. It needs no policy runs, and
+    150 episodes take under 2 minutes. Validation only so far, no 150-target test.
 20. **Randomised arm starting pose:** genuinely new situations that changing the target can't produce (the cart
     start is already covered by robot-frame inputs, see 6). Randomise it and collect data for it if we want to
     claim generalisation to new initial conditions.
