@@ -1068,6 +1068,28 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
         - The test scripts differ slightly: `compare.py` runs every test episode, including `ep_0297` (expert failed, dropped
           from training tests), so the full test has 150 targets, not 149.
         - `compare.py --test-set` rewrites `results/expert.csv`: restored, since it is Matteo's file.
+      - **GRU with (v, w), and a PC retrain of w1000 (Matteo, 1 Nov; validation, 50 episodes, one seed; same settings as
+        Kris's w1000: 192 units, 1000-frame windows, 200 burn-in, lr 1e-3, gravity residual, 50 epochs).** The retrain
+        is named `gru_h192_w1000_gravres_pc_s0` so it doesn't overwrite Kris's Mac results file.
+
+        | Model | Reached | Closest EE median | Ever within 1 / 5 / 10 cm | Held within 5 cm for 0.5 s | Base within 15 cm of the expert's spot | Max torque first hit (median) | Wheel / torque RMSE | Final err median |
+        |---|---|---|---|---|---|---|---|---|
+        | `split_dagger_r5_s0` (reference) | 26/50 | 0.5 cm | 32 / 43 / 44 | 42 | 45/50 | 3.7 s (reach start) | 0.181 / 0.802 | 3.1 cm |
+        | `gru_h192_w1000_gravres_pc_s0` | 0/50 (1 fluke) | 7.9 cm | 2 / 15 / 31 | 4 | **50/50** | 10.6 s | 0.078 / 0.150 | 95 cm |
+        | `gru_h192_w1000_vw_gravres_s0` | 0/50 | 23.4 cm | 0 / 4 / 8 | 1 | 35/50 | 7.2 s | 0.091 / 0.141 | 135 cm |
+
+        - **The PC retrain reproduces Kris's Mac result:** val loss 0.00300 (Mac 0.00306), closest EE 7.9 cm (Mac 8.7 cm,
+          quick test), the base reaches the expert's spot in every run (Mac 49/50). Best epochs 47 / 48 of 50: still
+          improving at the cap, as on the Mac.
+        - The one "reached" run (`ep_0403`) is a swing-through: under 5 mm for 2 frames at 6.5 s, 54 cm away at the end.
+          compare.py counts it; the real count is 0/50.
+        - **(v, w) hurts the GRU too:** the base reaches the expert's spot in 35/50 instead of 50/50, closest EE 23 vs 8
+          cm, worse wheel RMSE (0.091 vs 0.078). With the split model (13) vw made the base better and the reach worse;
+          here it makes the base worse. **Decision: no vw for the GRU** (and so not for a GRU base in the split model).
+        - **For the GRU in the split model (15, Kris, 1 Nov):** the GRU's base is the best we have (50/50 at the expert's
+          spot vs r5's 45/50), its arm is not (0/50, 4 runs held within 5 cm vs r5's 42). So the most promising
+          variant is GRU base + MLP arm. Caveat from 13: r5's arm only works well behind the base it was trained with,
+          so the GRU base may need DAgger rounds behind it (dagger.py with the combined model) before it pays off.
     - **Compare TCN vs RNN** on the same inputs, split and metrics (validation loss, test RMSE, closed loop,
       inference time per step). Report points: (a) the MLP's only temporal information is the joint velocity
       (one-step memory; the lecture's "RNNs vs MLPs"); (b) the TCN needs a fixed window, while the arrival time

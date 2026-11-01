@@ -1,0 +1,2 @@
+model,train_episodes,epochs,batch,lr,hidden,layers,best_val_loss,best_epoch,train_time_s,parameters,inference_ms,test_wheel_rmse,test_torque_rmse,sim_success_rate,sim_final_err_mean,sim_final_err_median,sim_time_to_reach,subsample,keep_frac,weight_decay,dropout,max_epochs,patience,gravity_residual,vw_outputs,architecture,seed,window,burn_in
+gru_h192_w1000_vw_gravres_s0,696,50,64,0.001,192,1,0.00298989,48,6660.84,129033,0.0914,0.0906701,0.140486,,,,,adaptive,0.1,0,0,50,10,True,True,gru,0,1000,200
