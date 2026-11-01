@@ -1,7 +1,7 @@
 """Split networks (PLAN.md step 15): a base network (wheels + "arrived" flag) and an arm network (torques).
 
 Mirrors the expert's structure: the base drives until it has arrived, then stops, and the arm reaches. Each network
-is a plain bc_model.MLP; both are saved together in one checkpoint, so the policy script and compare.py load a
+is a bc_model.MLP or GRU; both are saved together in one checkpoint, so the policy script and compare.py load a
 split model by name like any other (load_policy).
 """
 from pathlib import Path
@@ -12,7 +12,7 @@ from torch import nn
 from torch.nn import functional as F
 
 from bc_data import BASE_INPUTS, ARM_INPUTS, arm_gravity, make_features
-from bc_model import MLP, load_model
+from bc_model import GRU, MLP, load_model
 
 
 def base_inputs(x):
@@ -30,20 +30,35 @@ class SplitPolicy(nn.Module):
     """Base network: 3 inputs -> 4 wheel commands (or v, w) + 1 "arrived" logit. Arm network: 25 inputs -> 7 torques.
 
     Labels and base outputs are indexed from the end (torques = last 7 labels, logit = last base output), so the same
-    code serves both wheel formats.
+    code serves both wheel formats. Either network can be a GRU (base_arch, arm_arch): a GRU steps every frame from
+    t = 0, the arm with flag 0 while the base drives, so its memory is warm at the latch.
     """
 
-    def __init__(self, hidden=256, layers=3, dropout=0.0, gravity_residual=False, vw_outputs=False):
+    def __init__(self, hidden=256, layers=3, dropout=0.0, gravity_residual=False, vw_outputs=False, base_arch="mlp",
+                 arm_arch="mlp", gru_hidden=192, burn_in=200):
         super().__init__()
         # kind tells load_policy which class to build; gravity_residual and vw_outputs are read by whoever runs the
         # model (decode_outputs), as for the MLP
         self.config = dict(kind="split", hidden=hidden, layers=layers, dropout=dropout,
-                           gravity_residual=gravity_residual, vw_outputs=vw_outputs)
+                           gravity_residual=gravity_residual, vw_outputs=vw_outputs, base_arch=base_arch,
+                           arm_arch=arm_arch, gru_hidden=gru_hidden, burn_in=burn_in)
         n_base = BASE_INPUTS.stop - BASE_INPUTS.start
         n_arm = ARM_INPUTS.stop - ARM_INPUTS.start + 1   # + the flag
         n_wheel = 2 if vw_outputs else 4
-        self.base = MLP(n_base, n_wheel + 1, hidden=hidden, layers=layers, dropout=dropout)
-        self.arm = MLP(n_arm, 7, hidden=hidden, layers=layers, dropout=dropout)
+
+        def network(arch, n_in, n_out):
+            if arch == "gru":
+                return GRU(n_in, n_out, hidden=gru_hidden, burn_in=burn_in)
+            return MLP(n_in, n_out, hidden=hidden, layers=layers, dropout=dropout)
+
+        self.base = network(base_arch, n_base, n_wheel + 1)
+        self.arm = network(arm_arch, n_arm, 7)
+
+    def reset(self):
+        """Forget the past: call at the start of an episode (GRU networks only have any)."""
+        for net in (self.base, self.arm):
+            if isinstance(net, GRU):
+                net.reset()
 
     def set_normalisation(self, x, y, arrived):
         """Normalisation of both networks from the TRAINING frames (x: 27 inputs, y: wheel + 7 torque labels,
@@ -54,14 +69,39 @@ class SplitPolicy(nn.Module):
         self.arm.set_normalisation(arm_inputs(x, arrived), y[:, -7:])
 
     def predict_base(self, x):
-        """Wheel outputs (4 commands in rad/s, or v, w) and the probability that the base has arrived."""
-        out = self.base.predict(base_inputs(x))
-        # Sigmoid written with tanh: the same curve, but no overflow warning for very negative logits
-        return out[..., :-1], 0.5 * (1.0 + np.tanh(0.5 * out[..., -1]))
+        """Wheel outputs (4 commands in rad/s, or v, w) and the probability that the base has arrived.
+
+        x: a whole episode from its start, or for an MLP any frames.
+        """
+        return wheels_and_p(run_frames(self.base, base_inputs(x)))
 
     def predict_arm(self, x, arrived):
-        """Arm torques (N*m; minus gravity for gravity-residual models) given the "arrived" flag (0/1)."""
-        return self.arm.predict(arm_inputs(x, arrived))
+        """Arm torques (N*m; minus gravity for gravity-residual models) given the "arrived" flag (0/1).
+
+        x: a whole episode from its start, or for an MLP any frames.
+        """
+        return run_frames(self.arm, arm_inputs(x, arrived))
+
+    def step_base(self, x):
+        """predict_base for one simulation step (x: one frame), keeping a GRU's memory."""
+        return wheels_and_p(step_frame(self.base, base_inputs(x)))
+
+    def step_arm(self, x, arrived):
+        """predict_arm for one simulation step (x: one frame), keeping a GRU's memory."""
+        return step_frame(self.arm, arm_inputs(x, arrived))
+
+
+def run_frames(net, x):
+    return net.predict(x[None])[0] if isinstance(net, GRU) else net.predict(x)
+
+
+def step_frame(net, x):
+    return net.step(x) if isinstance(net, GRU) else net.predict(x)
+
+
+def wheels_and_p(out):
+    # Sigmoid written with tanh: the same curve, but no overflow warning for very negative logits
+    return out[..., :-1], 0.5 * (1.0 + np.tanh(0.5 * out[..., -1]))
 
 
 def base_labels(y, arrived):

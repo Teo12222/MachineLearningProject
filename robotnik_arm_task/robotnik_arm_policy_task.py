@@ -197,14 +197,14 @@ def main():
         if split:
             # Base network: wheels + p(arrived). Once the flag is latched the base stops and the arm network,
             # which gets the flag as an input, reaches (before it holds), like the expert
-            wheels, p_arrived = model.predict_base(x)
+            wheels, p_arrived = model.step_base(x)
             was_arrived = latch.arrived
             arrived = latch.update(p_arrived, current_time)
             if arrived:
                 wheels = np.zeros_like(wheels)   # 4 commands or (v, w): zero either way means stopped
                 if not was_arrived:
                     print(f"Arrived flag latched at t={current_time:.2f}s ({latch.source})")
-            y = np.concatenate([wheels, model.predict_arm(x, float(arrived))])
+            y = np.concatenate([wheels, model.step_arm(x, float(arrived))])
         else:
             y = model.step(x) if stateful else model.predict(history.add(x))
         # Gravity-residual models (PLAN.md step 12) predict torque minus gravity: add this frame's gravity back

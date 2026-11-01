@@ -14,6 +14,8 @@ Usage (from the robotnik_arm_task folder):
     pixi run python train.py --model split_arrived_s0 --split --gravity-residual   # split networks (PLAN.md step 15)
     pixi run python train.py --model X --split --gravity-residual --dagger dagger/split_dagger_r1   # + DAgger data
                                                    # for the arm network (dagger.py output, PLAN.md step 21)
+    pixi run python train.py --model X --split --gravity-residual --base-arch gru --arm-from split_dagger_r5_s0
+                                                   # GRU base behind a copied arm; --arm-arch gru, --base-from MODEL too
     pixi run python train.py --model temporal_window_k4_d50_s0 --history-k 4 --history-spacing 50   # past frames
 
 Results go to results/<model>.csv (see results.py): training columns after training, test columns after testing.
@@ -31,8 +33,10 @@ import numpy as np
 import torch
 from torch import nn
 
-from bc_data import split_episodes, clean_ids, load_episode, load_episodes, decode_outputs, arm_gravity, with_history
-from bc_model import MLP, save_model
+from bc_data import (split_episodes, clean_ids, load_episode, load_episodes, load_frames, decode_outputs, arm_gravity,
+                     with_history)
+from bc_gru import fit_gru, normalised, predict_frames
+from bc_model import GRU, MLP, save_model
 from bc_split import (SplitPolicy, ArrivedLatch, arm_inputs, base_inputs, base_labels, base_loss, load_dagger_arm,
                       load_policy)
 from results import SIM_COLUMNS, update_results
@@ -93,6 +97,18 @@ parser.add_argument("--dagger", nargs="+", metavar="FOLDER",
 parser.add_argument("--arm-from", metavar="MODEL",
                     help="with --split: copy the arm network of this split checkpoint instead of training one, so two "
                          "models differ only in the base (e.g. vw vs 4 wheels, GRU vs MLP base)")
+parser.add_argument("--base-from", metavar="MODEL",
+                    help="with --split: copy the base network of this split checkpoint instead of training one, so two "
+                         "models differ only in the arm")
+parser.add_argument("--base-arch", choices=("mlp", "gru"), default="mlp", help="with --split: type of the base network")
+parser.add_argument("--arm-arch", choices=("mlp", "gru"), default="mlp", help="with --split: type of the arm network")
+# A GRU half trains like train_gru.py, whatever the settings of an MLP half (PLAN.md step 15)
+parser.add_argument("--gru-hidden", type=int, default=192, help="GRU networks: size of the memory")
+parser.add_argument("--gru-window", type=int, default=1000, help="GRU networks: frames per window that count in the loss")
+parser.add_argument("--gru-burn-in", type=int, default=200, help="GRU networks: frames before them, without loss")
+parser.add_argument("--gru-lr", type=float, default=1e-3, help="GRU networks: learning rate")
+parser.add_argument("--gru-batch", type=int, default=64, help="GRU networks: windows per batch")
+parser.add_argument("--gru-max-epochs", type=int, default=50, help="GRU networks: upper limit on the number of epochs")
 parser.add_argument("--history-k", type=int, default=0, help="past frames added to each input (PLAN.md step 14)")
 parser.add_argument("--history-spacing", type=int, default=50, help="frames between them (1 frame = 1 ms)")
 parser.add_argument("--seed", type=int, default=0, help="training seed (weights, batch order); put it in --model too")
@@ -104,9 +120,15 @@ if args.dagger and not args.split:
     parser.error("--dagger needs --split: DAgger data only has arm labels (a single MLP would also need wheel labels)")
 if args.arm_from and not args.split:
     parser.error("--arm-from needs --split")
+if args.base_from and not args.split:
+    parser.error("--base-from needs --split")
 if args.arm_from and args.dagger:
     # The copied arm keeps its own training data; DAgger frames would have nothing to train
     parser.error("--arm-from copies a trained arm: --dagger has no arm to train")
+if args.dagger and args.arm_arch == "gru":
+    # DAgger frames are single frames; a GRU arm needs the whole runs as windows (not built, PLAN.md step 15)
+    parser.error("--dagger with --arm-arch gru isn't supported yet")
+base_arch, arm_arch = args.base_arch, args.arm_arch
 if args.arm_from:
     # Loaded and checked up front, so a wrong source stops the run before any training
     arm_source = load_policy(SCRIPT_DIR / "checkpoints" / f"{args.arm_from}.pt")
@@ -115,6 +137,20 @@ if args.arm_from:
     if arm_source.config["gravity_residual"] != args.gravity_residual:
         # Its torques would be decoded with or without gravity added back, i.e. wrongly
         parser.error(f"--arm-from {args.arm_from} has gravity_residual={arm_source.config['gravity_residual']}")
+    arm_arch = arm_source.config.get("arm_arch", "mlp")
+if args.base_from:
+    base_source = load_policy(SCRIPT_DIR / "checkpoints" / f"{args.base_from}.pt")
+    if not isinstance(base_source, SplitPolicy):
+        parser.error(f"--base-from {args.base_from} is not a split model")
+    if base_source.config.get("vw_outputs", False) != args.vw_outputs:
+        parser.error(f"--base-from {args.base_from} has vw_outputs={base_source.config.get('vw_outputs', False)}")
+    base_arch = base_source.config.get("base_arch", "mlp")
+# A checkpoint rebuilds both networks from one config, so copied networks must have the sizes of this run's
+for source in ([arm_source] if args.arm_from else []) + ([base_source] if args.base_from else []):
+    if (source.config["hidden"], source.config["layers"], source.config.get("gru_hidden", 192),
+            source.config.get("burn_in", 200)) != (args.hidden, args.layers, args.gru_hidden, args.gru_burn_in):
+        parser.error("--arm-from / --base-from: the copied network's sizes differ from this run's options")
+uses_gru = args.split and "gru" in (base_arch, arm_arch)
 if args.split and args.history_k:
     # base_inputs / arm_inputs pick the current frame's columns, so the past frames would be silently dropped
     parser.error("--split with --history-k isn't supported yet (temporal + split: PLAN.md step 14)")
@@ -185,13 +221,32 @@ if not args.test_only:
     print(f"train frames {len(x_tr)}, val frames {len(x_va)} (subsampling: {SUBSAMPLE or 'off'}, "
           f"gravity residual: {'on' if args.gravity_residual else 'off'}, "
           f"wheel outputs: {'v, w' if args.vw_outputs else '4 wheels'}, split: {'on' if args.split else 'off'})")
+    if uses_gru:
+        # A GRU half needs every frame in order; the frames above are the same rows, for the normalisation
+        xf_tr, yf_tr, fr_tr, st_tr, af_tr = load_frames(DATA_DIR, train_ids, keep_frac, SUBSAMPLE, all_labels=True,
+                                                        gravity_residual=args.gravity_residual,
+                                                        vw_outputs=args.vw_outputs, arrived=True)
+        xf_va, yf_va, fr_va, st_va, af_va = load_frames(DATA_DIR, val_ids, keep_frac, "uniform", all_labels=True,
+                                                        gravity_residual=args.gravity_residual,
+                                                        vw_outputs=args.vw_outputs, arrived=True)
+        gru_options = dict(window=args.gru_window, batch=args.gru_batch, lr=args.gru_lr, max_epochs=args.gru_max_epochs,
+                           patience=args.patience)
     CHECKPOINT.parent.mkdir(parents=True, exist_ok=True)
     start = time.perf_counter()
 
+    def val_output(net, x_all, x_kept):
+        """Normalised output on the validation frames: whole episodes for a GRU (x_all), the frames for an MLP."""
+        if isinstance(net, GRU):
+            return normalised(net, predict_frames(net, x_all, fr_va, st_va))
+        return net(x_kept)
+
     if args.split:
         model = SplitPolicy(hidden=args.hidden, layers=args.layers, dropout=args.dropout,
-                            gravity_residual=args.gravity_residual, vw_outputs=args.vw_outputs)
+                            gravity_residual=args.gravity_residual, vw_outputs=args.vw_outputs, base_arch=base_arch,
+                            arm_arch=arm_arch, gru_hidden=args.gru_hidden, burn_in=args.gru_burn_in)
         model.set_normalisation(x_tr, y_tr, a_tr)
+        if args.base_from:
+            model.base = base_source.base   # weights and its own normalisation, as for --arm-from
         # Removed (30 Oct, see ARM_SUBSAMPLE above): the arm's own training frames, loaded a second time
         # x_arm, y_arm, a_arm = load_episodes(DATA_DIR, train_ids, keep_frac=KEEP_FRAC if ARM_SUBSAMPLE else None,
         #                                     mode=ARM_SUBSAMPLE, gravity_residual=args.gravity_residual, arrived=True)
@@ -201,9 +256,19 @@ if not args.test_only:
         pos_weight = torch.tensor((1 - a_tr).sum() / a_tr.sum())
         print(f"arrived in {100 * a_tr.mean():.1f}% of training frames, pos_weight {pos_weight:.2f}")
         xbv, ybv = normalise(model.base, base_inputs(x_va), base_labels(y_va, a_va))
-        base_val, base_best, base_epochs = fit(
-            model.base, *normalise(model.base, base_inputs(x_tr), base_labels(y_tr, a_tr)), xbv, ybv,
-            lambda out, target: base_loss(out, target, pos_weight), "base ")
+        base_fn = lambda out, target: base_loss(out, target, pos_weight)
+        x_base_va = base_inputs(xf_va) if uses_gru else None
+        x_arm_va = arm_inputs(xf_va, af_va) if uses_gru else None
+        if args.base_from:
+            base_best = base_epochs = None
+            print(f"base network copied from {args.base_from}")
+        elif base_arch == "gru":
+            _, base_best, base_epochs = fit_gru(model.base, base_inputs(xf_tr), base_labels(yf_tr, af_tr), fr_tr, st_tr,
+                                                x_base_va, base_labels(yf_va, af_va), fr_va, st_va, base_fn,
+                                                label="base ", **gru_options)
+        else:
+            _, base_best, base_epochs = fit(model.base, *normalise(model.base, base_inputs(x_tr), base_labels(y_tr, a_tr)),
+                                            xbv, ybv, base_fn, "base ")
         dagger_frames = 0
         if args.arm_from:
             # The other model's arm network, unchanged (weights and its own normalisation): its training already
@@ -212,8 +277,13 @@ if not args.test_only:
             arm_best = arm_epochs = None
             xav, yav = normalise(model.arm, arm_inputs(x_va, a_va), y_va[:, -7:])
             with torch.no_grad():
-                arm_val = nn.functional.mse_loss(model.arm(xav), yav).item()
+                arm_val = nn.functional.mse_loss(val_output(model.arm, x_arm_va, xav), yav).item()
             print(f"arm network copied from {args.arm_from}: val {arm_val:.4f}")
+        elif arm_arch == "gru":
+            # Every frame in order, flag 0 before the expert's arrival: the same inputs as at run time
+            arm_val, arm_best, arm_epochs = fit_gru(model.arm, arm_inputs(xf_tr, af_tr), yf_tr[:, -7:], fr_tr, st_tr,
+                                                    x_arm_va, yf_va[:, -7:], fr_va, st_va, nn.MSELoss(), label="arm  ",
+                                                    **gru_options)
         else:
             # The arm is trained with the expert's true flag as input (at run time: the latched predicted one)
             x_arm, y_arm = arm_inputs(x_tr, a_tr), y_tr[:, -7:]   # torques: always the last 7 labels
@@ -235,14 +305,18 @@ if not args.test_only:
         # Not comparable between wheel formats (different quantities): compare those on test_wheel_rmse
         with torch.no_grad():
             n_wheel = ybv.shape[1] - 1
-            wheel_val = nn.functional.mse_loss(model.base(xbv)[:, :-1], ybv[:, :-1]).item()
+            out_bv = val_output(model.base, x_base_va, xbv)
+            wheel_val = nn.functional.mse_loss(out_bv[:, :-1], ybv[:, :-1]).item()
             # Recorded unweighted, so it reads as a plain cross-entropy (early stopping used the weighted one)
-            flag_val = nn.functional.binary_cross_entropy_with_logits(model.base(xbv)[:, -1], ybv[:, -1]).item()
+            flag_val = nn.functional.binary_cross_entropy_with_logits(out_bv[:, -1], ybv[:, -1]).item()
         best_val, best_epoch, epoch = (n_wheel * wheel_val + 7 * arm_val) / (n_wheel + 7), None, None
         split_columns = dict(base_epochs=base_epochs, base_best_epoch=base_best, arm_epochs=arm_epochs,
                              arm_best_epoch=arm_best, val_arrived_bce=flag_val,
                              dagger=";".join(Path(f).name for f in args.dagger) if args.dagger else "",
-                             dagger_frames=dagger_frames, arm_from=args.arm_from or "")
+                             dagger_frames=dagger_frames, arm_from=args.arm_from or "", base_from=args.base_from or "",
+                             base_arch=base_arch, arm_arch=arm_arch,
+                             **(dict(gru_hidden=args.gru_hidden, gru_window=args.gru_window, gru_burn_in=args.gru_burn_in,
+                                     gru_lr=args.gru_lr) if uses_gru else {}))
     else:
         model = MLP(x_tr.shape[1], y_tr.shape[1], hidden=args.hidden, layers=args.layers, dropout=args.dropout,
                     gravity_residual=args.gravity_residual, vw_outputs=args.vw_outputs, history_k=args.history_k,
@@ -264,7 +338,8 @@ if not args.test_only:
         subsample=SUBSAMPLE or "off", keep_frac=KEEP_FRAC if SUBSAMPLE else None,
         weight_decay=args.weight_decay, dropout=args.dropout, max_epochs=args.max_epochs, patience=args.patience,
         gravity_residual=args.gravity_residual, vw_outputs=args.vw_outputs, split=args.split, history_k=args.history_k,
-        history_spacing=args.history_spacing if args.history_k else None, architecture="mlp", seed=args.seed,
+        history_spacing=args.history_spacing if args.history_k else None, seed=args.seed,
+        architecture=f"{base_arch}+{arm_arch}" if uses_gru else "mlp",
         **split_columns,
         inference_ms=None, test_wheel_rmse=None, test_torque_rmse=None, **{c: None for c in SIM_COLUMNS},
         **({c: None for c in ARRIVE_COLUMNS} if args.split else {}),
@@ -355,7 +430,7 @@ if split:
 # models: both networks)
 torch.set_num_threads(1)
 frame = x[0]
-step = (lambda f: (best.predict_base(f), best.predict_arm(f, 1.0))) if split else best.predict
+step = (lambda f: (best.step_base(f), best.step_arm(f, 1.0))) if split else best.predict
 for _ in range(50):   # warm-up
     step(frame)
 times = []
