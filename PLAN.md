@@ -1268,6 +1268,45 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
       (arm and base move together), so check: arm torques while the base drives (never in the training data),
       re-aiming if the base parks slightly off, and stability with a stretched arm on a moving base. If it works it
       should reach targets faster than the expert (time to reach is in `compare.py`'s table).
+    **GRU in the split model (1 Nov, Kris): done, the MLP pair stays.** Code: `SplitPolicy(base_arch, arm_arch)`, `--base-from`,
+    `bc_gru.py`; `step_*` matches `predict_*` for all three layouts. All runs: 50 validation episodes, Mac, seed 0, one
+    seed per model. Counts recomputed from the episode files and equal to `compare.py`'s logs; same 50 ids for all.
+    "Held" = stayed within that distance of the target for 0.5 s without a break, because closest approach flatters a
+    swinging arm. "Parked" = base came within 15 cm of the expert's final spot. "Off floor" = base height moved > 10 cm.
+
+    | model | reached | held 10 / 5 / 2 cm | parked | off floor |
+    |---|---|---|---|---|
+    | `mlp_gravres_lr1e3_s0` (single) | 0 | 9 / 3 / 0 | 44 | 4 |
+    | `gru_h192_w1000_gravres_s0` (single) | 0 | 16 / 2 / 0 | 50 | 0 |
+    | `split_arrived_s0` (MLP + MLP, no DAgger) | 0 | 38 / 16 / 0 | 50 | 3 |
+    | `split_mlpbase_gruarm_s0` (same base, GRU arm, no DAgger) | 0 | 33 / 15 / 5 | 50 | 7 |
+    | `split_grubase_gruarm_s0` (GRU + GRU, no DAgger) | 0 | 23 / 7 / 0 | 50 | 12 |
+    | `split_dagger_r5_s0` (MLP + MLP, DAgger arm) | 23 | 43 / 43 / 33 | 47 | 1 |
+    | `split_grubase_r5arm_s0` (GRU base + the same DAgger arm) | 11 | 47 / 39 / 18 | 48 | 0 |
+
+    1. **Is split worth it compared with the temporal model? Yes.** With no DAgger neither reaches, but the split holds
+       within 10 cm in 38 episodes against the GRU's 16, and within 5 cm in 16 against 2. The only models that reach
+       use DAgger, so the jump to 23 is DAgger's, on top of the split; we have no single model with DAgger to separate
+       the two.
+    2. **Can the GRU go in the split model? Yes, it runs and it is stable, but it gives nothing here.** The reason for
+       trying it has gone: the split MLP base parks as well as the GRU (50/50, median closest 0.8 cm).
+    3. **Best configuration: MLP base + MLP arm with DAgger (23/50).** GRU arm against MLP arm on the same base, both
+       without DAgger, is 0 v 0, and the GRU arm leaves the floor more often (7 v 3). GRU + GRU is the worst (12 off floor).
+       GRU base + DAgger arm loses to MLP base + the same arm 11 v 23 (r5 only 14, GRU only 2, both 9).
+       **That last comparison is not fair to the GRU base:** the DAgger corrections were collected behind the MLP base.
+       Its parking is a little wider (median 3.4 v 2.4 cm from the expert's spot at the latch; 15 v 7 beyond 5 cm), and
+       it latches later (+0.73 v -0.23 s against the expert). Even so, parked within 5 cm it reaches 7/35 against 22/43,
+       so parking distance alone doesn't explain the drop. Not tested: DAgger rounds behind the GRU base. Given (2),
+       not worth the time unless the MLP base turns out to be the limit.
+    Mac v PC: `split_dagger_r5_s0` is 23/50 here, 26/50 on Matteo's PC. Differences of that size aren't meaningful.
+
+    **New problem found (1 Nov, Kris): the DAgger arm sometimes spins during the drive.** In `split_dagger_r5_s0` a joint
+    moves over 1 rad from its start before the latch in 10/50 episodes (worst 63 rad, about 10 turns; from 1 to 1.6 s
+    in the worst three), and only 2 of those reach, against 21/40 for the others. `split_arrived_s0`, same base, never does (0/50;
+    its arm stays within 0.06 rad), and its parking stays within 3.8 cm of the expert's spot, against up to 136 cm with the
+    r5 arm, so the spinning arm also disturbs the drive. Likely cause, not proven: DAgger adds only flag = 1 frames, so
+    flag = 0 behaviour gets no new data and each retrain is free to worsen it. Worth fixing before the final
+    DAgger: hold the arm during the drive with the pre-DAgger network, or add flag-0 frames to the DAgger rounds.
 16. **Dropped (1 Nov, Matteo): shallow vs deep check.** Was: train one shallower and one deeper variant of the final
     model to show its size is reasonable. Why dropped: the time goes to the final model and its tests instead;
     efficiency (parameters, inference time per step) is still reported from the existing models (24).
