@@ -1528,6 +1528,23 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
     before this test ran. **Caveat (2 Nov):** seed 1 of the same recipe gets 16/50 on validation against seed 0's 30, so
     the 76/150 is the best seed's number, not what the recipe gives on average. For the report: test several seeds and
     give the mean and spread (step 23's 3 seeds).
+    **DART amount x 3 training seeds (B4, 2 Nov, Kris):** noise 60, validation 50, Mac. 600 episodes = the 300 above
+    plus 300 new (`--seed 4` / `5` into `dart/a60c` / `dart/a60d`; the expert reached 112 and 117 of 150; the nearest new
+    target is 5.0 cm from a validation target, against 3.8 cm for `data_main`'s nearest). Models `split_dart_a60_s*`
+    (150), `split_dart_a60x2_s*` (300), `split_dart_a60x4_s*` (600), runs in `compare_out/<model>_val` (the older four
+    in `compare_out/<model>/val_set`). Recomputed from the episode files and checked against the logs; all 9 on the same
+    50 targets, base copied from `split_arrived_s0`.
+
+    | DART episodes | reached, seeds 0 / 1 / 2 | mean (range) | held 5 cm | held 2 cm | held 1 cm | median final error |
+    |---|---|---|---|---|---|---|
+    | 150 | 20 / 21 / 19 | 20.0 (19-21) | 50 / 50 / 50 | 47 / 39 / 45 | 27 / 28 / 28 | 1.4 / 2.6 / 2.0 cm |
+    | 300 | 30 / 16 / 25 | 23.7 (16-30) | 50 / 50 / 50 | 45 / 43 / 47 | 39 / 30 / 41 | 0.7 / 2.1 / 0.9 cm |
+    | 600 | 30 / 24 / 26 | 26.7 (24-30) | 50 / 50 / 50 | 46 / 48 / 47 | 36 / 39 / 35 | 0.6 / 1.3 / 1.2 cm |
+
+    "Held" = within that distance for 0.5 s without a break (1 cm here is this check, not yet the shared 1 cm number of
+    14). No arm spins in the drive and no base off the floor in any of the 9. Training takes 1.3-3 min at every amount (600:
+    2.0-2.7 min; early stopping ends it sooner, 44-53 arm epochs against 59-77 at 300), so more data costs almost no
+    training time here.
 20. **Randomised arm starting pose:** genuinely new situations that changing the target can't produce (the cart
     start is already covered by robot-frame inputs, see 6). Randomise it and collect data for it if we want to
     claim generalisation to new initial conditions.
