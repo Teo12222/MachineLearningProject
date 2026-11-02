@@ -1548,6 +1548,12 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
     before this test ran. **Caveat (2 Nov):** seed 1 of the same recipe gets 16/50 on validation against seed 0's 30, so
     the 76/150 is the best seed's number, not what the recipe gives on average. For the report: test several seeds and
     give the mean and spread (step 23's 3 seeds).
+    **Same model on Matteo's PC (2 Nov), val 50** (`compare_out/split_dart_a60x2_s0_pc_val/`): **32/50** reached (Mac
+    30/50: the machine difference is small, as for r5's 23 vs 26), held within 1 / 2 / 5 cm for 0.5 s **37** / 46 / 50,
+    closest approach median 0.41 cm, collapsed 0, arm spins 0. Against `split_dagger_r5_s0` on the same PC and targets:
+    26 reached, held 1 / 2 / 5 cm 13 / 32 / 42, 8 collapsed, 9 spins. **On the brief's 1 cm the gap is much bigger than
+    on reached (37 vs 13 held):** r5 swings around the target (e.g. val 429: between 0.5 and 4 cm every ~1.3 s, never
+    settles; torques normal), DART comes in smoothly and stays. One seed each.
 20. **Randomised arm starting pose:** genuinely new situations that changing the target can't produce (the cart
     start is already covered by robot-frame inputs, see 6). Randomise it and collect data for it if we want to
     claim generalisation to new initial conditions.
