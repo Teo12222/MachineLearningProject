@@ -127,6 +127,53 @@ rejected models lost by more than the seed spread (see "Evidence per feature" un
    **Base tuning: later (decided 2 Nov),** after the DART + DAgger comparison (7): then every later model uses the
    tuned base. Why not now: the base already parks within 2-4 cm in every run, failed runs park as well as reached
    ones, and a new base now would mean new val / test runs for every row of the comparison.
+   **Result (2 Nov, Matteo's PC, 19:28-21:23, 116 min):** arm only, DART-300 data (`dart/a60`, `dart/a60b`), base
+   copied, seed 0, 18 trials; summary `results/tuning/split_dart_tuned_s0_tuning.csv`, log
+   `compare_out/overnight/tune.log`.
+
+   | arm | lr | val loss | reached (val 50) | arm training time |
+   |---|---|---|---|---|
+   | 256 x 3 (default) | 3e-3 | 0.0080 | (untuned DART: 32 PC seed 0; 30 / 16 / 25 Mac) | ~5 min |
+   | 256 x 4 | 3e-3 | 0.0066 | not checked | ~7 min |
+   | 512 x 3 | 3e-3 | 0.0061 | not checked | ~16 min |
+   | 512 x 4, weight decay 0 (t12, `tune.py`'s pick) | 3e-3 | 0.0058 | 29 | ~27 min |
+   | 512 x 4, weight decay 1e-4 (t14) | 3e-3 | 0.0058 | 26 | ~25 min |
+
+   Learning rate 3e-3 and batch 2048 (the defaults) stayed best; dropout 0.1 made it worse (0.0076-0.0078).
+   - **Validation loss falls steadily with arm size** (0.0080 -> 0.0066 -> 0.0061 -> 0.0058, -27%): a trend, not noise.
+     **In closed loop there is no sign of it yet:** neither 512 x 4 trial beats the default's 32 on this PC. The same
+     pattern as the first tuning run (better validation loss, no better driving): judge in closed loop only.
+   - **t12 vs t14 is noise** (val loss 0.8% apart, reached 29 v 26 against a seed spread of ~14 for this recipe). Picked
+     by the tie rule fixed before the results (decided 2 Nov, Matteo delegated the picks overnight): shortlist within
+     5/50 on reached = tie -> the default settings if shortlisted, else the best validation loss -> **t14**. Trained
+     again under `split_dart_512x4wd_s0/_s1/_s2` (the trial checkpoints are deleted by `tune.py`); `split_dart_tuned_s0`
+     stays as `tune.py`'s own pick (t12), for the record.
+   - **Which arm size for the DAgger rounds (rule fixed before the seeds' results):** three candidates, each with 3
+     seeds
+     on val 50 on this PC: 256 x 3 (the default; Kris's `split_dart_a60x2_s0/_s1/_s2`, run here as `..._pc_val`),
+     256 x 4 (`split_dart_256x4_s*`, lr 3e-3, no weight decay: the size stage's setting; added on Matteo's suggestion as
+     the middle ground, val loss -17% for ~1.4x the training time) and 512 x 4 (`split_dart_512x4wd_s*`). **Take the
+     smallest whose 3-seed mean reached is within 2/50 of the best mean.** Why it leans small: the 512 x 4 arm trains
+     ~5x slower (every DAgger round and every later seed), inference is fine for all (~0.17-0.19 ms per step), and a
+     gain that only shows offline isn't worth that. The DAgger start is then the best seed of the chosen recipe (most
+     reached, then closest approach); in
+     the final comparison that recipe's row is the 3-seed **mean**, not the best seed.
+   - **Result (2 Nov, 22:09), val 50, this PC, 3 seeds each:**
+
+     | arm | reached | mean | held 1 cm | mean | held 2 cm | collapsed / spins |
+     |---|---|---|---|---|---|---|
+     | **256 x 3 (default)** | 32 / 18 / 25 | **25.0** | 37 / 31 / 37 | **35.0** | 46 / 43 / 48 | 0 / 0 |
+     | 256 x 4 | 26 / 19 / 18 | 21.0 | 39 / 30 / 25 | 31.3 | 48 / 43 / 41 | 0 / 0 |
+     | 512 x 4 (tuned) | 26 / 20 / 16 | 20.7 | 30 / 29 / 27 | 28.7 | 45 / 49 / 45 | 1 / 0 |
+
+     **The default 256 x 3 wins outright** (best mean and smallest; the 2/50 margin never came into it), also within
+     1 cm. The larger arms have the lower validation loss but are worse in closed loop (clearly for 512 x 4, mildly for
+     256 x 4). Seed 0 of 512 x 4 reproduced tuning's own trial exactly (26), and the default's seeds here match Kris's
+     Mac (30 / 16 / 25). **DAgger start: `split_dart_a60x2_s0`** (the default's best seed, 32/50; Kris's checkpoint).
+   - **Report line either way:** "Tuning reduced the validation loss by 27% with a larger arm network but made
+     closed-loop success worse (3 seeds each: 20.7 v 25.0 reached of 50)" (confirmed by the seeds), the offline vs
+     closed-loop gap
+     again.
 5. **DAgger seed rounds** (Matteo, from 2 Nov): `split_dagger_r5` retrained with training seeds 1 and 2 on its existing
    DAgger data (seed repeats of the DAgger candidate).
    **Started 2 Nov 19:08 (Matteo's PC):** `split_dagger_r5_s1` / `_s2`, same data and default settings as s0, but
@@ -150,6 +197,22 @@ rejected models lost by more than the seed spread (see "Evidence per feature" un
      `split_dart_a60x2_s0` on this PC; DART's seeds 1 and 2 not yet run here).
 6. **DAgger behind the chosen (tuned) DART model** (Matteo): `dagger.py --start <DART model> --extra-data <DART folders> --name <new>`, rounds
    until the gain flattens (~5).
+   **Done (2 Nov, 22:09-22:51, Matteo's PC):** behind `split_dart_a60x2_s0` (untuned: tuning made closed loop worse,
+   see 4a; the default's best seed), `--extra-data dart/a60 dart/a60b --name split_dartdagger --rounds 5 --val-set`.
+   200 policy runs per round, all latched; 0.76-0.85 M labelled frames per round; ~8 min per round in total.
+
+   | round | DAgger frames (DART + rounds) | reached | held 1 / 2 / 5 cm | ever 1 cm | closest (median) |
+   |---|---|---|---|---|---|
+   | 0 (DART start) | 379 k | 32 | 37 / 46 / 50 | 38 | 0.41 cm |
+   | 1 | 465 k | 29 | 25 / 46 / 50 | 39 | 0.48 cm |
+   | 2 | 544 k | 31 | 35 / 49 / 50 | 43 | 0.42 cm |
+   | 3 | 620 k | 19 | 26 / 45 / 50 | 36 | 0.67 cm |
+   | 4 | 704 k | 31 | 27 / 43 / 50 | 40 | 0.39 cm |
+   | **5** | 781 k | **35** | **41** / 47 / 50 | 44 | 0.35 cm |
+
+   **Chosen: round 5** by the rule fixed before looking (most reached, then closest approach). The rounds are noisy
+   (round 3: 19): each is a fresh training, so round-to-round differences include seed-like noise; the seeds (7)
+   decide. No collapse or arm spin in any round.
 7. **Final comparison** (Matteo): DART alone vs DAgger r5 vs DART + DAgger, 3 seeds each, val 50. **DART alone is
    not retrained:** its 3 seeds are Kris's runs from 4 (3 trainings saved). Consequence: that row comes from Kris's
    machine and the other two from Matteo's, so mark the machine in the table; Mac vs PC differed by a few episodes
@@ -169,7 +232,34 @@ rejected models lost by more than the seed spread (see "Evidence per feature" un
    - **Cheap check of the base's share, later** (with the base tuning after 7): train the base with seeds 1 and 2 (base
      only), put the final arm on each with `--arm-from` (no arm retraining), val 50 each: ~10 min of runs, shows how
      much a different base moves the result.
+   **Result (2 Nov, val 50, all on Matteo's PC, 3 seeds each):**
+
+   | model | reached | mean | held 1 cm (mean) | held 2 / 5 cm (mean) | collapsed / spins |
+   |---|---|---|---|---|---|
+   | DART alone (`split_dart_a60x2_s*`, run here as `_pc_val`) | 32 / 18 / 25 | 25.0 | 35.0 | 45.7 / 50 | 0 / 0 |
+   | DAgger alone (`split_dagger_r5_s*`) | 26 / 25 / 24 | 25.0 | 14.3 | 34.7 / 47.0 | 8 / 9 (all seed 0) |
+   | **DART + DAgger (`split_dartdagger_r5_s*`)** | 35 / 39 / 39 | **37.7** | **39.0** | 48.3 / 50 | 0 / 0 |
+
+   **Winner: DART + DAgger**, by far more than the seed spread on reached (+12.7 over both, ranges don't overlap) and
+   also the steadiest (narrowest spread, nothing lost). All three rows from one machine, so the Mac v PC caveat above
+   doesn't apply. Seeds 1 and 2 of DART + DAgger retrain round 5's recipe on the same data (collected behind seed 0's
+   policies, see "What the seeds measure"); they came out higher than seed 0 (39, 39 v 35), so no sign that this
+   favoured seed 0. DAgger on top of DART helps far more than DAgger alone (+12.7 v +0 over DART; DAgger alone is
+   level with DART on reached but far worse within 1 cm).
 8. **Full test set (150) on the winner x 3 seeds** (Matteo; seeds shared with Kris's machine).
+   **Done (2 Nov, 22:59-23:08, Matteo's PC), `compare_out/split_dartdagger_r5_s*_test/`:**
+
+   | model (test 150) | reached | held 1 cm | ever 1 cm | held 2 / 5 cm | collapsed / spins |
+   |---|---|---|---|---|---|
+   | DART + DAgger r5, seed 0 | 99 | 98 | 121 | 144 / 150 | 0 / 0 |
+   | seed 1 | 109 | 114 | 141 | 148 / 150 | 0 / 0 |
+   | seed 2 | 103 | 103 | 136 | 145 / 150 | 0 / 0 |
+   | **mean** | **103.7 (69.1%)** | **105.0 (70.0%)** | **132.7 (88.4%)** | 145.7 / 150 | 0 / 0 |
+   | DART alone, 3 seeds (Kris, Mac) | 64.3 (42.9%) | 95.3 (63.6%) | | 138.0 / 149.3 | 0 / 0 |
+   | DAgger alone r5, seed 0 (PC) | 62 (41.3%) | 36 (24%) | 90 | 85 / 121 | 25 / 38 |
+
+   Expert 149/150. Picked on validation only (val 75%, test 69%: the usual small drop of a best-of-several pick). On
+   the brief's 1 cm: held 70%, ever within 1 cm 88% (the other group's rule; their 149/150 is still well above).
 
 **If B isn't enough: ideas to improve the final model further (2 Nov, cheapest first; only on 4 Nov, cut-off 4 Nov
 midday, then report only).** Where the best models fail now is **precision, not collapse**: DART holds within 5 cm in
@@ -1914,6 +2004,11 @@ named; mark the set, the machine and the number of seeds in every row):
     closer than 1 m.
 27. **Report:** IEEE template, max 6 pages + contribution statement; code README must say what was written from
     scratch vs adapted. Due **6 Nov**. Discussion points found so far:
+    - **No test data in any choice (Matteo, 2 Nov; say it in the report):** every decision (settings, tuning, DART
+      amount, DAgger round, seed for the DAgger start, which model wins) used the 150 validation episodes or their
+      fixed 50; the 150 test episodes were only run to fill the tables, to show how the chosen models do on unseen
+      targets. Why it matters: picking on test would make the test numbers optimistic (r5 was 52% on validation, where
+      it was picked as the best of 5 rounds, and 41% on test).
     - **Offline vs closed-loop gap:** the first (world-frame) baseline had low offline error (wheels ~0.08 rad/s,
       torques ~0.19 N*m RMSE on the test set) but failed in closed loop: it stopped turning too early, drifted into
       states the expert never visited, and its commands blew up. This is the behaviour-cloning "compounding error"
