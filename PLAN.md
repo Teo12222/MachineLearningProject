@@ -43,6 +43,21 @@ Look there for the current state of each model instead of this file.
   merge two versions of a checkpoint, so two people retraining the same name means picking one.
 - Run with `pixi run python <script>` from `robotnik_arm_task/`. In PyCharm, scripts that import torch set
   `KMP_DUPLICATE_LIB_OK` themselves (needed on Windows).
+- **Success at 1 cm, next to 5 mm, for every closed-loop test** (the brief's tolerance; decided 2 Nov, before the
+  DART / DAgger results, so it doesn't move the goalposts). **Computed once, after the final comparison (B7)**, by one
+  script over all saved runs; until then the only thing to do is keep the files (`--out-dir`, below).
+  Defined as **held within 1 cm for 0.5 s** (the same "held" rule as the 2 / 5 / 10 cm columns; "ever within 1 cm"
+  would count arms that swing through the target). 5 mm stays the main number, so every model stays comparable with
+  the earlier ones and the expert; 1 cm is an extra column. Older models: recompute it from their saved policy episodes
+  (`ee_pos`, `target` in each `.npz`) where the files still exist on that machine (`compare_out/` is git-ignored;
+  quick runs without their own `--out-dir` were overwritten); leave it empty where they don't.
+- **Every closed-loop run goes into its own output folder: `compare.py ... --out-dir compare_out/<model>_<set>`**
+  (e.g. `compare_out/split_dart_a60_s1_val`, `..._test`; `run_batch.py --out-dir` likewise for the start-pose and
+  noise runs). Without it, runs overwrite each other's episode files (`compare_out/test_set_quick/` etc.), and those
+  files are the only source for anything computed later (1 cm, held, latch times). Seeds and machines too: one folder
+  per model name, and model names already include the seed (and `_mac_` / `_pc_` where both trained it).
+- **When you start or finish a test, message the others** (what ran, on which machine, where the files are, the
+  numbers), so nobody waits on a result that is already in, or runs the same thing twice.
 
 ## Who does what
 
@@ -100,6 +115,27 @@ rejected models lost by more than the seed spread (see "Evidence per feature" un
    floor).
 8. **Full test set (150) on the winner x 3 seeds** (Matteo; seeds shared with Kris's machine).
 
+**If B isn't enough: ideas to improve the final model further (2 Nov, cheapest first; only on 4 Nov, cut-off 4 Nov
+midday, then report only).** Where the best models fail now is **precision, not collapse**: DART holds within 5 cm in
+50/50 and within 2 cm in 45-47/50 but reaches 5 mm in 16-30/50; r5 was ever within 1 cm in 90/150 on test but within
+5 mm in 62/150. So the fixes aim at the last 5-20 mm:
+- **Report success at 1 cm too (14):** no cost. The brief's tolerance is 1 cm, ours is 5 mm to match the expert;
+  show both with the reason. Already decided (2 Nov, see "How we work"); computed after 7 from the saved runs.
+- **Seed ensemble:** average the arm outputs of the 3 seeds trained anyway (7, 8). Attacks the seed spread (16-30)
+  directly and usually helps fine precision; no new training, ~0.5 ms per step (under the 1 ms step); a small change
+  in `bc_split.py` (a policy holding several arms). Probably the best value.
+- **Weight the frames near the target in the arm loss:** adaptive subsampling keeps only 6% of frames within 2 cm of
+  the target vs 16% of all frames, exactly where it fails now. Uniform frames lost overall (step 15: they also thin
+  out the start of the reach), but a loss weight on "EE within 2 cm" keeps the reach start and adds precision. One
+  option in `train.py`, one retrain per seed.
+- **More DAgger rounds** behind the final model: gains were flattening (+2, +2 at rounds 4-5), expect a few episodes.
+- **Arm tuning (4a)** if it was skipped: last resort, the first tuning run improved validation but made closed loop
+  worse.
+- **Not in the time left:** joint-target outputs, base DAgger, new architectures (each needs new code plus its own
+  DAgger rounds).
+A report with ~40-50% at 5 mm, the 1 cm number, and a clear analysis of why the rest fail (the last 2 cm, seed
+variance, offline vs closed loop) is a strong report: the analysis is worth more than a few extra percent.
+
 **Overnight 2 -> 3 Nov (decided 2 Nov):** the 3 Nov work only waits for Kris's handover, not for the date, so it runs
 overnight and the final comparison (7) moves to 3 Nov.
 
@@ -152,7 +188,7 @@ report must already be complete without it; Thursday only swaps in results, nobo
       into its own folder, never `data_main`): `compare.py --test-set` scores the expert from the stored clean
       episodes.
 13. Efficiency table (Jamie) (24).
-14. Decide: report success at 1 cm too, next to 5 mm (team).
+14. Success at 1 cm next to 5 mm: decided 2 Nov ("How we work"); computed once after 7 from the saved runs (Matteo).
 
 **D. Extensions:** camera (Kris from 3 Nov once the winner's test 150 is done, finished 5 Nov; Matteo joins after the
 final edit; cut-off Thursday evening, see the week table); parking pose + arm early: future work in the report. Dropped unless time: parked-start arm episodes, randomised arm start
