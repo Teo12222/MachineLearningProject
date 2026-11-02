@@ -64,6 +64,9 @@ bigger code (Kris's GRU in the split model, Matteo's camera work) and merge it a
 - **Choosing the final model:** the best on the 50 validation episodes; if no GRU-in-split variant beats
   `split_dagger_r5_s0` (26/50), r5 stays. Then DAgger behind the winner (its corrections only fit the policy they were
   collected from, step 13's vw result), then the full test set on it.
+  **Status 1 Nov evening (Kris):** no GRU-in-split variant beats r5 (step 15), but DART does: `split_dart_a60x2_s0`,
+  30/50 validation (r5: 23 on the same Mac run), 76/150 test (r5: 62/150) (step 19). Proposal, to agree on 2 Nov: it
+  becomes the candidate, and DAgger behind it keeps the DART data in training (it stops the arm spinning in the drive, step 15).
 - **Ablations: light version** (step 23, replaces the full grid). The report shows a "component evidence" table built
   from the paired comparisons already made (robot frame, adaptive subsampling, gravity residual, split, DAgger rounds,
   (v, w), temporal models), each labelled with the model and seeds it comes from, plus on the final model only: 3 seeds
