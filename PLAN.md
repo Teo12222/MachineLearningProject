@@ -129,6 +129,25 @@ rejected models lost by more than the seed spread (see "Evidence per feature" un
    ones, and a new base now would mean new val / test runs for every row of the comparison.
 5. **DAgger seed rounds** (Matteo, from 2 Nov): `split_dagger_r5` retrained with training seeds 1 and 2 on its existing
    DAgger data (seed repeats of the DAgger candidate).
+   **Started 2 Nov 19:08 (Matteo's PC):** `split_dagger_r5_s1` / `_s2`, same data and default settings as s0, but
+   the base copied (`--base-from split_arrived_s0`) instead of retrained: s0's retrained base came out identical
+   only because it was seed 0, and copying keeps every model on one base (as Kris's DART seeds). Val 50 into
+   `compare_out/split_dagger_r5_s<k>_val/`, logs `compare_out/r5_seeds/`.
+   **Result (2 Nov, val 50, Matteo's PC):**
+
+   | seed | reached | held 1 / 2 / 5 cm for 0.5 s | closest (median) | collapsed | arm spins in drive |
+   |---|---|---|---|---|---|
+   | 0 (30 Oct) | 26 | 13 / 32 / 42 | 0.50 cm | 8 | 9 |
+   | 1 | 25 | 19 / 36 / 49 | 0.50 cm | 0 | 0 |
+   | 2 | 24 | 11 / 36 / 50 | 0.59 cm | 0 | 0 |
+   | mean | **25.0** (24-26) | 14.3 / 34.7 / 47.0 | | | |
+
+   - r5 is very steady on reached (24-26, against DART's 16-30 over seeds). Part of it is probably that seeds 1 and 2
+     retrain on data collected behind seed 0's policies (see B7, "What the seeds measure").
+   - **The arm spins were seed 0's, not DAgger's:** seeds 1 and 2, same data and base, never spin or collapse and hold
+     within 5 cm in 49-50/50, like DART (correction at step 15's "New problem found").
+   - Against DART-300 on val: level on reached (25.0 v 23.7 mean), far behind within 1 cm (held 11-19 v 37 for
+     `split_dart_a60x2_s0` on this PC; DART's seeds 1 and 2 not yet run here).
 6. **DAgger behind the chosen (tuned) DART model** (Matteo): `dagger.py --start <DART model> --extra-data <DART folders> --name <new>`, rounds
    until the gain flattens (~5).
 7. **Final comparison** (Matteo): DART alone vs DAgger r5 vs DART + DAgger, 3 seeds each, val 50. **DART alone is
@@ -137,6 +156,19 @@ rejected models lost by more than the seed spread (see "Evidence per feature" un
    before (r5: 23 vs 26/50), smaller than the seed spread, so it doesn't decide the comparison on its own. If the
    DART row and the winner are within that difference, rerun the DART seeds on Matteo's machine before choosing. Chosen by "reached" (seed mean) and stability (held within 5 cm, arm spins, base off the
    floor).
+   **What the seeds measure (2 Nov), for the report:** *"Seeds vary the arm's training; all models share one trained
+   base (`split_arrived_s0`'s), so the reported spread excludes base variation."* Why one base: every row then differs
+   only in the arm, which is what the comparison is about (all DART, DAgger and the 300-episode seeds have it bit for
+   bit, checked 2 Nov). Two caveats to state with it:
+   - The spread is the arm's only; a base retrained per seed would add some (how much is unknown; the base parks within
+     2-4 cm in every run and failed runs park as well as reached ones, so probably little).
+   - **DAgger seed repeats retrain on data collected behind seed 0's policies** (the rounds aren't rerun per seed: ~3 h
+     each). That data fits seed 0 best, so seeds 1 and 2 may come out a little lower and the spread a little narrower
+     than with full reruns. DAgger (and less so DART, where the expert drove) data also fits this base's habits (parks
+     2-3 cm off, latches ~0.25 s early).
+   - **Cheap check of the base's share, later** (with the base tuning after 7): train the base with seeds 1 and 2 (base
+     only), put the final arm on each with `--arm-from` (no arm retraining), val 50 each: ~10 min of runs, shows how
+     much a different base moves the result.
 8. **Full test set (150) on the winner x 3 seeds** (Matteo; seeds shared with Kris's machine).
 
 **If B isn't enough: ideas to improve the final model further (2 Nov, cheapest first; only on 4 Nov, cut-off 4 Nov
@@ -188,6 +220,15 @@ report must already be complete without it; Thursday only swaps in results, nobo
   both scripts skip finished steps, so an interruption resumes with the same command. Risk accepted: if tuning picks
   a bad setting, the rounds run behind it; check `results/tuning/<name>_tuning.csv` in the morning, and if tuning
   didn't help in closed loop, redo the rounds behind the untuned DART model on 3 Nov.
+  **As run (2 Nov, Matteo's PC):** one script (kept outside the repo, decided 2 Nov) chains: (0) check every DART
+  episode loads (a copy of `dart/a60/ep_0087.npz` arrived empty: 0 bytes; it would have crashed every training, so
+  the chain stops at once on any unreadable file), (1) `tune.py --final split_dart_tuned_s0 --split --gravity-residual
+  --base-from split_arrived_s0 --dagger dart/a60 dart/a60b`, (2) `dagger.py --start split_dart_tuned_s0 --extra-data
+  dart/a60 dart/a60b --name split_dartdagger --rounds 5 --val-set`, (3) the winning round by the rule fixed before
+  looking (most reached on val 50, then the smallest median closest approach; checked on the 30 Oct rounds, it picks
+  r5 as then), (4) `compare.py --test-set` on it into `compare_out/<winner>_test/`, (5) its seeds 1 and 2: the same
+  data (DART + rounds 1..k) and the tuned settings, base copied, val 50 each. Logs `compare_out/overnight/`
+  (`chain.log` is the summary).
 - **Kris, overnight:** the DART-side removal runs (9).
 
 **C. Experiments on the final model**
@@ -1508,6 +1549,10 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
     r5 arm, so the spinning arm also disturbs the drive. Cause not known. It isn't DAgger as such: the no-noise DART control
     (19) spins in 15/50 and has flag-0 frames in its extra data. The noisy DART arms spin in 0/50 (19). So the arm
     needs recovery examples in the drive too: use DART data alongside the final DAgger.
+    **Correction (2 Nov, Matteo): the spinning was one seed's, not DAgger's.** r5 retrained with seeds 1 and 2 on the
+    same DAgger data and base never spins (0/50 each) or collapses (B5). So DAgger as such doesn't make the arm spin;
+    seed 0's arm does. DART + DAgger is still the plan (DART's precision within 1 cm), but "DAgger spins" is no longer a
+    reason for it, and the report shouldn't claim it.
 16. **Dropped (1 Nov, Matteo): shallow vs deep check.** Was: train one shallower and one deeper variant of the final
     model to show its size is reasonable. Why dropped: the time goes to the final model and its tests instead;
     efficiency (parameters, inference time per step) is still reported from the existing models (24).

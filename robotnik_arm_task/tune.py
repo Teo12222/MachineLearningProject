@@ -211,6 +211,9 @@ def main():
     # The checked model itself becomes the final one (no retraining, so it is exactly the model that was checked),
     # then its offline test fills the test columns of results/<final>.csv
     shutil.copyfile(CHECKPOINTS / f"{winner['trial']}.pt", CHECKPOINTS / f"{args.final}.pt")
+    # Its loss curves too (train.py's plot of the trial), before the trial files are removed below
+    if (CHECKPOINTS / f"{winner['trial']}_loss.png").exists():
+        shutil.copyfile(CHECKPOINTS / f"{winner['trial']}_loss.png", CHECKPOINTS / f"{args.final}_loss.png")
     update_results(args.final, **{k: v for k, v in read_results(winner["trial"]).items() if k != "model"})
     run_train(args.final, {}, ["--test-only"])
 
