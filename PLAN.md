@@ -1693,6 +1693,27 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
     - Same split, seeds and test set for all runs.
     - Budget time: e.g. 5 components x 3 seeds + the full model x 3 = ~18 trainings plus a `--test-set` run each, so
       aim to have the combined model ready several days before 6 Nov.
+    **DART-side removal runs (C9, 2 Nov, Kris), done:** one part removed at a time from the chosen DART model
+    (`split_dart_a60x2_s*`: 300 episodes at noise 60, gravity residual, base copied from `split_arrived_s0`), 3 training
+    seeds each, val 50, Mac. Noise off = the same 300 targets without noise (`dart/a0` + `dart/a0b`, `--seed 2` / `3`,
+    targets checked identical; the expert reached all 300). Recomputed from the episode files and checked against the
+    logs; runs in `compare_out/<model>_val`. Subsampling not run (decided 2 Nov).
+
+    | model | reached, seeds 0 / 1 / 2 | mean (range) | held 10 / 5 / 2 / 1 cm, seed mean | arm spins | off floor | median final error |
+    |---|---|---|---|---|---|---|
+    | full (`split_dart_a60x2_s*`) | 30 / 16 / 25 | 23.7 (16-30) | 50 / 50 / 45.0 / 36.7 | 0 | 0 | 0.7 / 2.1 / 0.9 cm |
+    | gravity residual off (`split_dart_a60x2_nograv_s*`) | 20 / 23 / 25 | 22.7 (20-25) | 50 / 49.7 / 45.3 / 31.7 | 0 | 0 | 1.5 / 2.5 / 1.3 cm |
+    | noise off (`split_dart_a0x2_s*`) | 0 / 1 / 0 | 0.3 (0-1) | 22.7 / 4.0 / 0 / 0 | 1 / 7 / 0 | 1 / 8 / 1 | 98 / 105 / 104 cm |
+
+    - **The noise is the whole gain:** the same 300 targets without noise collapse like the model without extra data
+      (0-1 reached, about 1 m off at the end, arm spins and the base off the floor in some runs). Confirms step 19's
+      one-seed result (`split_dart_a0_s0`, 150 episodes) with 300 episodes and 3 seeds.
+    - **The gravity residual no longer matters on reached:** 22.7 against 23.7, well inside the seed spread, and the
+      same at 2 cm; slightly lower within 1 cm (31.7 against 36.7, ranges 30-34 and 30-41 overlap). It mattered
+      without DART (step 12: closest approach 4.9 against 10.9 cm on `split_arrived_s0`), so DART's recovery data
+      covers what the residual helped with. For the report: a feature that helped a weak model can stop mattering in
+      the final one, which is why removal runs are done on the final recipe. Measured in the DART model, not in DART +
+      DAgger.
 **Evidence per feature (drafted 2 Nov, Matteo; for the report and Jamie's tables, 22).** Every feature we added,
 whether a test already shows its effect, and the two-row "without / with" table for the report where one exists.
 One seed unless stated. Sets: "val 50" = `compare.py --val-set`, "quick 50" = `--test-set --quick`, "test 150" =
