@@ -1560,6 +1560,41 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
     26 reached, held 1 / 2 / 5 cm 13 / 32 / 42, 8 collapsed, 9 spins. **On the brief's 1 cm the gap is much bigger than
     on reached (37 vs 13 held):** r5 swings around the target (e.g. val 429: between 0.5 and 4 cm every ~1.3 s, never
     settles; torques normal), DART comes in smoothly and stays. One seed each.
+    **DART amount x 3 training seeds (B4, 2 Nov, Kris):** noise 60, validation 50, Mac. 600 episodes = the 300 above
+    plus 300 new (`--seed 4` / `5` into `dart/a60c` / `dart/a60d`; the expert reached 112 and 117 of 150; the nearest new
+    target is 5.0 cm from a validation target, against 3.8 cm for `data_main`'s nearest). Models `split_dart_a60_s*`
+    (150), `split_dart_a60x2_s*` (300), `split_dart_a60x4_s*` (600), runs in `compare_out/<model>_val` (the older four
+    in `compare_out/<model>/val_set`). Recomputed from the episode files and checked against the logs; all 9 on the same
+    50 targets, base copied from `split_arrived_s0`.
+
+    | DART episodes | reached, seeds 0 / 1 / 2 | mean (range) | held 5 cm | held 2 cm | held 1 cm | median final error |
+    |---|---|---|---|---|---|---|
+    | 150 | 20 / 21 / 19 | 20.0 (19-21) | 50 / 50 / 50 | 47 / 39 / 45 | 27 / 28 / 28 | 1.4 / 2.6 / 2.0 cm |
+    | 300 | 30 / 16 / 25 | 23.7 (16-30) | 50 / 50 / 50 | 45 / 43 / 47 | 39 / 30 / 41 | 0.7 / 2.1 / 0.9 cm |
+    | 600 | 30 / 24 / 26 | 26.7 (24-30) | 50 / 50 / 50 | 46 / 48 / 47 | 36 / 39 / 35 | 0.6 / 1.3 / 1.2 cm |
+
+    "Held" = within that distance for 0.5 s without a break (1 cm here is this check, not yet the shared 1 cm number of
+    14). No arm spins in the drive and no base off the floor in any of the 9. Training takes 1.3-3 min at every amount (600:
+    2.0-2.7 min; early stopping ends it sooner, 44-53 arm epochs against 59-77 at 300), so more data costs almost no
+    training time here.
+    **Chosen: 300 (Kris, 2 Nov).** 600 v 300 is a tie under the stopping rule (300's mean, 23.7, is just under 600's
+    lowest seed, 24, and its seeds overlap all of 600's), and a tie goes to the smaller amount. Read step by step the rule
+    would go on to 150 (20.0 is inside 300's 16-30), but 150 is clearly worse than 600 (no seed overlap, 19-21 against
+    24-30) and lower within 1 cm (27-28 against 30-41 at 300 and 35-39 at 600), so it stops at 300. 600 would have had
+    the best mean and the tightest spread; the tie-break's reason (less data trains faster) didn't show in training time.
+    **Full test set, 300 x 3 seeds (2 Nov, Kris, Mac), runs in `compare_out/split_dart_a60x2_s*_test`:**
+
+    | seed | reached (of 150) | held 10 / 5 / 2 / 1 cm | median / mean final error | reach shorter than 50 ms |
+    |---|---|---|---|---|
+    | 0 | 76 | 150 / 148 / 136 / 102 | 1.1 / 2.5 cm | 0 |
+    | 1 | 56 | 150 / 150 / 139 / 90 | 2.1 / 2.6 cm | 1 |
+    | 2 | 61 | 150 / 150 / 139 / 94 | 1.9 / 2.4 cm | 2 |
+
+    **Mean 64.3 / 150 (42.9%), range 56-76**; expert 149/150. Every run parked, no arm spins, nothing off the floor,
+    no latch by timeout. Mean time to reach 15.5 / 16.2 / 14.9 s. Seed 0 rerun from scratch is identical to the 1 Nov
+    run, arm trajectory included, so the test repeats exactly on this machine. The short reaches only pass through 5 mm
+    (3 to 21 ms, final error 1.1-3.2 cm) but count as reached in `compare.py`, as for every model; without them 76 / 55 /
+    59. Against `split_dagger_r5_s0`'s 62/150 (Matteo's PC, one seed): about level, not ahead.
 20. **Randomised arm starting pose:** genuinely new situations that changing the target can't produce (the cart
     start is already covered by robot-frame inputs, see 6). Randomise it and collect data for it if we want to
     claim generalisation to new initial conditions.
