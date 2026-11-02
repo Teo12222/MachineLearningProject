@@ -1545,6 +1545,24 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
     14). No arm spins in the drive and no base off the floor in any of the 9. Training takes 1.3-3 min at every amount (600:
     2.0-2.7 min; early stopping ends it sooner, 44-53 arm epochs against 59-77 at 300), so more data costs almost no
     training time here.
+    **Chosen: 300 (Kris, 2 Nov).** 600 v 300 is a tie under the stopping rule (300's mean, 23.7, is just under 600's
+    lowest seed, 24, and its seeds overlap all of 600's), and a tie goes to the smaller amount. Read step by step the rule
+    would go on to 150 (20.0 is inside 300's 16-30), but 150 is clearly worse than 600 (no seed overlap, 19-21 against
+    24-30) and lower within 1 cm (27-28 against 30-41 at 300 and 35-39 at 600), so it stops at 300. 600 would have had
+    the best mean and the tightest spread; the tie-break's reason (less data trains faster) didn't show in training time.
+    **Full test set, 300 x 3 seeds (2 Nov, Kris, Mac), runs in `compare_out/split_dart_a60x2_s*_test`:**
+
+    | seed | reached (of 150) | held 10 / 5 / 2 / 1 cm | median / mean final error | reach shorter than 50 ms |
+    |---|---|---|---|---|
+    | 0 | 76 | 150 / 148 / 136 / 102 | 1.1 / 2.5 cm | 0 |
+    | 1 | 56 | 150 / 150 / 139 / 90 | 2.1 / 2.6 cm | 1 |
+    | 2 | 61 | 150 / 150 / 139 / 94 | 1.9 / 2.4 cm | 2 |
+
+    **Mean 64.3 / 150 (42.9%), range 56-76**; expert 149/150. Every run parked, no arm spins, nothing off the floor,
+    no latch by timeout. Mean time to reach 15.5 / 16.2 / 14.9 s. Seed 0 rerun from scratch is identical to the 1 Nov
+    run, arm trajectory included, so the test repeats exactly on this machine. The short reaches only pass through 5 mm
+    (3 to 21 ms, final error 1.1-3.2 cm) but count as reached in `compare.py`, as for every model; without them 76 / 55 /
+    59. Against `split_dagger_r5_s0`'s 62/150 (Matteo's PC, one seed): about level, not ahead.
 20. **Randomised arm starting pose:** genuinely new situations that changing the target can't produce (the cart
     start is already covered by robot-frame inputs, see 6). Randomise it and collect data for it if we want to
     claim generalisation to new initial conditions.
