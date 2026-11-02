@@ -46,6 +46,127 @@ Look there for the current state of each model instead of this file.
 
 ## Who does what
 
+### Plan from 2 Nov (decided 2 Nov, Matteo and Kris; overrides "Plan from 1 Nov" where they differ)
+
+Why a new order: DART and DAgger fix different things (DART: recovery near the expert's states, a stable arm that
+never spins; DAgger: the states the policy actually visits, the last 2 cm), so the final model combines them. DAgger's
+corrections only fit the policy they were collected behind (step 13's vw result), so **the DART amount is fixed first
+and DAgger runs behind that exact model**. The seed spread (DART 16-30/50 on val) is bigger than the gaps being
+decided, so the final choice uses 3 seeds on one machine. Seed repeats only for the candidates and the final model:
+rejected models lost by more than the seed spread (see "Evidence per feature" under step 23).
+
+**A. Before any run**
+1. `data_main` verified on the machine that runs (1,000 episodes, 700 / 150 / 150 split, the 6 known drops). (Matteo,
+   Kris)
+2. **`dagger.py` accepts the DART data** (Matteo): a `--keep <folders>` option whose folders go into every round's
+   `train.py --dagger`. Why: `dagger.py` starts every run with only its own round folders, so behind a DART model it
+   would silently retrain without the DART data and "DART + DAgger" would really be DAgger alone.
+3. The DART-amount runs (B4) are the arm half of the learning curve (17), not run twice. (Matteo, Kris)
+
+**B. Choose the final model**
+4. **DART rounds: amount x seeds** (Kris, **by the end of 2 Nov**): **start high and go down** (decided 2 Nov, to
+   save trainings: 2-3 amounts x 3 seeds instead of 5 x 3). Noise 60, 3 training seeds each, val 50:
+   - First **600 episodes** (the 300 at `--seed 2` / `3` plus 300 new on `--seed 4` / `5`; check the new targets are
+     not next to validation ones, as before), then **300**, then **150**.
+   - **Stopping rule, fixed before looking:** compare seed means of "reached" (and held within 5 cm). If the lower
+     amount is within the seed spread of the higher one, the higher one isn't worth it: go down another step. As soon
+     as a lower amount is clearly worse, stop and take the amount above it. **On a tie, take the smaller amount:** the
+     DART data goes into every later training (tuning, all DAgger rounds, all seeds), so less data makes the whole
+     chain faster.
+   - Hand over the chosen amount: **all 3 seeds' checkpoints, their `results/` files and val numbers, and the DART
+     data folders** (Matteo reuses them, see 7).
+   - Fallback, only if something crashes or runs long: if not all seeds are done by 3 Nov midday, Kris picks the best
+     amount among the seeds that are finished and hands that one over; the remaining seeds still finish and still
+     count for the DART-alone row (7).
+4a. **Fix `tune.py` for split models, then tune the arm of the chosen DART model** (Matteo; reverses "Dropped:
+   tuning of the final model" of 1 Nov). Fix first: `tune.py` doesn't pass `--split`, `--gravity-residual` or the
+   `--dagger` folders, and its printout and summary use `best_epoch` / `epochs`, which are empty for split models
+   (use `arm_epochs` / `arm_best_epoch`); tune the arm only (`--base-from split_arrived_s0`, the base is already
+   good). **Run it before the DAgger rounds (6), on the DART model:** DART data is labelled by the expert on its own
+   runs, so it fits any retuned arm, while DAgger data only fits the policy it was collected behind, so tuning after
+   the rounds would leave them collected behind a different policy; tuning after the seed runs (7, 8) would invalidate
+   those too. Judge in closed loop (`tune.py` already checks the best few on validation targets): the first tuning run
+   improved the validation loss but made closed loop worse (step "Hyperparameter tuning"). ~1 h; if it doesn't fit by
+   3 Nov evening, skip it and say so in the report.
+5. **DAgger seed rounds** (Matteo, from 2 Nov): `split_dagger_r5` retrained with training seeds 1 and 2 on its existing
+   DAgger data (seed repeats of the DAgger candidate).
+6. **DAgger behind the chosen (tuned) DART model** (Matteo): `dagger.py --start <DART model> --keep <DART folders>`, rounds
+   until the gain flattens (~5).
+7. **Final comparison** (Matteo): DART alone vs DAgger r5 vs DART + DAgger, 3 seeds each, val 50. **DART alone is
+   not retrained:** its 3 seeds are Kris's runs from 4 (3 trainings saved). Consequence: that row comes from Kris's
+   machine and the other two from Matteo's, so mark the machine in the table; Mac vs PC differed by a few episodes
+   before (r5: 23 vs 26/50), smaller than the seed spread, so it doesn't decide the comparison on its own. If the
+   DART row and the winner are within that difference, rerun the DART seeds on Matteo's machine before choosing. Chosen by "reached" (seed mean) and stability (held within 5 cm, arm spins, base off the
+   floor).
+8. **Full test set (150) on the winner x 3 seeds** (Matteo; seeds shared with Kris's machine).
+
+**Overnight 2 -> 3 Nov (decided 2 Nov):** the 3 Nov work only waits for Kris's handover, not for the date, so it runs
+overnight and the final comparison (7) moves to 3 Nov.
+
+**Week from 3 Nov (decided 2 Nov):**
+
+| Day | Matteo | Kris | Jamie |
+|---|---|---|---|
+| Tue 3 Nov | Final comparison (7), full test 150 on the winner x 3 seeds (8) | Helps get to the final model (runs part of 8's seeds); **once the 150 tests on the winner are done, starts the camera**. Noise-config change for (12), smoke-tested | Results table, big table, efficiency, plots, out-of-range targets |
+| Wed 4 Nov | **Report: a good full draft** (own sections + the camera section written as future work / in progress; start-pose table filled in when the runs finish). **In the background: start-pose test (11)** | **Report: a good full draft** (own sections; sensor-noise table filled in when the runs finish). **In the background: sensor-noise runs (12)** | Own sections, results table with the final model |
+| Thu 5 Nov | Final edit + README; joins the camera once the edit is done | **Finishes the camera**; its results replace the future-work section only if it works by **Thursday evening** (cut-off) | Conclusion, contribution statement, results table final |
+| Fri 6 Nov | Buffer + submission | Buffer | Buffer |
+
+Why the camera section is written on Wednesday as future work: the camera finishes the day before the deadline, so the
+report must already be complete without it; Thursday only swaps in results, nobody rewrites sections on Friday.
+- **Matteo, before the handover:** fix `tune.py` and add `--keep` to `dagger.py`, then **smoke-test both** (1 epoch,
+  2 validation episodes, 1 DAgger round on a few targets): a chain that crashes at night loses the night. Run the r5
+  seed repeats (5) while the machine is idle.
+- **Matteo, overnight:** tuning (4a) and the DAgger rounds (6) chained in one command (`tune.py ... && dagger.py
+  --start <tuned> --keep <DART folders>`), one job at a time (parallel jobs share the CPU). PC awake and plugged in;
+  both scripts skip finished steps, so an interruption resumes with the same command. Risk accepted: if tuning picks
+  a bad setting, the rounds run behind it; check `results/tuning/<name>_tuning.csv` in the morning, and if tuning
+  didn't help in closed loop, redo the rounds behind the untuned DART model on 3 Nov.
+- **Kris, overnight:** the DART-side removal runs (9).
+
+**C. Experiments on the final model**
+9. Removal runs (23): DAgger off (Matteo); gravity residual off and other DART-side removals (Kris, **overnight
+   2 -> 3 Nov**, at the chosen DART amount, once 4 is done; DART data is labelled by the expert on its own runs, so it
+   fits any retrained model, and these runs don't wait for the final model). They measure each component in the DART
+   model, not in DART + DAgger: say so next to the numbers. Evidence table from existing comparisons (Jamie).
+10. Learning curve (17), base half (Kris): **only after the report drafts, if time is left** (moved 2 Nov). Why: the
+    base already parks like the expert, so it can't change the final model; the arm half is 4.
+11. **Start-pose test** (Matteo; **runs on Wed 4 Nov in the background while we write the report**, on the final model, with 12) and out-of-range targets (Jamie) (24). No new code: `run_batch.py --script
+    robotnik_arm_policy_task.py --start-pose x,y,yaw --n 50 --out-dir starts/<model>_<pose>` with `ROBOENV_POLICY` set,
+    and the same without `--script` for the expert as the reference; ~3 poses (offset, rotated, both). The world-frame
+    baseline can no longer run (its inputs were removed in step 6), so its expected failure stays as words.
+12. **Robustness: sensor noise only** (Kris; **runs on Wed 4 Nov in the background while we write the report**, on the final model, with 11;
+    the noise-config change is done and smoke-tested on Tuesday; decided 2 Nov:
+    friction and shoves dropped, the start-pose test (11) is the other robustness result). Uses the simulator's own
+    noise: `noise_flag` and `robot_noise` in the config (noise on joint angles / velocities and base position /
+    orientation, i.e. exactly what the policy reads); `collision_enable` (self-collision: the arm can hit the base) as
+    one extra "different physics" run if time allows. Catches:
+    - The `*_cov` values are **standard deviations**, not variances (passed straight to `np.random.normal` as the
+      spread): the default 0.0001 is 0.1 mrad. Pick levels as standard deviations, e.g. 0.001 / 0.005 / 0.01 rad.
+    - **Don't edit the shared `robotnik_arm.json`**: every script reads it (expert, `run_batch.py`, DART / DAgger
+      collection, `compare.py`), so data collected meanwhile would silently be noisy. Use a copy
+      (`robotnik_arm_noise.json`) picked by an environment variable (small change: both task scripts hard-code the
+      file name).
+    - The noise is not seeded (global `np.random`): runs aren't repeatable; use the 50 validation targets.
+    - The expert reference needs **fresh expert runs under the same noise** (`run_batch.py` with the noisy config
+      into its own folder, never `data_main`): `compare.py --test-set` scores the expert from the stored clean
+      episodes.
+13. Efficiency table (Jamie) (24).
+14. Decide: report success at 1 cm too, next to 5 mm (team).
+
+**D. Extensions:** camera (Kris from 3 Nov once the winner's test 150 is done, finished 5 Nov; Matteo joins after the
+final edit; cut-off Thursday evening, see the week table); parking pose + arm early: future work in the report. Dropped unless time: parked-start arm episodes, randomised arm start
+(20), more low targets (18).
+
+**E. Report:** results table and the big table from "Evidence per feature" (Jamie); analysis plots (Jamie); own
+sections drafted by **4 Nov evening** (Matteo: introduction, data collection (26), pipeline and evaluation method,
+input features, split + DAgger, the 15 vs 14 point; Kris: subsampling, cleaning, temporal models, DART, learning
+curve, robustness, offline vs closed loop; Jamie: gravity residual, (v, w), efficiency); **5 Nov** final edit + README
+(Matteo), conclusion + contribution statement (Jamie); **6 Nov** buffer and submission.
+
+**If it slips, cut in this order:** camera -> the 0 / 75 / 600 DART points -> tuning (4a) -> robustness down to sensor noise only.
+Never cut: the final comparison with seeds, the full test set, the report.
+
 ### Plan from 1 Nov (decided 1 Nov; overrides the lists below where they differ)
 
 Everything is merged into `master`. Commit small changes straight to `master` and pull often; use a branch only for
@@ -1465,6 +1586,133 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
     - Same split, seeds and test set for all runs.
     - Budget time: e.g. 5 components x 3 seeds + the full model x 3 = ~18 trainings plus a `--test-set` run each, so
       aim to have the combined model ready several days before 6 Nov.
+**Evidence per feature (drafted 2 Nov, Matteo; for the report and Jamie's tables, 22).** Every feature we added,
+whether a test already shows its effect, and the two-row "without / with" table for the report where one exists.
+One seed unless stated. Sets: "val 50" = `compare.py --val-set`, "quick 50" = `--test-set --quick`, "test 150" =
+`--test-set`; rows of one table always come from the same set. Only `--test-set` writes `sim_success_rate` to
+`results/`: val 50 and quick 50 numbers are in this file and the `compare.py` printouts only. Features without a test
+are listed after the tables: **justify them in words in the report, or give them a removal run if time allows.**
+
+- **Expert chatter fix (fix 5)**, `mlp_robotframe` retrained, quick 50:
+
+  | Training data | Val loss | Test torque RMSE | Closest to parking spot (median) | Closest EE (median) |
+  |---|---|---|---|---|
+  | Old expert (torque chatter) | 0.0089 | 0.209 N*m | 0.76 m | 0.72 m |
+  | Fixed expert | 0.0038 | 0.116 N*m | 0.09 m | 0.17 m |
+
+- **Robot-frame inputs (6)**, old data:
+
+  | Inputs | Val loss | Test wheels / torques RMSE | Closed loop |
+  |---|---|---|---|
+  | World frame (`mlp_worldframe`) | 0.0095 | 0.094 / 0.221 | 0/150 |
+  | Robot frame (`mlp_robotframe`) | 0.0089 | 0.086 / 0.209 | 0/50 (quick) |
+
+  From the origin both hold the same information, so no difference is expected here: the real test is the start-pose
+  test (24, still to do), where the robot frame should hold up and the world frame should fail.
+- **Adaptive subsampling (7)**, split arm only, val 50 (`split_arrived_armuniform_s0` vs `split_arrived_s0`):
+
+  | Arm training frames | Closest EE (median) | Ever under 5 cm | Ever under 2 cm |
+  |---|---|---|---|
+  | Uniform | 9.4 cm | 11/50 | 2 |
+  | Adaptive | 4.9 cm | 26/50 | 5 |
+
+  Supporting, single MLP (quick 50): arm deviation at 6 s 0.520 rad uniform (`mlp_robotframe_uniform_s0`) vs 0.346
+  adaptive (`mlp_robotframe_s0`).
+- **Gravity residual (12)**, split, val 50 (`split_arrived_nograv_s0` vs `split_arrived_s0`):
+
+  | Arm torques learned | Closest EE (median) | Ever under 5 cm | Ever under 2 cm | Error back > 20 cm after the latch |
+  |---|---|---|---|---|
+  | Full torque | 10.9 cm | 13/50 | 1 | 0.9 s |
+  | Residual (gravity from Pinocchio) | 4.9 cm | 26/50 | 5 | 2.9 s |
+
+  Offline the two are identical (arm val 0.0008): an offline vs closed-loop point for the report.
+- **(v, w) wheel outputs (13)**, split with the same DAgger r5 arm, val 50: 4 wheel speeds (`split_dagger_r5_s0`)
+  26/50 reached vs (v, w) base (`split_vwbase_r5arm_s0`) 6/50. Its base parks better (step 13), so the drop is the
+  arm meeting states its DAgger data wasn't collected in: also the evidence that DAgger data only fits its own policy.
+- **Temporal model (14)**, single models, test 150:
+
+  | Model | Reached | Parked within 15 cm | Closest EE (median) | Base off the floor |
+  |---|---|---|---|---|
+  | MLP (`mlp_gravres_lr1e3_s0`) | 0 | 127 | 11.6 cm | 6 |
+  | GRU, 1000 ms windows (`gru_h192_w1000_gravres_s0`) | 0 | 148 | 7.6 cm | 0 |
+
+  TCN (`tcn_L4_d10_gravres_s0`) and past-frame window (`temporal_window_k4_d50_gravres_s0`) left the floor in 139
+  and 144 of 150: text, not a row.
+- **Split networks (15)**, no DAgger, val 50 (Mac):
+
+  | Model | Reached | Held within 10 / 5 / 2 cm for 0.5 s | Parked | Base off the floor |
+  |---|---|---|---|---|
+  | Single MLP (`mlp_gravres_lr1e3_s0`) | 0 | 9 / 3 / 0 | 44 | 4 |
+  | Split (`split_arrived_s0`) | 0 | 38 / 16 / 0 | 50 | 3 |
+
+- **DAgger (21)**, val 50 (PC):
+
+  | Model | Reached | Closest EE (median) | Collapsed (error back > 20 cm) |
+  |---|---|---|---|
+  | No DAgger (`split_arrived_s0`) | 0/50 | 4.9 cm | 50/50 |
+  | 5 rounds (`split_dagger_r5_s0`) | 26/50 | 0.5 cm | 8/50 |
+
+  Test 150: 62/150. All five rounds are in step 21 (big table).
+- **DART (19)**, 150 extra arm episodes on the same targets, val 50 (Mac):
+
+  | Extra arm data | Reached | Held within 10 / 5 / 2 cm | Arm spins in the drive |
+  |---|---|---|---|
+  | 150 clean expert episodes (`split_dart_a0_s0`) | 1 | 10 / 3 / 0 | 15 |
+  | 150 episodes, arm noise 60 (`split_dart_a60_s0`) | 20 | 50 / 50 / 47 | 0 |
+
+  The gain is the noise, not the extra data. Test 150 (`split_dart_a60x2_s0`, 300 episodes): 76/150, but its seed 1
+  gets 16/50 on val against seed 0's 30: report the seed mean (B).
+- **GRU base in the split (15)**, same DAgger r5 arm, val 50 (Mac):
+
+  | Base network | Reached | Held within 10 / 5 / 2 cm | Base off the floor |
+  |---|---|---|---|
+  | MLP (`split_dagger_r5_s0`) | 23 | 43 / 43 / 33 | 1 |
+  | GRU (`split_grubase_r5arm_s0`) | 11 | 47 / 39 / 18 | 0 |
+
+  Not fair to the GRU (the DAgger data was collected behind the MLP base): say so next to the table.
+- **Tuning vs development defaults** (`tune.py`), test 150:
+
+  | Settings | Val loss | Reached | Final error (median) |
+  |---|---|---|---|
+  | Defaults, early stopping (`mlp_robotframe`) | 0.00377 | 0/150 | 0.86 m |
+  | Tuned (`mlp_robotframe_tuned`) | 0.00217 | 0/150 | 1.90 m |
+
+  A lower validation loss with a worse closed loop: the offline vs closed-loop gap.
+
+**No test yet: justify in words in the report, or a removal run if time allows** (Jamie: decide with the owner which
+of these get a run; the rest get one sentence each):
+- **DART + DAgger combined:** to do, it is the final-model comparison (B), not optional.
+- **Episode cleaning (8):** drops 6 of 1,000 episodes (5 stalled, 1 drifted to 10 mm). Words: a failed run is a wrong
+  demonstration. Run (cheap): train without `clean_ids`; expected no visible change at 6 episodes.
+- **sin/cos joint angles:** words: no jump at +-pi; in `data_main` all joints stay within +-0.7 rad, so no effect is
+  expected on this data (it matters for randomised arm starts, 20). No run.
+- **Robot frame, polar vs Cartesian:** only Cartesian was built. Words: Cartesian chosen for simplicity, polar
+  (the expert's own distance + bearing) as future work. A run needs new code: skip.
+- **Hand-coded rules in the split policy** (wheels forced to 0 after the latch, latch at the 25 s timeout): words:
+  they mirror the expert's own rules. Evidence that they don't carry the result: no latch by timeout in the DART
+  full test (150/150 latched by the network). No run.
+- **Safety clips** (wheels +-3 rad/s, torques +-30 N*m): words: the expert's own ranges. Evidence (old data,
+  `mlp_robotframe`, quick 50): final error mean 222 m without the wheel clip, 5.1 m with. No run.
+- **Learning curve (17), start pose, out-of-range targets, robustness (24):** planned (C), not done.
+
+**Big table for Jamie (22): every test not shown in a two-row table above but worth showing** (appendix or one large
+results table; one row per model; take the numbers from `results/` where `sim_*` exists, otherwise from the step
+named; mark the set, the machine and the number of seeds in every row):
+
+| Group | Models (rows) | Set | Where the numbers are |
+|---|---|---|---|
+| Baselines | `mlp_worldframe`, `mlp_robotframe_old`, `mlp_robotframe_s0`, `mlp_robotframe_mac_s0`, `mlp_robotframe_tuned` | test 150 / quick 50 | step 6, tuning, `results/` |
+| Gravity residual, single | `mlp_gravres_s0`, `mlp_gravres_lr1e3_s0`, `nogravres_s0` | quick 50 / test 150 | step 12, step 14 |
+| (v, w) | `vw_s0`, `gru_h192_w1000_vw_gravres_s0`, `split_vwbase_r5arm_s0` | val 50 | step 13, step 14 |
+| Past-frame windows | `temporal_window_k4_d10_s0`, `_d50_s0`, `_d125_s0`, `_d50_gravres_s0` | quick 50 / test 150 | step 14 |
+| TCN | `tcn_L4_d10_gravres_s0`, `_lr1e3_s0`, `tcn_L6_...`, `tcn_L8_...` | quick 50 | step 14 |
+| GRU | `gru_h192_w250/w1000/w2000_gravres_s0`, `gru_h192_w1000_gravres_pc_s0` (Mac vs PC) | quick 50 / test 150 / val 50 | step 14 |
+| Split variants | `split_arrived_s0`, `_nograv_s0`, `_armuniform_s0`, `split_mlpbase_gruarm_s0`, `split_grubase_gruarm_s0`, `split_grubase_r5arm_s0` | val 50 | step 15 |
+| DAgger rounds | `split_dagger_r1` ... `r5_s0`, `split_dagger_vw_s0` | val 50, r5 also test 150 | step 21 |
+| DART | `split_dart_a0/a20/a60/a100_s0`, `split_dart_a60_s1`, `split_dart_a60x2_s0/_s1` | val 50, a60x2_s0 also test 150 | step 19 |
+| Final model | the winner of B, 3 seeds + removal runs (23) | test 150 | to come |
+| Expert | `expert` | test 150 | `results/expert.csv` |
+
 24. **Experiments:**
     - **Several seeds per model, reported as mean +- spread** (e.g. 3 seeds each, mean +- standard deviation).
       Training is random (weight initialisation, batch order), so one run can be lucky or unlucky; a difference
