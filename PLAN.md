@@ -1772,6 +1772,10 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
       covers what the residual helped with. For the report: a feature that helped a weak model can stop mattering in
       the final one, which is why removal runs are done on the final recipe. Measured in the DART model, not in DART +
       DAgger.
+    - **Rerun on the merged code (2 Nov, Kris), as Matteo asked:** all 6 retrained after merging master (per-network
+      settings, 4a): arm weights bit for bit identical, the 50 validation trajectories identical, so the table stands
+      (reruns not kept). Redo only if tuning (4a) gives the DART arm non-default settings: the removals belong on the
+      final recipe.
 **Evidence per feature (drafted 2 Nov, Matteo; for the report and Jamie's tables, 22).** Every feature we added,
 whether a test already shows its effect, and the two-row "without / with" table for the report where one exists.
 One seed unless stated. Sets: "val 50" = `compare.py --val-set`, "quick 50" = `--test-set --quick`, "test 150" =
