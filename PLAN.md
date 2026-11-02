@@ -1761,6 +1761,20 @@ named; mark the set, the machine and the number of seeds in every row):
     - Robustness (sensor noise, friction, shoves).
     - Efficiency (parameters, inference time per step).
 25. **Analysis plots:** final error vs target height and distance (once some targets succeed).
+    - **Loss curves (added 2 Nov, Matteo):** training and validation loss per epoch for the base and the arm network,
+      the kept (best validation) epoch marked, saved as `checkpoints/<model>_loss.png` by `train.py` (it only prints
+      them now; saving them changes nothing that is trained). Why: shows over- / underfitting and where early stopping
+      cut, and is the offline half of the offline vs closed-loop point (DAgger: val loss worse, closed loop better).
+      Copied networks (`--base-from` / `--arm-from`) have no curve of their own; GRU halves (`fit_gru`) aren't
+      recorded. Built and tried first on `test/arm-features` (feature check, step 6), for `split_arrived_s0` and the
+      input variants.
+    - **Torque graphs (added 2 Nov, Matteo):** for 2-3 validation episodes, the 7 arm torques of the policy vs the
+      expert's on the same target over time, with the latch time and the expert's arrival marked, and the EE error on
+      a second axis. From the saved policy `.npz` (`compare_out/<model>_val/val_set/`) and the expert episode in
+      `data_main`: no new simulation. One episode that gets close and one that collapses. Why: shows where the policy
+      leaves the expert (the drift ~1 s into the reach, step 15) and whether it ends at the torque limit.
+      Note: the two runs are only aligned at t = 0, not at the latch (the latches differ by ~0.2 s), so the torque
+      jump at arrival shows up twice.
 26. **Data collection rationale (report):** why targets are sampled as they are (radius 1-3 m, height 0.2-1.1 m,
     full circle, uniform over the area), why one fixed start pose, how many episodes and why.
 27. **Report:** IEEE template, max 6 pages + contribution statement; code README must say what was written from
