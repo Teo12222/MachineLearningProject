@@ -74,13 +74,19 @@ rejected models lost by more than the seed spread (see "Evidence per feature" un
 **A. Before any run**
 1. `data_main` verified on the machine that runs (1,000 episodes, 700 / 150 / 150 split, the 6 known drops). (Matteo,
    Kris)
-2. **`dagger.py` accepts the DART data** (Matteo): a `--keep <folders>` option whose folders go into every round's
+2. **`dagger.py` accepts the DART data** (Matteo): a `--extra-data <folders>` option whose folders go into every round's
    `train.py --dagger`. Why: `dagger.py` starts every run with only its own round folders, so behind a DART model it
    would silently retrain without the DART data and "DART + DAgger" would really be DAgger alone.
    **Catch (2 Nov):** the default `--name split_dagger` reuses `dagger/split_dagger_r<k>` and `split_dagger_r<k>_s0`,
    which exist for rounds 1-5 on Matteo's PC, and finished steps are skipped: without its own `--name` the chain would
    collect and train nothing and "finish" with the old r1-r5. So the overnight run gets its own name (e.g. `--name
    split_dartdagger`), and `dagger.py` refuses a name whose round 1 was started from another `--start`.
+   **Built (2 Nov), smoke test pending:** `--extra-data`, the name guard (round 1's folder records `--start` and
+   `--extra-data` in `dagger_info.json`; a clash, or an old run without the record such as the 30 Oct r1-r5, stops
+   before anything runs), and two more fixes found on the way: the rounds now copy the base from `--start`
+   (`--base-from`; it was retrained, the same weights at seed 0 but a different base for the seed repeats, while every
+   DART model copies `split_arrived_s0`'s), and they take lr, batch and weight decay from `--start`'s results file
+   (only the sizes were passed, so a tuned start model's rounds would have trained with the defaults).
 3. The DART-amount runs (B4) are the arm half of the learning curve (17), not run twice. (Matteo, Kris)
 
 **B. Choose the final model**
@@ -110,7 +116,7 @@ rejected models lost by more than the seed spread (see "Evidence per feature" un
    3 Nov evening, skip it and say so in the report.
 5. **DAgger seed rounds** (Matteo, from 2 Nov): `split_dagger_r5` retrained with training seeds 1 and 2 on its existing
    DAgger data (seed repeats of the DAgger candidate).
-6. **DAgger behind the chosen (tuned) DART model** (Matteo): `dagger.py --start <DART model> --keep <DART folders>`, rounds
+6. **DAgger behind the chosen (tuned) DART model** (Matteo): `dagger.py --start <DART model> --extra-data <DART folders> --name <new>`, rounds
    until the gain flattens (~5).
 7. **Final comparison** (Matteo): DART alone vs DAgger r5 vs DART + DAgger, 3 seeds each, val 50. **DART alone is
    not retrained:** its 3 seeds are Kris's runs from 4 (3 trainings saved). Consequence: that row comes from Kris's
@@ -161,11 +167,11 @@ overnight and the final comparison (7) moves to 3 Nov.
 
 Why the camera section is written on Wednesday as future work: the camera finishes the day before the deadline, so the
 report must already be complete without it; Thursday only swaps in results, nobody rewrites sections on Friday.
-- **Matteo, before the handover:** fix `tune.py` and add `--keep` to `dagger.py`, then **smoke-test both** (1 epoch,
+- **Matteo, before the handover:** fix `tune.py` and add `--extra-data` to `dagger.py`, then **smoke-test both** (1 epoch,
   2 validation episodes, 1 DAgger round on a few targets): a chain that crashes at night loses the night. Run the r5
   seed repeats (5) while the machine is idle.
 - **Matteo, overnight:** tuning (4a) and the DAgger rounds (6) chained in one command (`tune.py ... && dagger.py
-  --start <tuned> --keep <DART folders>`), one job at a time (parallel jobs share the CPU). PC awake and plugged in;
+  --start <tuned> --extra-data <DART folders> --name <new>`), one job at a time (parallel jobs share the CPU). PC awake and plugged in;
   both scripts skip finished steps, so an interruption resumes with the same command. Risk accepted: if tuning picks
   a bad setting, the rounds run behind it; check `results/tuning/<name>_tuning.csv` in the morning, and if tuning
   didn't help in closed loop, redo the rounds behind the untuned DART model on 3 Nov.

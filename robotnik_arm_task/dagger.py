@@ -4,6 +4,8 @@ retrain on everything collected so far, repeat.
 Usage (from the robotnik_arm_task folder):
     pixi run python dagger.py --start split_arrived_s0 --rounds 3          # rounds 1-3, 200 training targets each
     pixi run python dagger.py --start split_arrived_s0 --rounds 3 --val-set  # + compare.py --val-set per round
+    pixi run python dagger.py --start split_dart_a60x2_s0 --extra-data dart/a60 dart/a60b --name split_dartdagger
+                                                   # behind a DART model, its DART data in every round (PLAN.md A2)
 
 Round k (models split_dagger_r<k>_s<seed>, round 1 starting from --start):
 1. The previous model runs headless on --n TRAINING targets (never validation or test ones), the next block of a
@@ -12,18 +14,22 @@ Round k (models split_dagger_r<k>_s<seed>, round 1 starting from --start):
 2. Each run's arm phase is labelled with the expert's arm torques (expert_relabel.py): from the latch until --window
    seconds later, or until the expert's label stays at its torque limit (see label_run), whichever comes first.
    Saved as dagger/split_dagger_r<k>/ep_XXXX.npz in data_main's episode format (see save_episode).
-3. train.py --split --dagger <all rounds' folders> trains the round's model from scratch (base unchanged: same data
-   and seed give the same weights; settings and gravity residual taken from --start's checkpoint).
+3. train.py --split --dagger <--extra-data folders + all rounds' folders> trains the round's arm from scratch, with the
+   base copied from --start (--base-from) and the settings of --start: sizes and gravity residual from its checkpoint,
+   lr, batch and weight decay from its results file (a tuned start model keeps its tuned settings).
 4. With --val-set: compare.py --val-set into compare_out/<model>/, the 50 validation episodes used for decisions
    such as which round to keep (never writes results; test episodes are only for the final numbers).
 
 Steps that are already done are skipped (episode folder complete, checkpoint present), so an interrupted run can be
-restarted with the same command. dagger/ is git-ignored.
+restarted with the same command. dagger/ is git-ignored. Round 1's folder records --start and --extra-data
+(dagger_info.json); a run whose --name already belongs to another start or extra-data set stops before anything runs,
+because skipping "done" steps would otherwise silently reuse another run's data and models.
 """
 import os
 os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")   # torch + numpy each ship an OpenMP runtime on Windows
 
 import argparse
+import json
 import subprocess
 import sys
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
@@ -34,6 +40,7 @@ import numpy as np
 from bc_data import clean_ids, split_episodes
 from bc_split import SplitPolicy, load_policy
 from compare import POLICY_SCRIPT, POLICY_TIMEOUT, load_npz, run_episode, stored_start
+from results import read_results
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 DATA_DIR = SCRIPT_DIR / "data_main"
@@ -120,16 +127,45 @@ def main():
     parser.add_argument("--window", type=float, default=5.0, help="seconds of the arm phase labelled after the latch")
     parser.add_argument("--workers", type=int, default=16, help="policy runs / labelling processes in parallel")
     parser.add_argument("--val-set", action="store_true", help="compare.py --val-set after each round")
+    parser.add_argument("--extra-data", nargs="+", default=[], metavar="FOLDER",
+                        help="episode folders added to every round's training next to the rounds' own, e.g. the DART "
+                             "data of the --start model (run_batch.py --noise); without them a DART start model's "
+                             "rounds would train without its DART data (PLAN.md A2)")
     args = parser.parse_args()
+
+    # Checked up front, so a typo stops the run before any simulation
+    extra = [str(Path(f).resolve()) for f in args.extra_data]
+    for folder in extra:
+        if not list(Path(folder).glob("ep_*.npz")):
+            parser.error(f"--extra-data {folder}: no ep_*.npz episodes there")
+    # A --name already used by another run: its "done" steps would be skipped, i.e. its data and models reused
+    info_file = DAGGER_DIR / f"{args.name}_r1" / "dagger_info.json"
+    info = dict(start=args.start, extra_data=extra)
+    if info_file.exists():
+        if json.loads(info_file.read_text()) != info:
+            parser.error(f"--name {args.name} belongs to another run ({info_file}: {info_file.read_text().strip()}); "
+                         "pick another --name")
+    elif ((DAGGER_DIR / f"{args.name}_r1").exists()
+          or (SCRIPT_DIR / "checkpoints" / f"{args.name}_r1_s{args.seed}.pt").exists()):
+        parser.error(f"--name {args.name}: round 1's data or model exists from a run without a record of its start "
+                     "model (e.g. the r1-r5 of 30 Oct); pick another --name")
 
     start = load_policy(SCRIPT_DIR / "checkpoints" / f"{args.start}.pt")
     if not isinstance(start, SplitPolicy):
         parser.error(f"{args.start} is not a split model (DAgger labels only the split arm network)")
     cfg = start.config
-    # Same training settings as the start model, so the rounds differ from it only in the DAgger data
+    # Same training settings as the start model, so the rounds differ from it only in the DAgger data. The checkpoint
+    # holds the sizes; lr, batch and weight decay are only in its results file (empty there: train.py's default)
+    row = read_results(args.start)
     train_options = ["--split", "--gravity-residual" if cfg["gravity_residual"] else "--no-gravity-residual",
                      "--hidden", str(cfg["hidden"]), "--layers", str(cfg["layers"]), "--dropout", str(cfg["dropout"]),
-                     "--seed", str(args.seed)]
+                     "--seed", str(args.seed), "--base-from", args.start]
+    for option, column in (("--lr", "lr"), ("--batch", "batch"), ("--weight-decay", "weight_decay")):
+        if row.get(column):
+            train_options += [option, row[column]]
+    print(f"round settings: {' '.join(train_options)}")
+    if extra:
+        print(f"extra data in every round: {', '.join(extra)}")
 
     # Training targets in a fixed random order; round k takes the k-th block of n, wrapping around to the start once
     # all have been used (696 training targets: 3 rounds of 200 before any repeats). Repeating a target is fine in
@@ -139,7 +175,7 @@ def main():
     order = np.random.default_rng(0).permutation(train_ids)
     env = dict(os.environ, MPLBACKEND="Agg")   # train.py / compare.py plots are saved, not shown
 
-    model, folders = args.start, []
+    model, folders = args.start, list(extra)
     for k in range(1, args.rounds + 1):
         new_model = f"{args.name}_r{k}_s{args.seed}"
         folder = DAGGER_DIR / f"{args.name}_r{k}"
@@ -148,6 +184,9 @@ def main():
         if len(list(folder.glob("ep_*.npz"))) >= args.n:
             print(f"  {folder.name} already collected, skipping the runs")
         else:
+            if k == 1:
+                folder.mkdir(parents=True, exist_ok=True)
+                info_file.write_text(json.dumps(info))
             collect(model, ids, folder, args.workers, args.window)
         folders.append(str(folder))
         if (SCRIPT_DIR / "checkpoints" / f"{new_model}.pt").exists():
