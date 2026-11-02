@@ -26,6 +26,14 @@ def arm_inputs(x, arrived):
     return np.concatenate([x[..., ARM_INPUTS], arrived], axis=-1)
 
 
+def net_settings(config, part):
+    """(hidden, layers, dropout) of a split model's "base" or "arm" network, from its config: the network's own
+    setting where one is given (base_hidden, arm_dropout, ...), else the shared one (hidden, layers, dropout). Split
+    checkpoints from before the per-network settings have none, so both networks use the shared ones."""
+    return tuple(config[k] if config.get(f"{part}_{k}") is None else config[f"{part}_{k}"]
+                 for k in ("hidden", "layers", "dropout"))
+
+
 class SplitPolicy(nn.Module):
     """Base network: 3 inputs -> 4 wheel commands (or v, w) + 1 "arrived" logit. Arm network: 25 inputs -> 7 torques.
 
@@ -35,24 +43,30 @@ class SplitPolicy(nn.Module):
     """
 
     def __init__(self, hidden=256, layers=3, dropout=0.0, gravity_residual=False, vw_outputs=False, base_arch="mlp",
-                 arm_arch="mlp", gru_hidden=192, burn_in=200):
+                 arm_arch="mlp", gru_hidden=192, burn_in=200, base_hidden=None, base_layers=None, base_dropout=None,
+                 arm_hidden=None, arm_layers=None, arm_dropout=None):
         super().__init__()
         # kind tells load_policy which class to build; gravity_residual and vw_outputs are read by whoever runs the
         # model (decode_outputs), as for the MLP
         self.config = dict(kind="split", hidden=hidden, layers=layers, dropout=dropout,
                            gravity_residual=gravity_residual, vw_outputs=vw_outputs, base_arch=base_arch,
-                           arm_arch=arm_arch, gru_hidden=gru_hidden, burn_in=burn_in)
+                           arm_arch=arm_arch, gru_hidden=gru_hidden, burn_in=burn_in,
+                           # Per-network size and dropout (None: the shared one, see net_settings), so the arm can
+                           # be tuned on a copied base of another size (PLAN.md 4a)
+                           base_hidden=base_hidden, base_layers=base_layers, base_dropout=base_dropout,
+                           arm_hidden=arm_hidden, arm_layers=arm_layers, arm_dropout=arm_dropout)
         n_base = BASE_INPUTS.stop - BASE_INPUTS.start
         n_arm = ARM_INPUTS.stop - ARM_INPUTS.start + 1   # + the flag
         n_wheel = 2 if vw_outputs else 4
 
-        def network(arch, n_in, n_out):
+        def network(arch, n_in, n_out, part):
             if arch == "gru":
                 return GRU(n_in, n_out, hidden=gru_hidden, burn_in=burn_in)
-            return MLP(n_in, n_out, hidden=hidden, layers=layers, dropout=dropout)
+            h, n, p = net_settings(self.config, part)
+            return MLP(n_in, n_out, hidden=h, layers=n, dropout=p)
 
-        self.base = network(base_arch, n_base, n_wheel + 1)
-        self.arm = network(arm_arch, n_arm, 7)
+        self.base = network(base_arch, n_base, n_wheel + 1, "base")
+        self.arm = network(arm_arch, n_arm, 7, "arm")
 
     def reset(self):
         """Forget the past: call at the start of an episode (GRU networks only have any)."""
