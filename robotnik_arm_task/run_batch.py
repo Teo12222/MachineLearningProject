@@ -5,6 +5,7 @@ Usage (from the robotnik_arm_task folder, inside your roboenv environment):
     python run_batch.py --n 50 --seed 0 --out-dir data_pilot # pilot to map the reachable region
     python run_batch.py --n 500 --seed 1 --workers 4 --out-dir data_train
     python run_batch.py --n 50 --start-pose 1.0,-0.5,1.57 --out-dir data_start_test   # base starts elsewhere
+    python run_batch.py --n 100 --seed 2 --noise 5 --out-dir dart/noise5   # DART (PLAN.md step 19)
 
 Each episode runs in its own process, so one crash or hang cannot kill the batch.
 Each target is determined by --seed and the episode number, so a batch is reproducible, and episodes whose .npz
@@ -78,6 +79,7 @@ def run_episode(idx, target, args, script_dir):
     env["ROBOENV_TARGET"] = ",".join(f"{v:.6f}" for v in target)
     env["ROBOENV_OUT"] = str(out_file)
     env["ROBOENV_START"] = args.start_pose
+    env["ROBOENV_NOISE"] = f"{args.noise},{args.wheel_noise},{args.noise_tau},{idx}"
     start = time.time()
     try:
         proc = subprocess.run(
@@ -114,6 +116,10 @@ def main():
     parser.add_argument("--start", type=int, default=0, help="first episode index (use to extend a dataset)")
     parser.add_argument("--start-pose", default="0,0,0",
                         help="base start pose x,y,yaw (m, m, rad) for every episode; targets stay around the origin")
+    parser.add_argument("--noise", type=float, default=0.0,
+                        help="DART noise scale on the applied arm torques (PLAN.md step 19); labels stay clean")
+    parser.add_argument("--wheel-noise", type=float, default=0.0, help="the same for the wheels, while driving")
+    parser.add_argument("--noise-tau", type=float, default=0.1, help="correlation time of that noise (s)")
     args = parser.parse_args()
 
     script_dir = str(Path(__file__).resolve().parent)

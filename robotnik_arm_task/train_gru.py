@@ -20,8 +20,10 @@ from pathlib import Path
 
 import numpy as np
 import torch
+from torch import nn
 
-from bc_data import split_episodes, clean_ids, load_episode, load_frames, window_batch, decode_outputs, arm_gravity
+from bc_data import split_episodes, clean_ids, load_episode, load_frames, decode_outputs, arm_gravity
+from bc_gru import fit_gru
 from bc_model import GRU, save_model, load_model
 from results import SIM_COLUMNS, update_results
 
@@ -29,7 +31,6 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 DATA_DIR = SCRIPT_DIR / "data_main"
 SUBSAMPLE = "adaptive"   # window ends are train.py's kept frames; validation is uniform, the test uses every frame
 KEEP_FRAC = 0.1
-MAX_GRAD_NORM = 1.0      # long sequences can make the gradients explode
 
 parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 parser.add_argument("--model", default="gru_baseline", help="model name: checkpoints/<model>.pt, results/<model>.csv")
@@ -61,18 +62,6 @@ train_ids, val_ids, test_ids = split_episodes(DATA_DIR)
 train_ids, val_ids, test_ids = (clean_ids(DATA_DIR, ids) for ids in (train_ids, val_ids, test_ids))
 
 
-def evaluate(model, x, y, frames, starts):
-    """Mean loss over the sample frames, each episode run from its start, as at run time."""
-    begins = np.unique(starts)
-    y_std = model.y_std.numpy()
-    total = 0.0
-    for a, b in zip(begins, np.append(begins[1:], len(x))):
-        pred = model.predict(x[a:b][None])[0]
-        kept = frames[(frames >= a) & (frames < b)]
-        total += np.mean(((pred[kept - a] - y[kept]) / y_std) ** 2, axis=1).sum()
-    return total / len(frames)
-
-
 if not args.test_only:
     x_tr, y_tr, frames_tr, starts_tr = load_frames(DATA_DIR, train_ids, KEEP_FRAC, SUBSAMPLE,
                                                    gravity_residual=args.gravity_residual, all_labels=True,
@@ -80,54 +69,20 @@ if not args.test_only:
     x_va, y_va, frames_va, starts_va = load_frames(DATA_DIR, val_ids, KEEP_FRAC, "uniform",
                                                    gravity_residual=args.gravity_residual, all_labels=True,
                                                    vw_outputs=args.vw_outputs)
-    # An epoch shows about as many frames as the training set has, not one window per kept frame
-    n_windows = len(x_tr) // args.window
-    n_frames = args.burn_in + args.window
-    print(f"train frames {len(x_tr)}, {n_windows} windows per epoch, val frames {len(frames_va)} "
-          f"(window ends: {SUBSAMPLE}, gravity residual: {'on' if args.gravity_residual else 'off'})")
+    print(f"train frames {len(x_tr)}, val frames {len(frames_va)} (window ends: {SUBSAMPLE}, "
+          f"gravity residual: {'on' if args.gravity_residual else 'off'})")
 
     model = GRU(x_tr.shape[1], y_tr.shape[1], hidden=args.hidden, burn_in=args.burn_in,
                 gravity_residual=args.gravity_residual, vw_outputs=args.vw_outputs)
-    print(f"{sum(p.numel() for p in model.parameters())} parameters")
     # Normalised on the kept frames, like the MLP
     model.set_normalisation(x_tr[frames_tr], y_tr[frames_tr])
-    x_tr = (x_tr - model.x_mean.numpy()) / model.x_std.numpy()
-    y_tr = (y_tr - model.y_mean.numpy()) / model.y_std.numpy()
-    back = np.arange(n_frames - 1, -1, -1)
-
-    opt = torch.optim.AdamW(model.parameters(), lr=args.lr)
     CHECKPOINT.parent.mkdir(parents=True, exist_ok=True)
-    best_val, best_epoch = float("inf"), 0
 
     start = time.perf_counter()
-    for epoch in range(1, args.max_epochs + 1):
-        epoch_start = time.perf_counter()
-        model.train()
-        perm = torch.randperm(len(frames_tr))[:n_windows].numpy()
-        loss_sum = 0.0
-        for i in range(0, len(perm), args.batch):
-            ends, first = frames_tr[perm[i:i + args.batch]], starts_tr[perm[i:i + args.batch]]
-            windows = window_batch(x_tr, ends, first, n_frames, 1)
-            labels = window_batch(y_tr, ends, first, n_frames, 1)
-            real = (ends[:, None] - back >= first[:, None])[:, args.burn_in:]   # repeated first frames have no loss
-            y = model(torch.from_numpy(windows))[0][:, args.burn_in:]
-            loss = ((y - torch.from_numpy(labels[:, args.burn_in:])) ** 2)[torch.from_numpy(real)].mean()
-            opt.zero_grad()
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), MAX_GRAD_NORM)
-            opt.step()
-            loss_sum += loss.item() * len(ends)
-
-        model.eval()
-        val_loss = evaluate(model, x_va, y_va, frames_va, starts_va)
-        print(f"epoch {epoch:3d}  train {loss_sum / len(perm):.4f}  val {val_loss:.4f}  "
-              f"({time.perf_counter() - epoch_start:.1f} s)", flush=True)
-        if val_loss < best_val:
-            best_val, best_epoch = val_loss, epoch
-            save_model(model, CHECKPOINT)
-        elif epoch - best_epoch >= args.patience:
-            print(f"   no improvement for {args.patience} epochs: stopping (best epoch {best_epoch})")
-            break
+    best_val, best_epoch, epoch = fit_gru(model, x_tr, y_tr, frames_tr, starts_tr, x_va, y_va, frames_va, starts_va,
+                                          nn.MSELoss(), window=args.window, batch=args.batch, lr=args.lr,
+                                          max_epochs=args.max_epochs, patience=args.patience)
+    save_model(model, CHECKPOINT)
     train_time = time.perf_counter() - start
 
     # New weights: the old test and simulation results no longer apply, so they are emptied ("not measured")

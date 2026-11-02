@@ -64,6 +64,11 @@ bigger code (Kris's GRU in the split model, Matteo's camera work) and merge it a
 - **Choosing the final model:** the best on the 50 validation episodes; if no GRU-in-split variant beats
   `split_dagger_r5_s0` (26/50), r5 stays. Then DAgger behind the winner (its corrections only fit the policy they were
   collected from, step 13's vw result), then the full test set on it.
+  **Status 1 Nov evening (Kris):** no GRU-in-split variant beats r5 (step 15), but DART does: `split_dart_a60x2_s0`,
+  30/50 validation (r5: 23 on the same Mac run), 76/150 test (r5: 62/150) (step 19). Proposal, to agree on 2 Nov: it
+  becomes the candidate, and DAgger behind it keeps the DART data in training (it stops the arm spinning in the drive, step 15).
+  **Update 2 Nov:** seed 1 of the same model gets 16/50, so on "reached" DART is about level with r5, not ahead; its clear
+  gain is stability (always within 5 cm, no spinning arm). The seed spread (16-30) is bigger than most gaps we compare.
 - **Ablations: light version** (step 23, replaces the full grid). The report shows a "component evidence" table built
   from the paired comparisons already made (robot frame, adaptive subsampling, gravity residual, split, DAgger rounds,
   (v, w), temporal models), each labelled with the model and seeds it comes from, plus on the final model only: 3 seeds
@@ -1268,6 +1273,45 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
       (arm and base move together), so check: arm torques while the base drives (never in the training data),
       re-aiming if the base parks slightly off, and stability with a stretched arm on a moving base. If it works it
       should reach targets faster than the expert (time to reach is in `compare.py`'s table).
+    **GRU in the split model (1 Nov, Kris): done, the MLP pair stays.** Code: `SplitPolicy(base_arch, arm_arch)`, `--base-from`,
+    `bc_gru.py`; `step_*` matches `predict_*` for all three layouts. All runs: 50 validation episodes, Mac, seed 0, one
+    seed per model. Counts recomputed from the episode files and equal to `compare.py`'s logs; same 50 ids for all.
+    "Held" = stayed within that distance of the target for 0.5 s without a break, because closest approach flatters a
+    swinging arm. "Parked" = base came within 15 cm of the expert's final spot. "Off floor" = base height moved > 10 cm.
+
+    | model | reached | held 10 / 5 / 2 cm | parked | off floor |
+    |---|---|---|---|---|
+    | `mlp_gravres_lr1e3_s0` (single) | 0 | 9 / 3 / 0 | 44 | 4 |
+    | `gru_h192_w1000_gravres_s0` (single) | 0 | 16 / 2 / 0 | 50 | 0 |
+    | `split_arrived_s0` (MLP + MLP, no DAgger) | 0 | 38 / 16 / 0 | 50 | 3 |
+    | `split_mlpbase_gruarm_s0` (same base, GRU arm, no DAgger) | 0 | 33 / 15 / 5 | 50 | 7 |
+    | `split_grubase_gruarm_s0` (GRU + GRU, no DAgger) | 0 | 23 / 7 / 0 | 50 | 12 |
+    | `split_dagger_r5_s0` (MLP + MLP, DAgger arm) | 23 | 43 / 43 / 33 | 47 | 1 |
+    | `split_grubase_r5arm_s0` (GRU base + the same DAgger arm) | 11 | 47 / 39 / 18 | 48 | 0 |
+
+    1. **Is split worth it compared with the temporal model? Yes.** With no DAgger neither reaches, but the split holds
+       within 10 cm in 38 episodes against the GRU's 16, and within 5 cm in 16 against 2. The only models that reach
+       use DAgger, so the jump to 23 is DAgger's, on top of the split; we have no single model with DAgger to separate
+       the two.
+    2. **Can the GRU go in the split model? Yes, it runs and it is stable, but it gives nothing here.** The reason for
+       trying it has gone: the split MLP base parks as well as the GRU (50/50, median closest 0.8 cm).
+    3. **Best configuration: MLP base + MLP arm with DAgger (23/50).** GRU arm against MLP arm on the same base, both
+       without DAgger, is 0 v 0, and the GRU arm leaves the floor more often (7 v 3). GRU + GRU is the worst (12 off floor).
+       GRU base + DAgger arm loses to MLP base + the same arm 11 v 23 (r5 only 14, GRU only 2, both 9).
+       **That last comparison is not fair to the GRU base:** the DAgger corrections were collected behind the MLP base.
+       Its parking is a little wider (median 3.4 v 2.4 cm from the expert's spot at the latch; 15 v 7 beyond 5 cm), and
+       it latches later (+0.73 v -0.23 s against the expert). Even so, parked within 5 cm it reaches 7/35 against 22/43,
+       so parking distance alone doesn't explain the drop. Not tested: DAgger rounds behind the GRU base. Given (2),
+       not worth the time unless the MLP base turns out to be the limit.
+    Mac v PC: `split_dagger_r5_s0` is 23/50 here, 26/50 on Matteo's PC. Differences of that size aren't meaningful.
+
+    **New problem found (1 Nov, Kris): the DAgger arm sometimes spins during the drive.** In `split_dagger_r5_s0` a joint
+    moves over 1 rad from its start before the latch in 10/50 episodes (worst 63 rad, about 10 turns; from 1 to 1.6 s
+    in the worst three), and only 2 of those reach, against 21/40 for the others. `split_arrived_s0`, same base, never does (0/50;
+    its arm stays within 0.06 rad), and its parking stays within 3.8 cm of the expert's spot, against up to 136 cm with the
+    r5 arm, so the spinning arm also disturbs the drive. Cause not known. It isn't DAgger as such: the no-noise DART control
+    (19) spins in 15/50 and has flag-0 frames in its extra data. The noisy DART arms spin in 0/50 (19). So the arm
+    needs recovery examples in the drive too: use DART data alongside the final DAgger.
 16. **Dropped (1 Nov, Matteo): shallow vs deep check.** Was: train one shallower and one deeper variant of the final
     model to show its size is reasonable. Why dropped: the time goes to the final model and its tests instead;
     efficiency (parameters, inference time per step) is still reported from the existing models (24).
@@ -1288,6 +1332,45 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
 18. More low-height targets.
 19. Noise injection (DART): noisy commands applied, clean expert commands recorded as labels. Chosen instead of
     plain input-noise augmentation, whose labels would be wrong for the perturbed states.
+    **Done (1 Nov, Kris): it works, 0 to 20/50 without DAgger.** `run_batch.py --noise A --wheel-noise W`: slowly varying
+    noise (correlation 0.1 s) on the applied commands, clean expert commands stored as labels. Scale 1 = the split MLP's
+    error on expert frames (0.01-0.08 N*m by joint, 0.24 rad/s; 20 validation episodes), 0.1 s is that error's
+    correlation time. The frames go in through `--dagger` (`load_dagger_arm`): all frames, the expert's own flag.
+    - **Pilot, 16 targets per level:** wheel noise is the wrong tool. Scale 5 on the wheels shifts the parking spot by a
+      median 1.7 m and only 6/16 reach, because the expert has to replan a whole drive. Arm noise alone keeps parking within
+      2 cm: 16/16 at 5 and 20, 12/16 at 60. So the runs use arm noise only. The expert is stiff, so even at 60 its arm
+      is only 0.015 rad off its clean run; the policy drifts 0.03 rad at 1 s and 0.17 at 2 s after the latch.
+    - **Runs:** 150 expert episodes on new targets (`--seed 2`, nearest is 12 cm from any validation target) added to the
+      arm's training; base copied from `split_arrived_s0` (checked identical). Same validation and "held" as step 15.
+      Failed noisy episodes stay in: their labels are still the expert's.
+
+    | model | extra data | reached | held 10 / 5 / 2 cm | arm spins in drive | off floor | median final error |
+    |---|---|---|---|---|---|---|
+    | `split_arrived_s0` | none | 0 | 38 / 16 / 0 | 0 | 3 | 0.892 m |
+    | `split_dart_a0_s0` | 150 clean (control) | 1 | 10 / 3 / 0 | 15 | 1 | 0.926 m |
+    | `split_dart_a20_s0` | 150 at 20 (149 reached) | 5 | 50 / 48 / 33 | 0 | 0 | 0.042 m |
+    | `split_dart_a60_s0` | 150 at 60 (116 reached) | 20 | 50 / 50 / 47 | 0 | 0 | 0.014 m |
+    | `split_dart_a60_s1` | same, training seed 1 | 21 | 50 / 50 / 39 | 0 | 0 | 0.026 m |
+    | `split_dart_a100_s0` | 150 at 100 (69 reached) | 15 | 50 / 50 / 39 | 0 | 0 | 0.039 m |
+    | `split_dart_a60x2_s0` | 300 at 60 (`--seed 2` and `3`; 228 reached) | **30** | 50 / 50 / 45 | 0 | 0 | 0.007 m |
+    | `split_dart_a60x2_s1` | same, training seed 1 (2 Nov) | 16 | 50 / 50 / 43 | 0 | 0 | 0.021 m |
+    | `split_dagger_r5_s0` | 5 DAgger rounds | 23 | 43 / 43 / 33 | 10 | 1 | 0.034 m |
+
+    The gain is the noise, not the extra data alone: the same targets without noise give 1, and success rises with the
+    noise up to 60, then falls at 100, where over half the expert's runs fail. **More noisy data: not shown.** 300 episodes
+    at 60 gave 30/50 with seed 0 but 16/50 with seed 1 (2 Nov); 150 episodes gave 20 and 21. The training seed alone moves
+    "reached" by 14 episodes here, so 150 v 300 can't be told apart, and the 30 was a lucky seed. "Reached" (5 mm) is the
+    noisy measure; "held within 5 cm" is 50/50 for every seed. On reached, DART is level with DAgger (23 here, 26 on
+    Matteo's PC, one seed each), not ahead. DART also never loses the arm: 50/50 stay
+    within 5 cm in every noisy model, against 43. What's left is the last 2 cm down to 5 mm. It needs no policy runs, and
+    150 episodes take under 2 minutes.
+    **Full test set, `split_dart_a60x2_s0`: 76/150 reached (50.7%)** (expert 149/150), Mac, recomputed from the episode
+    files. Against `split_dagger_r5_s0`'s 62/150 (Matteo's PC, a machine difference of a few episodes is possible). Final
+    error median 1.1 cm, mean 2.5 cm. Held 10 / 5 / 2 cm: 150 / 148 / 136. Parked 150, arm spins 0, off floor 0,
+    no reach shorter than 50 ms within 5 mm, no latch by timeout. Mean time to reach 15.5 s. One seed. Picked on validation
+    before this test ran. **Caveat (2 Nov):** seed 1 of the same recipe gets 16/50 on validation against seed 0's 30, so
+    the 76/150 is the best seed's number, not what the recipe gives on average. For the report: test several seeds and
+    give the mean and spread (step 23's 3 seeds).
 20. **Randomised arm starting pose:** genuinely new situations that changing the target can't produce (the cart
     start is already covered by robot-frame inputs, see 6). Randomise it and collect data for it if we want to
     claim generalisation to new initial conditions.
