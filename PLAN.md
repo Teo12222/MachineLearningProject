@@ -18,12 +18,13 @@ with `pixi run python <script>` from there.
 | `bc_data.py` | Model inputs (27 robot-frame features) and outputs, `decode_outputs`, episode loading, adaptive / uniform subsampling, episode cleaning, gravity torques (`arm_gravity`), the train/val/test split by episode (fixed seed) and the fixed quick-test / validation subsets, (v, w) wheel outputs (`wheels_to_vw` / `vw_to_wheels`, 13), past-frame inputs (`with_history`, and `FrameHistory` at run time, 14), and per-batch windows for the TCN / GRU (`load_frames`, `window_batch`) |
 | `bc_model.py` | The MLP (size set by options) and the TCN and GRU (14), each with its normalisation stored inside, plus save/load (`load_model` picks the class from the checkpoint) |
 | `bc_split.py` | Split networks (15): base net (wheels + "arrived" flag) and arm net in one checkpoint, the arrival latch, the DAgger data loader, `load_policy` (loads any checkpoint: split, or MLP / TCN / GRU via `load_model`) |
-| `train.py` | Trains one model (early stopping on the **validation** loss), then tests it offline on the test episodes; writes `results/<model>.csv`. Options: `--model`, settings, `--seed`, `--gravity-residual` (12), `--vw-outputs` (13), `--history-k` / `--history-spacing` (14), `--split` (15), `--dagger` (21), `--arm-from` (copy a trained split arm, so models differ only in the base), `--no-test` / `--test-only`; `--split` doesn't combine with `--vw-outputs` or `--history-k` yet |
+| `train.py` | Trains one model (early stopping on the **validation** loss), then tests it offline on the test episodes; writes `results/<model>.csv`. Options: `--model`, settings, `--seed`, `--gravity-residual` (12), `--vw-outputs` (13), `--history-k` / `--history-spacing` (14), `--split` (15), `--dagger` (21), `--arm-from` (copy a trained split arm, so models differ only in the base), `--no-test` / `--test-only`; `--split` doesn't combine with `--vw-outputs` or `--history-k` yet. Saves the loss curves as `checkpoints/<model>_loss.png` (25) |
 | `train_tcn.py` | Trains a TCN (14): same data, split, early stopping and results as `train.py`; windows cut per batch. Options: `--layers`, `--channels`, `--spacing` |
 | `train_gru.py` | Trains a GRU (14): scored on whole windows, memory warmed up at the episode start. Options: `--hidden`, `--window`, `--burn-in` |
 | `analyse_temporal.py` | Failure metrics for the temporal models from their simulation runs (first torque-clip hit, arm deviation, base off the floor), in `quick_*` / `full_*` results columns |
 | `tune.py` | Hyperparameter search for a final model (staged grid via `train.py`, closed-loop check of the best few on the 50 validation episodes) |
 | `robotnik_arm_policy_task.py` | Same simulation as the expert, but a trained model drives the robot (`ROBOENV_POLICY` picks the checkpoint; single MLP, history window, TCN / GRU or split) |
+| `plot_torques.py` | Torque graphs (25): a policy run's 7 arm torques vs the expert's on the same target, latch / arrival and EE error, from saved files (no simulation) |
 | `compare.py` | Expert vs model in simulation: `--target x,y,z`, `--episode N`, `--test-set` (all 150 test targets, writes the `sim_*` results), `--test-set --quick` (50 test targets, for looking only), `--val-set` (50 validation targets, for every decision) |
 | `expert_relabel.py` | The expert's arm controller run offline along any saved run: what the expert would have commanded there (DAgger labels, 21) |
 | `dagger.py` | DAgger for the split arm (21): runs a split model on training targets, labels it with `expert_relabel.py`, retrains via `train.py --dagger`, several rounds (data in the git-ignored `dagger/`) |
@@ -76,6 +77,10 @@ rejected models lost by more than the seed spread (see "Evidence per feature" un
 2. **`dagger.py` accepts the DART data** (Matteo): a `--keep <folders>` option whose folders go into every round's
    `train.py --dagger`. Why: `dagger.py` starts every run with only its own round folders, so behind a DART model it
    would silently retrain without the DART data and "DART + DAgger" would really be DAgger alone.
+   **Catch (2 Nov):** the default `--name split_dagger` reuses `dagger/split_dagger_r<k>` and `split_dagger_r<k>_s0`,
+   which exist for rounds 1-5 on Matteo's PC, and finished steps are skipped: without its own `--name` the chain would
+   collect and train nothing and "finish" with the old r1-r5. So the overnight run gets its own name (e.g. `--name
+   split_dartdagger`), and `dagger.py` refuses a name whose round 1 was started from another `--start`.
 3. The DART-amount runs (B4) are the arm half of the learning curve (17), not run twice. (Matteo, Kris)
 
 **B. Choose the final model**
@@ -133,6 +138,12 @@ midday, then report only).** Where the best models fail now is **precision, not 
   worse.
 - **Not in the time left:** joint-target outputs, base DAgger, new architectures (each needs new code plus its own
   DAgger rounds).
+  Joint-target outputs are the most likely reason another group reaches 149/150 at 1 cm without DART / DAgger (to
+  confirm with them; their success is "ever within 1 cm"): the net predicts `q_des`, `qd_des` and a fixed PD formula
+  inside the model gives the torques (the expert's `kp (q_des - q) + kd (qd_des - qd)`, like the gravity residual adds
+  g(q)), so damping and stiffness are structure, not learned, and an error is a steady offset instead of a growing
+  drift. Labels exist: `q_des_arm` is saved, `qd_des` follows exactly from the saved torque. Design in `test_notes.md`
+  on `test/arm-features` (2 Nov); a report experiment on expert data only if time allows, not the final model.
 A report with ~40-50% at 5 mm, the 1 cm number, and a clear analysis of why the rest fail (the last 2 cm, seed
 variance, offline vs closed loop) is a strong report: the analysis is worth more than a few extra percent.
 
@@ -792,6 +803,15 @@ on a saved episode: moving and rotating the whole scene (base, EE, target togeth
   models trained with the current defaults; the robot-frame single MLP is retrained as `mlp_robotframe_s0` (the
   reference for 15). This section and the tuning section still call it `mlp_robotframe`: they describe what it did
   at the time. `mlp_robotframe_tuned` also used the old settings (name kept).
+- **Arm input check (2 Nov, Matteo, branch `test/arm-features`, not merged): keep the full inputs.** Asked because
+  another group suggested fewer inputs. Arm only, expert data only, seed 0, base copied from `split_arrived_s0`, val 50
+  (closest approach median / under 5 cm / error back above 20 cm after the latch): full 25 inputs 4.7 cm / 27 / 2.9 s;
+  raw joint angles instead of sin/cos (18) 8.9 cm / 14 / 1.7 s despite a slightly lower val loss, but calmer once it
+  fails (torques at the limit in 0% vs 80% of post-latch frames, base pushed > 0.5 m in 4 vs 14 runs, off the floor 1
+  vs 7); without the joint velocities (18, 11) the arm spins in 50/50 and the robot gets thrown 10-50 m: the expert's
+  arm law is a PD and its D term needs qd (arm val loss 25x higher). Report point: precision vs stability, and why
+  the velocities are needed. Also found: the same weights rerun gave 4.73 vs 4.85 cm, so the simulation isn't exactly
+  repeatable (~1 episode on 50); training on this PC is (the rerun was bit-identical). Details: `test_notes.md` there.
 
 ### Master: shared improvements
 7. **Adaptive subsampling** (after the split): the base/wheel data sampled densely at the start and at phase
@@ -1602,6 +1622,10 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
       point (the brief's 1 cm tolerance, "ever within 1 cm"). Validation (52%) was higher than test (41%): expected,
       since the round was picked as the best of five on validation. Offline as before: test wheels 0.181 rad/s,
       torques 0.80 N*m; inference 0.17 ms per step.
+      **Recomputed 2 Nov from the saved files** (`compare_out/split_dagger_r5_s0/test_set/`): held within 1 cm for
+      0.5 s **36/150** (held 2 / 5 cm 85 / 121). "Reached" is a first crossing too (`check_stop` doesn't check the 1 s
+      settle), and half the reached runs swing through: only 30 of the 62 hold 1 cm for 0.5 s, 33 end the settle more
+      than 1 cm away.
 
 ### Evaluation and report
 22. **Compare all models:** one results table with every model (baseline, each branch, final), offline error and
@@ -1766,17 +1790,23 @@ named; mark the set, the machine and the number of seeds in every row):
       them now; saving them changes nothing that is trained). Why: shows over- / underfitting and where early stopping
       cut, and is the offline half of the offline vs closed-loop point (DAgger: val loss worse, closed loop better).
       Copied networks (`--base-from` / `--arm-from`) have no curve of their own; GRU halves (`fit_gru`) aren't
-      recorded. Built and tried first on `test/arm-features` (feature check, step 6), for `split_arrived_s0` and the
-      input variants.
+      recorded. **Built (2 Nov):** in `train.py` on master (every training saves it); first used on `test/arm-features`
+      (step 6).
     - **Torque graphs (added 2 Nov, Matteo):** for 2-3 validation episodes, the 7 arm torques of the policy vs the
       expert's on the same target over time, with the latch time and the expert's arrival marked, and the EE error on
       a second axis. From the saved policy `.npz` (`compare_out/<model>_val/val_set/`) and the expert episode in
       `data_main`: no new simulation. One episode that gets close and one that collapses. Why: shows where the policy
       leaves the expert (the drift ~1 s into the reach, step 15) and whether it ends at the torque limit.
       Note: the two runs are only aligned at t = 0, not at the latch (the latches differ by ~0.2 s), so the torque
-      jump at arrival shows up twice.
+      jump at arrival shows up twice. **Built (2 Nov):** `plot_torques.py <run_dir> <episodes>` (figures in
+      `compare_out/torque_plots/`); the EE error is its own bottom panel on the same time axis, not a second y-axis.
+      Seen so far (`split_arrived_s0`): the policy follows the expert for ~1 s after the latch, J3 / J4 pull away, and
+      it ends switching between +-30 N*m 4-5 s after the latch.
 26. **Data collection rationale (report):** why targets are sampled as they are (radius 1-3 m, height 0.2-1.1 m,
     full circle, uniform over the area), why one fixed start pose, how many episodes and why.
+    Note (2 Nov): the pilot's episodes 0-49 used the same range but drew the radius uniformly (median 2.0 m) instead of
+    uniformly over the area (median 2.3 m); "smaller radius" in step 0 is misleading. No target in any of our data is
+    closer than 1 m.
 27. **Report:** IEEE template, max 6 pages + contribution statement; code README must say what was written from
     scratch vs adapted. Due **6 Nov**. Discussion points found so far:
     - **Offline vs closed-loop gap:** the first (world-frame) baseline had low offline error (wheels ~0.08 rad/s,

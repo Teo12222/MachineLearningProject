@@ -170,6 +170,10 @@ def normalise(net, x, y):
     return (torch.from_numpy(x) - net.x_mean) / net.x_std, (torch.from_numpy(y) - net.y_mean) / net.y_std
 
 
+# Training and validation loss per epoch of each network trained by fit (key: its label), for the loss-curve plot
+curves = {}
+
+
 def fit(net, xt, yt, xv, yv, loss_fn, label=""):
     """Train one network with early stopping; afterwards it holds the weights of its best validation epoch.
 
@@ -198,6 +202,7 @@ def fit(net, xt, yt, xv, yv, loss_fn, label=""):
         # Training loss averaged over the epoch (not the last batch), so the train/val gap shows over-/underfitting
         print(f"{label}epoch {epoch:3d}  train {loss_sum / len(xt):.4f}  val {val_loss:.4f}  "
               f"({time.perf_counter() - epoch_start:.1f} s)")
+        curves.setdefault(label.strip() or "model", []).append((epoch, loss_sum / len(xt), val_loss))
         if val_loss < best_val:
             # Kept in memory and saved once training ends (a split checkpoint holds both networks)
             best_val, best_epoch, best_state = val_loss, epoch, copy.deepcopy(net.state_dict())
@@ -328,6 +333,29 @@ if not args.test_only:
     train_time = time.perf_counter() - start
     save_model(model, CHECKPOINT)
     print(f"saved {CHECKPOINT}")
+
+    if curves:
+        # Loss curves of the networks trained here (copied ones have none; GRU halves train in fit_gru, not recorded),
+        # the kept (best validation) epoch marked: checkpoints/<model>_loss.png (PLAN.md step 25)
+        import matplotlib.pyplot as plt
+        fig, axes = plt.subplots(1, len(curves), figsize=(6 * len(curves), 4), squeeze=False)
+        for ax, (name, rows) in zip(axes[0], curves.items()):
+            ep, tr, va = np.array(rows).T
+            k = np.argmin(va)
+            ax.plot(ep, tr, label="training")
+            ax.plot(ep, va, label="validation")
+            ax.axvline(ep[k], color="gray", linestyle="--", linewidth=1)
+            ax.plot(ep[k], va[k], "ko", label=f"kept: epoch {ep[k]:.0f}, val {va[k]:.4f}")
+            ax.set_yscale("log")
+            ax.set_xlabel("Epoch")
+            ax.set_ylabel("Loss (normalised units)")
+            ax.set_title(f"{name} network")
+            ax.grid(True, alpha=0.3)
+            ax.legend()
+        fig.suptitle(f"Loss per epoch ({args.model})")
+        fig.tight_layout()
+        fig.savefig(CHECKPOINT.with_name(CHECKPOINT.stem + "_loss.png"), dpi=120)
+        plt.close(fig)
 
     # New weights: the old test and simulation results no longer apply, so they are emptied ("not measured")
     # epochs = epochs actually run (where early stopping ended); split models record them per network instead
