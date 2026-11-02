@@ -16,9 +16,18 @@
    test is run; the trial checkpoints and results files are deleted.
 The summary of all trials goes to results/tuning/<final>_tuning.csv (results.py doesn't read that folder).
 
+Split models (PLAN.md 4a): --split, --gravity-residual, --base-from and --dagger are passed to every trial, as in
+train.py. With --base-from only the arm is tuned on the copied base: the size and dropout stages set the arm's own
+--arm-hidden / --arm-layers / --arm-dropout, and best_val_loss ranks the trials by the arm (the copied base's wheel
+part is the same in every trial). Without --base-from every trial trains both networks with the trial's settings.
+Epoch columns come from the arm (arm_best_epoch, arm_epochs). Tuning the base on its own: later (decided 2 Nov,
+after the DART + DAgger comparison).
+
 Usage (from the robotnik_arm_task folder):
     pixi run python tune.py --final mlp_robotframe_tuned
     pixi run python tune.py --final X --top 3 --parallel 4
+    pixi run python tune.py --final split_dart_tuned_s0 --split --gravity-residual --base-from split_arrived_s0
+        --dagger dart/a60 dart/a60b                # one command: the arm of a DART model (PLAN.md 4a)
 Afterwards, the full closed-loop test of the tuned model (separately, it takes longest):
     pixi run python compare.py --test-set --model <final>
 """
@@ -62,11 +71,11 @@ def scaled_lr(base_lr, batch):
     return float(f"{base_lr * np.sqrt(batch / REF_BATCH):.3g}")
 
 
-def run_train(name, setting, extra):
+def run_train(name, setting, extra, options=OPTIONS):
     """Run train.py for one setting; returns True if it finished. Plots are saved, never shown."""
     cmd = [sys.executable, "train.py", "--model", name] + extra
     for key, value in setting.items():
-        cmd += [OPTIONS[key], str(value)]
+        cmd += [options[key], str(value)]
     proc = subprocess.run(cmd, cwd=SCRIPT_DIR, capture_output=True, text=True, env=dict(os.environ, MPLBACKEND="Agg"))
     if proc.returncode != 0:
         print(f"  {name} FAILED:\n{proc.stderr[-1500:]}", flush=True)
@@ -91,8 +100,10 @@ def closed_loop(name, episode_ids, workers):
 class Search:
     """Trains settings stage by stage, never the same setting twice, and remembers every trial."""
 
-    def __init__(self, final, extra, parallel):
-        self.final, self.extra, self.parallel = final, extra, parallel
+    def __init__(self, final, extra, parallel, split=False, options=OPTIONS):
+        self.final, self.extra, self.parallel, self.options = final, extra, parallel, options
+        # Split models record their epochs per network; the tuned one is the arm
+        self.epoch_cols = ("arm_best_epoch", "arm_epochs") if split else ("best_epoch", "epochs")
         self.rows = []                       # one per trial: name, stage, setting, results
         self.start = time.time()
 
@@ -111,10 +122,10 @@ class Search:
         print(f"\nStage {label}: {len(new)} new settings ({len(settings) - len(new)} already trained)", flush=True)
 
         def train_trial(j):
-            ok = run_train(names[j], new[j], self.extra)
+            ok = run_train(names[j], new[j], self.extra, self.options)
             r = read_results(names[j]) if ok else {}
             print(f"  [{time.time() - self.start:5.0f} s] {names[j]} {new[j]} -> "
-                  f"{'val ' + r['best_val_loss'] + ' (best epoch ' + r['best_epoch'] + ')' if r else 'failed'}",
+                  f"{'val ' + r['best_val_loss'] + ' (best epoch ' + r[self.epoch_cols[0]] + ')' if r else 'failed'}",
                   flush=True)
             return r
 
@@ -122,7 +133,7 @@ class Search:
             results = list(pool.map(train_trial, range(len(new))))
         for name, s, r in zip(names, new, results):
             self.rows.append({"trial": name, "stage": label, **s, "best_val_loss": r.get("best_val_loss", ""),
-                              "best_epoch": r.get("best_epoch", ""), "epochs": r.get("epochs", ""),
+                              "best_epoch": r.get(self.epoch_cols[0], ""), "epochs": r.get(self.epoch_cols[1], ""),
                               "train_time_s": r.get("train_time_s", ""), "status": "ok" if r else "failed",
                               "val_success_rate": "", "val_final_err_median": "", "chosen": ""})
         best = self.best()
@@ -142,12 +153,28 @@ def main():
     parser.add_argument("--parallel", type=int, default=4, help="trainings at once (they share the CPU cores)")
     parser.add_argument("--workers", type=int, default=16, help="simulations at once in the closed-loop check")
     parser.add_argument("--max-epochs", type=int, help="passed to train.py (only to make quick test runs shorter)")
+    # The model being tuned, passed to every trial as in train.py (PLAN.md 4a)
+    parser.add_argument("--split", action="store_true", help="split networks (train.py --split)")
+    parser.add_argument("--gravity-residual", action="store_true", help="train.py --gravity-residual")
+    parser.add_argument("--base-from", metavar="MODEL", help="with --split: the copied base, so only the arm is tuned")
+    parser.add_argument("--dagger", nargs="+", metavar="FOLDER", help="with --split: extra arm data (DART / DAgger)")
+    parser.add_argument("--seed", type=int, default=0, help="training seed of every trial")
     args = parser.parse_args()
+    if (args.base_from or args.dagger) and not args.split:
+        parser.error("--base-from and --dagger need --split")
 
     threads = max(1, (os.cpu_count() or 4) // 2 // args.parallel)   # physical cores split between the trainings
     extra = ["--no-test", "--threads", str(threads)] + (["--max-epochs", str(args.max_epochs)] if args.max_epochs else [])
+    extra += ["--seed", str(args.seed)] + (["--split"] if args.split else [])
+    extra += ["--gravity-residual"] if args.gravity_residual else []
+    extra += ["--base-from", args.base_from] if args.base_from else []
+    extra += ["--dagger", *args.dagger] if args.dagger else []
+    print(f"train.py options of every trial: {' '.join(extra)}", flush=True)
     print(f"Staged search, {args.parallel} trainings at a time ({threads} threads each)", flush=True)
-    search = Search(args.final, extra, args.parallel)
+    # With a copied base, size and dropout are the arm's own (train.py --arm-hidden etc.); the base keeps its own
+    options = dict(OPTIONS, hidden="--arm-hidden", layers="--arm-layers", dropout="--arm-dropout") if args.base_from \
+        else OPTIONS
+    search = Search(args.final, extra, args.parallel, args.split, options)
 
     # 1. Search, stage by stage
     best = search.stage("1a lr", [dict(DEFAULTS, lr=lr, batch=REF_BATCH) for lr in BASE_LRS])
@@ -190,6 +217,7 @@ def main():
     # Remove the trial runs (their numbers are in the summary)
     for r in search.rows:
         (CHECKPOINTS / f"{r['trial']}.pt").unlink(missing_ok=True)
+        (CHECKPOINTS / f"{r['trial']}_loss.png").unlink(missing_ok=True)   # train.py's loss plot of each trial
         (RESULTS_DIR / f"{r['trial']}.csv").unlink(missing_ok=True)
     print(f"\nDone in {(time.time() - search.start) / 60:.0f} min: checkpoints/{args.final}.pt, "
           f"results/{args.final}.csv")

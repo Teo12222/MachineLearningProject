@@ -38,7 +38,7 @@ from pathlib import Path
 import numpy as np
 
 from bc_data import clean_ids, split_episodes
-from bc_split import SplitPolicy, load_policy
+from bc_split import SplitPolicy, load_policy, net_settings
 from compare import POLICY_SCRIPT, POLICY_TIMEOUT, load_npz, run_episode, stored_start
 from results import read_results
 
@@ -157,8 +157,11 @@ def main():
     # Same training settings as the start model, so the rounds differ from it only in the DAgger data. The checkpoint
     # holds the sizes; lr, batch and weight decay are only in its results file (empty there: train.py's default)
     row = read_results(args.start)
+    # Each network's own size and dropout (a tuned arm can differ from the base); the shared ones are the base's
+    (base_h, base_n, base_p), (arm_h, arm_n, arm_p) = net_settings(cfg, "base"), net_settings(cfg, "arm")
     train_options = ["--split", "--gravity-residual" if cfg["gravity_residual"] else "--no-gravity-residual",
-                     "--hidden", str(cfg["hidden"]), "--layers", str(cfg["layers"]), "--dropout", str(cfg["dropout"]),
+                     "--hidden", str(base_h), "--layers", str(base_n), "--dropout", str(base_p),
+                     "--arm-hidden", str(arm_h), "--arm-layers", str(arm_n), "--arm-dropout", str(arm_p),
                      "--seed", str(args.seed), "--base-from", args.start]
     for option, column in (("--lr", "lr"), ("--batch", "batch"), ("--weight-decay", "weight_decay")):
         if row.get(column):

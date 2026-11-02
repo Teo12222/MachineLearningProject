@@ -21,3 +21,6 @@ robotnik_arm_task/data_main
 
 # DAgger episodes (regenerated with dagger.py, not submitted)
 robotnik_arm_task/dagger
+
+# DART episodes (regenerated with run_batch.py --noise, PLAN.md step 19; not submitted)
+robotnik_arm_task/dart

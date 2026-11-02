@@ -38,7 +38,7 @@ from bc_data import (split_episodes, clean_ids, load_episode, load_episodes, loa
 from bc_gru import fit_gru, normalised, predict_frames
 from bc_model import GRU, MLP, save_model
 from bc_split import (SplitPolicy, ArrivedLatch, arm_inputs, base_inputs, base_labels, base_loss, load_dagger_arm,
-                      load_policy)
+                      load_policy, net_settings)
 from results import SIM_COLUMNS, update_results
 
 # Paths are relative to this file, so the script works from any working directory
@@ -79,6 +79,12 @@ parser.add_argument("--hidden", type=int, default=256, help="units per hidden la
 parser.add_argument("--layers", type=int, default=3, help="number of hidden layers")
 parser.add_argument("--weight-decay", type=float, default=0.0, help="L2 weight decay (AdamW)")
 parser.add_argument("--dropout", type=float, default=0.0, help="dropout after each hidden layer")
+# Per-network size and dropout of a split model (default: the shared --hidden / --layers / --dropout), so the arm can
+# be tuned on top of a copied base (PLAN.md 4a)
+for _part in ("base", "arm"):
+    parser.add_argument(f"--{_part}-hidden", type=int, help=f"with --split: the {_part} network's own --hidden")
+    parser.add_argument(f"--{_part}-layers", type=int, help=f"with --split: the {_part} network's own --layers")
+    parser.add_argument(f"--{_part}-dropout", type=float, help=f"with --split: the {_part} network's own --dropout")
 parser.add_argument("--max-epochs", type=int, default=MAX_EPOCHS, help="upper limit on the number of epochs")
 parser.add_argument("--patience", type=int, default=PATIENCE,
                     help="stop once the validation loss hasn't improved for this many epochs (early stopping)")
@@ -122,6 +128,11 @@ if args.arm_from and not args.split:
     parser.error("--arm-from needs --split")
 if args.base_from and not args.split:
     parser.error("--base-from needs --split")
+PER_NET = [f"{p}_{k}" for p in ("base", "arm") for k in ("hidden", "layers", "dropout")]   # base_hidden, ...
+NET_OPTIONS = dict(hidden=args.hidden, layers=args.layers, dropout=args.dropout,
+                   **{k: getattr(args, k) for k in PER_NET})
+if not args.split and any(NET_OPTIONS[k] is not None for k in PER_NET):
+    parser.error("--base-hidden / --arm-hidden etc. need --split")
 if args.arm_from and args.dagger:
     # The copied arm keeps its own training data; DAgger frames would have nothing to train
     parser.error("--arm-from copies a trained arm: --dagger has no arm to train")
@@ -145,11 +156,14 @@ if args.base_from:
     if base_source.config.get("vw_outputs", False) != args.vw_outputs:
         parser.error(f"--base-from {args.base_from} has vw_outputs={base_source.config.get('vw_outputs', False)}")
     base_arch = base_source.config.get("base_arch", "mlp")
-# A checkpoint rebuilds both networks from one config, so copied networks must have the sizes of this run's
-for source in ([arm_source] if args.arm_from else []) + ([base_source] if args.base_from else []):
-    if (source.config["hidden"], source.config["layers"], source.config.get("gru_hidden", 192),
-            source.config.get("burn_in", 200)) != (args.hidden, args.layers, args.gru_hidden, args.gru_burn_in):
-        parser.error("--arm-from / --base-from: the copied network's sizes differ from this run's options")
+# A checkpoint rebuilds both networks from its config, so a copied network must have the size this run gives that
+# network. Dropout too: it adds layers, so a copied network without them couldn't be loaded back from the checkpoint
+copied = ([("arm", arm_source)] if args.arm_from else []) + ([("base", base_source)] if args.base_from else [])
+for part, source in copied:
+    if (net_settings(source.config, part), source.config.get("gru_hidden", 192), source.config.get("burn_in", 200)) != (
+            net_settings(NET_OPTIONS, part), args.gru_hidden, args.gru_burn_in):
+        parser.error(f"--{part}-from: the copied {part} network's size or dropout {net_settings(source.config, part)} "
+                     f"differs from this run's {net_settings(NET_OPTIONS, part)} (--{part}-hidden etc.)")
 uses_gru = args.split and "gru" in (base_arch, arm_arch)
 if args.split and args.history_k:
     # base_inputs / arm_inputs pick the current frame's columns, so the past frames would be silently dropped
@@ -248,7 +262,8 @@ if not args.test_only:
     if args.split:
         model = SplitPolicy(hidden=args.hidden, layers=args.layers, dropout=args.dropout,
                             gravity_residual=args.gravity_residual, vw_outputs=args.vw_outputs, base_arch=base_arch,
-                            arm_arch=arm_arch, gru_hidden=args.gru_hidden, burn_in=args.gru_burn_in)
+                            arm_arch=arm_arch, gru_hidden=args.gru_hidden, burn_in=args.gru_burn_in,
+                            **{k: NET_OPTIONS[k] for k in PER_NET})
         model.set_normalisation(x_tr, y_tr, a_tr)
         if args.base_from:
             model.base = base_source.base   # weights and its own normalisation, as for --arm-from
@@ -320,6 +335,8 @@ if not args.test_only:
                              dagger=";".join(Path(f).name for f in args.dagger) if args.dagger else "",
                              dagger_frames=dagger_frames, arm_from=args.arm_from or "", base_from=args.base_from or "",
                              base_arch=base_arch, arm_arch=arm_arch,
+                             **{f"{p}_{k}": v for p in ("base", "arm")
+                                for k, v in zip(("hidden", "layers", "dropout"), net_settings(model.config, p))},
                              **(dict(gru_hidden=args.gru_hidden, gru_window=args.gru_window, gru_burn_in=args.gru_burn_in,
                                      gru_lr=args.gru_lr) if uses_gru else {}))
     else:

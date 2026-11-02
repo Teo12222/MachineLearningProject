@@ -114,6 +114,19 @@ rejected models lost by more than the seed spread (see "Evidence per feature" un
    those too. Judge in closed loop (`tune.py` already checks the best few on validation targets): the first tuning run
    improved the validation loss but made closed loop worse (step "Hyperparameter tuning"). ~1 h; if it doesn't fit by
    3 Nov evening, skip it and say so in the report.
+   **Built (2 Nov, Matteo), smoke-tested:** `tune.py --split --gravity-residual --base-from split_arrived_s0 --dagger
+   <DART folders>` passes these to every trial and reads the arm's epoch columns. Two things found on the way:
+   - **Dropout with a copied base made unloadable checkpoints** (dropout adds layers; one `--dropout` built both
+     networks, the copied base has none), and `tune.py` counted the failed closed-loop runs as 0% reached instead of an
+     error. `train.py` now refuses a copied network whose size or dropout differs.
+   - **Per-network size and dropout** (`train.py --arm-hidden / --arm-layers / --arm-dropout`, `--base-…` likewise,
+     stored in the checkpoint; old checkpoints build as before), so the full grid (size and dropout too, ~18
+     trainings) tunes the arm on the same copied base, and every model keeps `split_arrived_s0`'s base (checked: all
+     DART models, r5 and the 300-episode seeds have it bit for bit). `dagger.py` passes the start model's per-network
+     settings on, so the rounds train the tuned arm size.
+   **Base tuning: later (decided 2 Nov),** after the DART + DAgger comparison (7): then every later model uses the
+   tuned base. Why not now: the base already parks within 2-4 cm in every run, failed runs park as well as reached
+   ones, and a new base now would mean new val / test runs for every row of the comparison.
 5. **DAgger seed rounds** (Matteo, from 2 Nov): `split_dagger_r5` retrained with training seeds 1 and 2 on its existing
    DAgger data (seed repeats of the DAgger candidate).
 6. **DAgger behind the chosen (tuned) DART model** (Matteo): `dagger.py --start <DART model> --extra-data <DART folders> --name <new>`, rounds
