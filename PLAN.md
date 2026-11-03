@@ -403,6 +403,23 @@ report must already be complete without it; Thursday only swaps in results, nobo
       `--arm-from`, val 50 each. If a different base moves the result, its parking (2-3 cm off, latch ~0.25 s early)
       is part of the last-2-cm problem; if not, the arm alone is the limit. Also says whether the quoted seed spread
       is the arm's only (B7's caveat).
+    - **(c) DART noise faded out near the target** (3 Nov, Kris; the professor's "smart DART" suggestion). Idea: the
+      policy creeps over the last 2 cm. Near the target the DART frames are mostly the expert pushing back against
+      3-4 N*m of noise (and their labels depend on its hidden `q_des_arm`), so the network may learn that region as
+      "big corrections" and fit the small final push badly; the noisy expert also fails 72/300, hovering near the
+      target until timeout. Test: the same 300 DART episodes (`--seed 2` / `3`, noise 60) with the arm noise scaled by 0
+      within 2 cm of the target, 1 beyond 5 cm, linear between (`run_batch.py --noise-fade 0.02,0.05`, into
+      `dart/a60f` / `dart/a60fb`; the noise sequence is unchanged, so each run is bit-identical to `dart/a60`'s until the
+      arm first enters 5 cm, checked on 2 episodes). Models `split_dart_a60fx2_s0/_s1/_s2`, trained exactly like
+      `split_dart_a60x2_s*` (gravity residual, base copied from `split_arrived_s0`), val 50 into
+      `compare_out/<model>_val`. **Against DART alone, not the final model:** DAgger data only fits the policy it was
+      collected behind, so a new DART model would need new DAgger rounds; those only if this wins.
+      **Rule, fixed before the results:** better = held within 1 cm for 0.5 s or ever within 1 cm better with no seed
+      overlap against `split_dart_a60x2_s*` (held 30-41, ever 33-44), with held within 5 cm still 50/50 and no arm
+      spins; worse the same way round; anything else is a tie and the fade is not adopted (it would cost new DAgger
+      rounds). Also reported, not part of the rule: reached, held 2 cm, median final error, and the creep times (median
+      time from first within 2 cm to first within 1 cm / 5 mm; `split_dart_a60x2_s*`: 1.72 / 2.22 / 1.36 s to 1 cm,
+      3.79 / 2.43 / 5.08 s to 5 mm).
 
 **D. Extensions:** camera (Kris from 3 Nov once the winner's test 150 is done, finished 5 Nov; Matteo joins after the
 final edit; cut-off Thursday evening, see the week table); parking pose + arm early: future work in the report. Dropped unless time: parked-start arm episodes, randomised arm start
