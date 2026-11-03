@@ -515,9 +515,32 @@ report must already be complete without it; Thursday only swaps in results, nobo
       +-30 N*m clip rarely acts), so there was little for a bound to fix.
     - Offline all alike (test torque RMSE 0.78-0.80 N*m). **The final model keeps ReLU / linear.** Report line: hidden
       activation and output function don't matter here (SiLU level, Tanh worse, a bound inactive in practice).
-    - **Base variants (SiLU / bounded base, 3 seeds each, paired with the DART-300 arm via `--arm-from`), queued
-      overnight if time:** a bounded base needs one more change first (`train.py` sets the bound for the arm only, so a
-      bounded base would stay linear; its arrival logit must stay unbounded, or p(arrived) couldn't pass ~0.75).
+    - **Base variants (3 Nov, 22:54-23:20):** each base (3 seeds, base only) paired with the same DART-300 arm
+      (`split_dart_a60x2_s0`'s, `--arm-from`), val 50. The bounded base bounds the 4 wheel outputs only (the arrival
+      logit stays unbounded: its 0/1 labels would cap it near +-1.1, so p(arrived) couldn't pass ~0.75); unlike the
+      arm's, its bound is tight (~2.5 std, set by the wheels' +-3 rad/s). Main metrics the base's own job (parking
+      distance from the expert's spot at the latch, latch time v the expert's arrival), success secondary: the arm
+      reacts to its base's hand-over (C18b). Script and per-seed numbers: `compare_out/c15base/summary.txt`.
+
+      | base | parking median (worst) | latch v expert | reached | ever 1 cm | held 1 cm | held 5 cm |
+      |---|---|---|---|---|---|---|
+      | ReLU, linear (seed 0 = `split_arrived_s0`'s base) | 1.9 cm (3.9): 2.3 / 1.4 / 2.1 | -0.16 s | 24.7 (32 / 14 / 28) | 32.0 (38 / 19 / 39) | 31.0 | 50 |
+      | SiLU | 1.7 cm (4.5) | +0.24 s | 21.0 | 37.0 | 33.0 | 49.3 |
+      | **bounded** | **1.4 cm (3.2): 1.4 / 1.4 / 1.4** | +0.05 s | 26.0 (30 / 20 / 28) | **41.3** (44 / 37 / 43) | 37.0 | 50 |
+      | SiLU + bounded | 1.5 cm (3.8) | +0.11 s | 19.7 | 36.0 | 32.7 | 50 |
+
+      - **Bounded base: the first base change that parks more precisely and the same with every seed** (1.4 cm on all
+        3 v 1.4-2.3 for ReLU), and the best with the arm on every count (its worst seed, 37 ever within 1 cm, about
+        ReLU's best, 39). **Not a win by the rule:** ReLU's spread is wide (seed 1: 19 ever within 1 cm), so +9.3 ever
+        1 cm and -0.5 cm parking fall within it. A lead for the base tuning after the DART + DAgger comparison (Plan
+        from 3 Nov: base tuning later, then every later model uses the tuned base); not for the final model now (its
+        DAgger arm is fitted to the ReLU base, C18b).
+      - **SiLU base: no gain** (later latch, larger worst parking, success level or lower).
+      - **Even the DART arm depends on its base's hand-over** (extends C18b): ReLU seed 1 is the most expert-like base
+        by its own metrics (1.4 cm, latch -0.01 s) and gives the worst result with this arm (14 reached, 19 ever
+        within 1 cm v 32 / 38 for seed 0, which latches 0.25 s early). The DART recipe was chosen by val runs with the
+        seed-0 base, and an early latch gives the arm more time; so base metrics alone don't predict success. Report
+        point: success measures the base-arm pair.
 16. **Near-target weight in the arm loss (3 Nov, Kris, Mac): doesn't help.** Weight w = 1 + k exp(-d / 1 cm), d = EE
     to target distance (frames within 2 cm: 7.9% of the arm's frames, 16.5% / 31.0% of the weight). DART recipe as
     `split_dart_a60x2_s0`, seed 0, val 50: reference s0 30 reached / 39 ever 1 cm / 39 held 1 cm (seed spread on

@@ -303,6 +303,12 @@ if not args.test_only:
                                                 x_base_va, base_labels(yf_va, af_va), fr_va, st_va, base_fn,
                                                 label="base ", **gru_options)
         else:
+            if net_output_act(model.config, "base") == "bounded":
+                # Wheels only: the last output is the arrived logit, whose 0/1 labels would cap it near +-1.1, so
+                # p(arrived) could never pass ~0.75; it stays unbounded (a huge bound is linear)
+                model.base.set_output_bound(base_labels(y_tr, a_tr))
+                model.base.y_bound[-1] = 1e6
+                print(f"base output bound (normalised units, wheels): {model.base.y_bound[:-1].numpy().round(2)}")
             _, base_best, base_epochs = fit(model.base, *normalise(model.base, base_inputs(x_tr), base_labels(y_tr, a_tr)),
                                             xbv, ybv, base_fn, "base ")
         dagger_frames = 0
@@ -360,6 +366,7 @@ if not args.test_only:
                              base_activation=net_activation(model.config, "base"),
                              arm_activation=net_activation(model.config, "arm"),
                              arm_output_act=net_output_act(model.config, "arm"),
+                             base_output_act=net_output_act(model.config, "base"),
                              **(dict(gru_hidden=args.gru_hidden, gru_window=args.gru_window, gru_burn_in=args.gru_burn_in,
                                      gru_lr=args.gru_lr) if uses_gru else {}))
     else:
