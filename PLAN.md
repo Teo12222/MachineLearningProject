@@ -2066,7 +2066,7 @@ named; mark the set, the machine and the number of seeds in every row):
       - Run: `cd concurrent_arm && ROBOENV_TARGET=x,y,z python concurrent_expert.py`, or in batches with
         `run_batch.py --script ../concurrent_arm/concurrent_expert.py --out-dir <folder>`; in a fresh checkout,
         `concurrent_arm/models` and `configs` are symlinks to `robotnik_arm_task/`'s (git-ignored).
-    - **Done (Kris, 3 Nov, not pushed):** smoke test against the sequential expert on 4 targets (side, far behind, low
+    - **Done (Kris, 3 Nov, not pushed):** a184e79. Smoke test against the sequential expert on 4 targets (side, far behind, low
       behind, high near):
 
       | target | sequential: EE error when parked / reached at | concurrent: EE error when parked / reached at |
