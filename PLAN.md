@@ -44,12 +44,15 @@ Look there for the current state of each model instead of this file.
   merge two versions of a checkpoint, so two people retraining the same name means picking one.
 - Run with `pixi run python <script>` from `robotnik_arm_task/`. In PyCharm, scripts that import torch set
   `KMP_DUPLICATE_LIB_OK` themselves (needed on Windows).
-- **Success at 1 cm, next to 5 mm, for every closed-loop test** (the brief's tolerance; decided 2 Nov, before the
-  DART / DAgger results, so it doesn't move the goalposts). **Computed once, after the final comparison (B7)**, by one
-  script over all saved runs; until then the only thing to do is keep the files (`--out-dir`, below).
-  Defined as **held within 1 cm for 0.5 s** (the same "held" rule as the 2 / 5 / 10 cm columns; "ever within 1 cm"
-  would count arms that swing through the target). 5 mm stays the main number, so every model stays comparable with
-  the earlier ones and the expert; 1 cm is an extra column. Older models: recompute it from their saved policy episodes
+- **From 3 Nov, 1 cm is the main success measure for our models** (the brief's tolerance): **ever within 1 cm** (the
+  first time the end effector gets within 1 cm, the brief's rule), with **held within 1 cm for 0.5 s** next to it as
+  the stricter version (it doesn't count an arm that swings through the target). The **5 mm** column stays as the
+  strictest, so every earlier model stays comparable. Why the expert uses 5 mm: it is the data source, so it was made
+  to stop at 5 mm (+ 1 s settle) to give **more accurate demonstrations** (a more precise final approach and holding
+  frames near the target), not because 5 mm is the task's tolerance; the policy runs use the same stop rule, so expert
+  and model runs are recorded the same way. Say both in the report. Computed from the saved runs by one script (after
+  B7 for the final model; done: 88.4% ever / 70.0% held); keep the files (`--out-dir`, below).
+  Older models (1 cm column): recompute it from their saved policy episodes
   (`ee_pos`, `target` in each `.npz`) where the files still exist on that machine (`compare_out/` is git-ignored;
   quick runs without their own `--out-dir` were overwritten); leave it empty where they don't.
 - **Every closed-loop run goes into its own output folder: `compare.py ... --out-dir compare_out/<model>_<set>`**
@@ -259,7 +262,11 @@ rejected models lost by more than the seed spread (see "Evidence per feature" un
    | DAgger alone r5, seed 0 (PC) | 62 (41.3%) | 36 (24%) | 90 | 85 / 121 | 25 / 38 |
 
    Expert 149/150. Picked on validation only (val 75%, test 69%: the usual small drop of a best-of-several pick). On
-   the brief's 1 cm: held 70%, ever within 1 cm 88% (the other group's rule; their 149/150 is still well above).
+   the brief's 1 cm: held 70%, ever within 1 cm 88%. (Internal context only, **never in the report**: another model is known to reach 149/150 at 1 cm, success
+   counted as the end effector reaching the target point in simulation, i.e. the first time within 1 cm. Its authors
+   suggested fewer inputs (checked: step 6, arm input check) and plotting torques and the loss curves. Not asked further: their
+   targets and time limit are assumed to be the brief's, like ours, so the comparable number is our ever within
+   1 cm, 88%.)
 
 **If B isn't enough: ideas to improve the final model further (2 Nov, cheapest first; only on 4 Nov, cut-off 4 Nov
 midday, then report only).** Where the best models fail now is **precision, not collapse**: DART holds within 5 cm in
@@ -279,8 +286,7 @@ midday, then report only).** Where the best models fail now is **precision, not 
   worse.
 - **Not in the time left:** joint-target outputs, base DAgger, new architectures (each needs new code plus its own
   DAgger rounds).
-  Joint-target outputs are the most likely reason another group reaches 149/150 at 1 cm without DART / DAgger (to
-  confirm with them; their success is "ever within 1 cm"): the net predicts `q_des`, `qd_des` and a fixed PD formula
+  Joint-target outputs (an idea on its own merits): the net predicts `q_des`, `qd_des` and a fixed PD formula
   inside the model gives the torques (the expert's `kp (q_des - q) + kd (qd_des - qd)`, like the gravity residual adds
   g(q)), so damping and stiffness are structure, not learned, and an error is a steady offset instead of a growing
   drift. Labels exist: `q_des_arm` is saved, `qd_des` follows exactly from the saved torque. Design in `test_notes.md`
@@ -350,6 +356,23 @@ report must already be complete without it; Thursday only swaps in results, nobo
       episodes.
 13. Efficiency table (Jamie) (24).
 14. Success at 1 cm next to 5 mm: decided 2 Nov ("How we work"); computed once after 7 from the saved runs (Matteo).
+15. **Activation and output function check (added 3 Nov, Matteo; today):** never tested so far (the tuning plan
+    left "MSE / Huber x ReLU / SiLU" for "once a model works", and it now does). Arm only, base copied with
+    `--base-from split_arrived_s0`, on the **DART recipe** (300 episodes at noise 60, the chosen amount), not on the
+    final DART + DAgger model: the DAgger data was collected behind the ReLU arm, so retraining the arm with another
+    activation on it would favour ReLU (same trap as step 15's GRU base + r5 arm); DART data is expert-labelled and
+    fits any arm. Reference: ReLU = Kris's existing DART seeds, no retraining.
+    - **Hidden activation:** ReLU (now) vs SiLU vs Tanh.
+    - **Output function:** linear (now) vs bounded (tanh scaled so the output can't leave the label range; the
+      run-time clip at +-30 N*m then never has to act). Careful: the arm predicts torque minus gravity in normalised
+      units, so the bound must be set on that, not on +-30.
+    - Needs options in `train.py` / `bc_model.MLP` (e.g. `--activation`, `--output-act`), **stored in the checkpoint
+      config** so the policy script builds the same network; old checkpoints load as ReLU / linear.
+    - Seed 0 first (val 50, `--out-dir compare_out/<model>_val`), more seeds only for a clear winner. Judge in closed
+      loop (reached, ever / held within 1 cm, held within 5 cm), offline on test RMSE in real units: never compare
+      `best_val_loss` across a loss change (Huber, if tried, is a different scale).
+    - If something clearly wins, it would need its own DAgger rounds to become the final model: too late for that, so
+      report it as a result on the DART model and as future work for the final one.
 
 **D. Extensions:** camera (Kris from 3 Nov once the winner's test 150 is done, finished 5 Nov; Matteo joins after the
 final edit; cut-off Thursday evening, see the week table); parking pose + arm early: future work in the report. Dropped unless time: parked-start arm episodes, randomised arm start
@@ -360,6 +383,12 @@ sections drafted by **4 Nov evening** (Matteo: introduction, data collection (26
 input features, split + DAgger, the 15 vs 14 point; Kris: subsampling, cleaning, temporal models, DART, learning
 curve, robustness, offline vs closed loop; Jamie: gravity residual, (v, w), efficiency); **5 Nov** final edit + README
 (Matteo), conclusion + contribution statement (Jamie); **6 Nov** buffer and submission.
+- **Jamie needs every gravity-residual and (v, w) result** (added 3 Nov) for his sections, in one place: the
+  single-model rows (`mlp_gravres_s0`, `mlp_gravres_lr1e3_s0`, `nogravres_s0`, `vw_s0`), the split rows
+  (`split_arrived_s0` vs `split_arrived_nograv_s0`, `split_vwbase_r5arm_s0`, `split_dagger_vw_s0`), the temporal
+  ones (`temporal_window_k4_d50_gravres_s0` vs `_d50_s0`, `gru_h192_w1000_vw_gravres_s0`) and Kris's DART-side
+  removal runs (`split_dart_a60x2_nograv_s*`, gravity residual off, 3 seeds, C9). Checkpoints and test plots are committed (`1138ae7`); results
+  in `results/`, numbers and reasons in steps 12, 13, 14, 15 and 23. Owners send him anything only on their machine.
 
 **If it slips, cut in this order:** camera -> the 0 / 75 / 600 DART points -> tuning (4a) -> robustness down to sensor noise only.
 Never cut: the final comparison with seeds, the full test set, the report.
@@ -953,8 +982,7 @@ on a saved episode: moving and rotating the whole scene (base, EE, target togeth
   models trained with the current defaults; the robot-frame single MLP is retrained as `mlp_robotframe_s0` (the
   reference for 15). This section and the tuning section still call it `mlp_robotframe`: they describe what it did
   at the time. `mlp_robotframe_tuned` also used the old settings (name kept).
-- **Arm input check (2 Nov, Matteo, branch `test/arm-features`, not merged): keep the full inputs.** Asked because
-  another group suggested fewer inputs. Arm only, expert data only, seed 0, base copied from `split_arrived_s0`, val 50
+- **Arm input check (2 Nov, Matteo, branch `test/arm-features`, not merged): keep the full inputs.** Checked whether fewer inputs help. Arm only, expert data only, seed 0, base copied from `split_arrived_s0`, val 50
   (closest approach median / under 5 cm / error back above 20 cm after the latch): full 25 inputs 4.7 cm / 27 / 2.9 s;
   raw joint angles instead of sin/cos (18) 8.9 cm / 14 / 1.7 s despite a slightly lower val loss, but calmer once it
   fails (torques at the limit in 0% vs 80% of post-latch frames, base pushed > 0.5 m in 4 vs 14 runs, off the floor 1
@@ -2029,6 +2057,10 @@ named; mark the set, the machine and the number of seeds in every row):
     closer than 1 m.
 27. **Report:** IEEE template, max 6 pages + contribution statement; code README must say what was written from
     scratch vs adapted. Due **6 Nov**. Discussion points found so far:
+    - **All temporal models are causal** (added 3 Nov): the GRU only reads the current and past frames (one
+      direction, memory carried forward), the TCN uses causal convolutions, and the history windows only past
+      frames. Say so explicitly: a controller can't use future frames at run time, which is also why no
+      bidirectional RNN or non-causal convolution was tried (Lecture 07).
     - **No test data in any choice (Matteo, 2 Nov; say it in the report):** every decision (settings, tuning, DART
       amount, DAgger round, seed for the DAgger start, which model wins) used the 150 validation episodes or their
       fixed 50; the 150 test episodes were only run to fill the tables, to show how the chosen models do on unseen
@@ -2118,6 +2150,13 @@ brief's model input includes the target), not a replacement.
 - **Learned version:** a small CNN in PyTorch, image(s) in, target position out. Training data is cheap: place the
   target at random, render the snapshot and save it with the true target position as the label. No expert runs
   needed, so thousands of examples are quick to generate. Store images small (e.g. 128x128).
+- **Option (added 3 Nov): a pretrained ResNet** (e.g. ResNet-18 from `torchvision`) as the image backbone, with a
+  small head regressing the target position. Why: pretrained features need far fewer rendered examples and train
+  faster than a CNN from scratch. Cost doesn't matter: the image is processed once, at t = 0, not every 1 ms step.
+  Catches: `torchvision` is **not in the default pixi environment on Windows** (`pixi.toml` adds only `torch` there;
+  `torchvision` only in the `ml` environment), so add it first; the pretrained weights are a download; ImageNet
+  normalisation of the input. Compare with the classical reference (red pixels + depth): if that is already within a
+  few mm, the learned model only adds a talking point.
 - Optional realism: add noise to the depth image and test how robust the estimate is (fits the robustness tests).
 
 **End-to-end (not recommended before the deadline)**
