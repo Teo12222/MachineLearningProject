@@ -2108,6 +2108,10 @@ until the base is done, then reaches with Cartesian IK. The concurrent expert ch
    below). The reach (`arm_controller`, `reach_active=True`) runs whenever the base is done *or* its phase is past
    "drive" (orient; the phase stays "orient" once done), instead of only once done. Saved: `arm_early_ik`. With both
    options on, the blend of 7 still comes first. Off, the expert is unchanged (checked: bit for bit).
+9. **Option: the Cartesian correction's gain** (`ROBOENV_CARTESIAN_KP`, default 1.5 = `ArmControllerParams`' default,
+   so unchanged; tried higher and not used, see "Tried" below). Passed to the expert's own `ArmControllerParams`, so
+   the shared code is untouched. The final-pose solves (1 and 7) keep the default gain (`solve_params`), so `q_final`
+   doesn't depend on it (checked: identical at 2 and 3). Saved: `cartesian_kp`.
 
 **Not changed:** simulation setup, target, start pose, standoff and parking spot, the base controller and its
 phases (so `nav_phase` / `nav_done` mean the same), the stop rules (5 mm + 1 s settle; "reached" and the stall rule
@@ -2219,10 +2223,32 @@ lower limit (see "Found on the way" below).
           recomputed from the `.npz` files (10.07 s mean over the 298, as in the table), `arm_early_ik` set in all
           300, and every episode identical bit for bit to the early-IK test run above. **`data_concurrent` is now
           the dataset for the concurrent model.**
-      - **Still to try: a higher `cartesian_kp`** (e.g. 2 and 3). Correction time is ln(error / 5 mm) / kp, so up to
-        half the correction (~0.8 s). The expert builds its own `ArmControllerParams`, so the concurrent expert can
-        set it without touching the shared code. Risk: overshoot, i.e. swing-throughs like the sequential expert's,
-        so judge by "held within 5 mm through the settle", not the first pass.
+      - **Tried (3 Nov): a higher gain for the Cartesian correction (`ROBOENV_CARTESIAN_KP`). Faster first pass, but
+        the reaches stop holding: not used, the default stays 1.5.** Correction time is ln(error / 5 mm) / gain, so a
+        higher gain shortens it as expected, but the joint PD (kp 100, kd 20) can't follow the faster reference, and
+        the EE overshoots: the swing-throughs we found in the sequential expert. All with early IK, same 300 targets,
+        Mac, into the scratchpad (not kept):
+
+        | gain | reached | time to reach, mean of the 298 | parked -> reached, median | held within 5 mm / 1 cm through the settle | worst EE error after the first pass |
+        |---|---|---|---|---|---|
+        | 1.5 (default, `data_concurrent`) | 300 | 10.07 s | 1.55 s | 300 / 300 | 5.0 mm |
+        | 1.75 | 300 | 9.83 s | - | 288 / 299 | 12.6 mm |
+        | 2 | 300 | 9.60 s | 1.08 s | 240 / 296 | 11.9 mm |
+        | 3 | 300 | 9.35 s | 0.89 s | 167 / 268 | 18.8 mm |
+        | (sequential, `data_main`) | 298 | 11.38 s | 2.77 s | 288 / 293 | 20.7 mm |
+
+        - First pass faster on every one of the 300 targets: -0.48 s mean at 2, -0.72 s at 3.
+        - Already at 1.75, 12 runs leave the 5 mm ball after the first pass (288, as many as the sequential expert),
+          so 1.5 is at the edge. A first pass that doesn't hold flatters the reach time and gives the policy worse
+          labels during the settle: the reason the expert stops at 5 mm + 1 s is precise final-approach data.
+        - No clipped torques during the correction at any gain (0, all runs; the 18 per run, median, are the J6 jolt
+          mid-drive, about 20 ms), the torques change faster per step (0.010 -> 0.014 -> 0.017 N*m), the fastest joint during the
+          correction 0.35 -> 0.43 -> 0.56 rad/s (median). `q_final` identical at every gain.
+        - Checked twice: `index.csv` and the `.npz` files agree (all 300 reached at each gain, times within 6 ms), and
+          with the default gain the script still reproduces `data_concurrent` bit for bit (10 episodes).
+        - What a faster correction would need: a faster joint loop (higher PD gains, or a torque feed-forward from the
+          arm dynamics, so the joints track a faster reference without lag). That changes the arm's torque labels
+          everywhere, not just the last few cm, so it is a bigger change than a gain.
       - The arm moves at most 0.063 rad while the base turns (the same sag as the sequential expert's). The base never
         leaves the floor (lowest base z -0.004 m in both). `q_final`'s IK error is at most 1 mm on all 300 targets:
         none is beyond the reach limit.

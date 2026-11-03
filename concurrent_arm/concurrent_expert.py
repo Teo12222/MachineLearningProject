@@ -87,6 +87,9 @@ ARM_RESOLVE = os.environ.get("ROBOENV_ARM_RESOLVE", "0").strip().lower() in ("1"
 # measured EE, so it can already work during the final turn in place (~0.35 s) instead of the arm holding q_final.
 # On by default from 3 Nov (-0.22 s per target); ROBOENV_ARM_EARLY_IK=0 gives the first version (old data_concurrent)
 ARM_EARLY_IK = os.environ.get("ROBOENV_ARM_EARLY_IK", "1").strip().lower() in ("1", "true", "yes")
+# Gain of the Cartesian correction (1/s; ArmControllerParams' default 1.5): the time from an EE error e to 5 mm is
+# ln(e / 5 mm) / gain (PLAN.md step 28). Only the live reach uses it, not the final-pose solves
+CARTESIAN_KP = float(os.environ.get("ROBOENV_CARTESIAN_KP", "1.5"))
 # ==============================================================================
 
 
@@ -197,7 +200,9 @@ def main():
     base_params = BaseControllerParams(nav_timeout=BASE_NAV_TIMEOUT)
 
     # Arm controller (differential IK + joint PD), see ArmControllerParams
-    arm_params = ArmControllerParams(reach_limit=ARM_REACH_LIMIT)
+    arm_params = ArmControllerParams(reach_limit=ARM_REACH_LIMIT, cartesian_kp=CARTESIAN_KP)
+    # The final-pose solves keep the default gain, so q_final doesn't depend on ROBOENV_CARTESIAN_KP
+    solve_params = ArmControllerParams(reach_limit=ARM_REACH_LIMIT)
     q_init_arm = init_joint_angles[4:11].copy()
     q_des_arm = q_init_arm.copy()
     qd_des_arm = np.zeros(7)
@@ -206,7 +211,7 @@ def main():
     # Final arm pose for the planned parking spot, solved once before the base moves (kinematics only)
     q_final, q_final_error, ik_iters = solve_final_arm_pose(
         dyn_model, np.array([base_goal_pos[0], base_goal_pos[1], init_base_pos[2]]), base_goal_bearing,
-        init_joint_angles, TARGET_EE_POS, ee_frame_id, shoulder_frame_id, arm_lower, arm_upper, arm_params,
+        init_joint_angles, TARGET_EE_POS, ee_frame_id, shoulder_frame_id, arm_lower, arm_upper, solve_params,
     )
     print(f"Final arm pose: {np.round(q_final, 3)} (EE error {q_final_error:.4f} m at the planned spot, "
           f"{ik_iters} IK iterations)")
@@ -290,7 +295,7 @@ def main():
             q_motors[4:11] = q_des_arm
             q_final_parked, q_final_parked_error, _ = solve_final_arm_pose(
                 dyn_model, base_pos, base_goal_bearing, q_motors, TARGET_EE_POS, ee_frame_id, shoulder_frame_id,
-                arm_lower, arm_upper, arm_params,
+                arm_lower, arm_upper, solve_params,
             )
             # The solve leaves its own pose in pin_data; arm_controller needs this step's forward kinematics
             pin.forwardKinematics(dyn_model.pin_model, dyn_model.pin_data, q_pin)
@@ -427,6 +432,7 @@ def main():
         arm_mode=np.array(arm_mode_all, dtype=np.int8),
         arm_resolve=ARM_RESOLVE,
         arm_early_ik=ARM_EARLY_IK,
+        cartesian_kp=CARTESIAN_KP,
         # Re-solve only (nan without): the pose for where the base really stopped, its EE error, and when (s)
         q_final_parked=q_final_parked.astype(np.float32),
         q_final_parked_error=q_final_parked_error,
