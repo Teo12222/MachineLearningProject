@@ -195,7 +195,10 @@ rejected models lost by more than the seed spread (see "Evidence per feature" un
    - r5 is very steady on reached (24-26, against DART's 16-30 over seeds). Part of it is probably that seeds 1 and 2
      retrain on data collected behind seed 0's policies (see B7, "What the seeds measure").
    - **The arm spins were seed 0's, not DAgger's:** seeds 1 and 2, same data and base, never spin or collapse and hold
-     within 5 cm in 49-50/50, like DART (correction at step 15's "New problem found").
+     within 5 cm in 49-50/50, like DART (correction at step 15's "New problem found"). **Softened (3 Nov, Kris's test
+     150 of seeds 1 and 2):** that holds on val 50 only; on test 150 they do spin (s1: 4, s2: 3 episodes) and s1
+     leaves the floor 3 times, far less than seed 0 but not zero. The supported claim: **DAgger alone spins
+     occasionally, DART + DAgger never** (0 of its 450 test runs).
    - Against DART-300 on val: level on reached (25.0 v 23.7 mean), far behind within 1 cm (held 11-19 v 37 for
      `split_dart_a60x2_s0` on this PC; DART's seeds 1 and 2 not yet run here).
 6. **DAgger behind the chosen (tuned) DART model** (Matteo): `dagger.py --start <DART model> --extra-data <DART folders> --name <new>`, rounds
@@ -232,7 +235,7 @@ rejected models lost by more than the seed spread (see "Evidence per feature" un
      each). That data fits seed 0 best, so seeds 1 and 2 may come out a little lower and the spread a little narrower
      than with full reruns. DAgger (and less so DART, where the expert drove) data also fits this base's habits (parks
      2-3 cm off, latches ~0.25 s early).
-   - **Cheap check of the base's share, later** (with the base tuning after 7): train the base with seeds 1 and 2 (base
+      - **Cheap check of the base's share** (scheduled 3 Nov, Kris, item 18): train the base with seeds 1 and 2 (base
      only), put the final arm on each with `--arm-from` (no arm retraining), val 50 each: ~10 min of runs, shows how
      much a different base moves the result.
    **Result (2 Nov, val 50, all on Matteo's PC, 3 seeds each):**
@@ -260,7 +263,14 @@ rejected models lost by more than the seed spread (see "Evidence per feature" un
    | **mean** | **103.7 (69.1%)** | **105.0 (70.0%)** | **132.7 (88.4%)** | 145.7 / 150 | 0 / 0 |
    | DART alone, 3 seeds (Kris, Mac) | 64.3 (42.9%) | 95.3 (63.6%) | | 138.0 / 149.3 | 0 / 0 |
    | DAgger alone r5, seed 0 (PC) | 62 (41.3%) | 36 (24%) | 90 | 85 / 121 | 25 / 38 |
+   | DAgger alone r5, seed 1 (Mac, 3 Nov) | 69 | 48 | 110 | 115 / 140 | spins 4, off floor 3 |
+   | DAgger alone r5, seed 2 (Mac, 3 Nov) | 53 | 38 | 106 | 96 / 149 | spins 3, off floor 0 |
+   | **DAgger alone r5, mean** | **61.3 (40.9%)** | **40.7 (27%)** | **102.0 (68%)** | 98.7 / 136.7 | |
 
+   DAgger alone with 3 seeds (Kris, 3 Nov): level with DART alone on reached (40.9 v 42.9%), far below it on held 1 cm
+   (40.7 v 95.3). Seeds 1 and 2 count spins as on validation (a joint > 1 rad from its start before the latch; base
+   height moved > 10 cm); seed 0's "collapsed 25 / spins 38" may be counted differently: recount it the same way
+   before the three seeds go into one report row.
    Expert 149/150. Picked on validation only (val 75%, test 69%: the usual small drop of a best-of-several pick). On
    the brief's 1 cm: held 70%, ever within 1 cm 88%. (Internal context only, **never in the report**: another model is known to reach 149/150 at 1 cm, success
    counted as the end effector reaching the target point in simulation, i.e. the first time within 1 cm. Its authors
@@ -373,6 +383,26 @@ report must already be complete without it; Thursday only swaps in results, nobo
       `best_val_loss` across a loss change (Huber, if tried, is a different scale).
     - If something clearly wins, it would need its own DAgger rounds to become the final model: too late for that, so
       report it as a result on the DART model and as future work for the final one.
+16. **Near-target weight in the arm loss (3 Nov, Kris, Mac): doesn't help.** Weight w = 1 + k exp(-d / 1 cm), d = EE
+    to target distance (frames within 2 cm: 7.9% of the arm's frames, 16.5% / 31.0% of the weight). DART recipe as
+    `split_dart_a60x2_s0`, seed 0, val 50: reference s0 30 reached / 39 ever 1 cm / 39 held 1 cm (seed spread on
+    held / ever 1 cm: 11); k = 3: 29 / 41 / 38 (level); k = 10: 19 / 39 / 33 (worse). Held within 5 cm 50/50, no
+    spins. **The validation loss dropped 9-12% with no closed-loop gain**, the same pattern as the arm tuning (4a):
+    one more line for the offline v closed-loop point (27). Branch `test/near-weight` deleted; the final model stays.
+17. **Seed ensemble of the final model** (3 Nov, Kris): the mean of the 3 seeds' arm outputs each step, one shared
+    base; code on `test/ensemble`. Judged on val 50 against the best single seed on ever / held within 1 cm; if it
+    wins, its test 150 becomes the reported number (said in the report: an ensemble of the 3 seeds).
+18. **Cheap follow-ups, no retraining** (3 Nov, Kris; val 50 each; rule fixed now: keep only if held / ever within
+    1 cm improves by more than the seed spread, without held within 5 cm dropping or new spins):
+    - **(a) Smooth the arm's torques near the target**, after 17 and on its winner (an ensemble also smooths, so
+      testing both at once couldn't tell which helped): an exponential moving average on the arm output, on only
+      within ~2 cm of the target, behind an environment variable (off by default), time constants 5 / 20 / 50 ms.
+      Risk: a filter delays the torques, and the arm's damping lives in them, so too strong a filter can make it
+      oscillate.
+    - **(b) The base's share:** the base retrained with seeds 1 and 2 (base only), the final arm put on each with
+      `--arm-from`, val 50 each. If a different base moves the result, its parking (2-3 cm off, latch ~0.25 s early)
+      is part of the last-2-cm problem; if not, the arm alone is the limit. Also says whether the quoted seed spread
+      is the arm's only (B7's caveat).
 
 **D. Extensions:** camera (Kris from 3 Nov once the winner's test 150 is done, finished 5 Nov; Matteo joins after the
 final edit; cut-off Thursday evening, see the week table); parking pose + arm early: future work in the report. Dropped unless time: parked-start arm episodes, randomised arm start
@@ -1670,7 +1700,9 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
     **Correction (2 Nov, Matteo): the spinning was one seed's, not DAgger's.** r5 retrained with seeds 1 and 2 on the
     same DAgger data and base never spins (0/50 each) or collapses (B5). So DAgger as such doesn't make the arm spin;
     seed 0's arm does. DART + DAgger is still the plan (DART's precision within 1 cm), but "DAgger spins" is no longer a
-    reason for it, and the report shouldn't claim it.
+    reason for it, and the report shouldn't claim it. **Softened (3 Nov, Kris):** on test 150, seeds 1 and 2 do spin
+    (4 and 3 episodes; seed 1 off the floor 3 times): fewer than seed 0, not zero. What the report can claim: DAgger
+    alone spins occasionally, DART + DAgger never (0 of 450 test runs).
 16. **Dropped (1 Nov, Matteo): shallow vs deep check.** Was: train one shallower and one deeper variant of the final
     model to show its size is reasonable. Why dropped: the time goes to the final model and its tests instead;
     efficiency (parameters, inference time per step) is still reported from the existing models (24).
