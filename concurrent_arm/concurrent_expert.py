@@ -83,6 +83,9 @@ ARM_PATH_START = float(os.environ.get("ROBOENV_ARM_PATH_START", "0.0"))
 # Re-solve q_final when the drive ends, for the base's real position (PLAN.md step 28, "slower on 32 targets"):
 # the base stops short of its planned spot, and that miss would otherwise become EE error for the Cartesian IK
 ARM_RESOLVE = os.environ.get("ROBOENV_ARM_RESOLVE", "0").strip().lower() in ("1", "true", "yes")
+# Start the Cartesian IK when the drive ends instead of once the base is done (PLAN.md step 28): it corrects from the
+# measured EE, so it can already work during the final turn in place (~0.35 s) instead of the arm holding q_final
+ARM_EARLY_IK = os.environ.get("ROBOENV_ARM_EARLY_IK", "0").strip().lower() in ("1", "true", "yes")
 # ==============================================================================
 
 
@@ -294,7 +297,9 @@ def main():
             blend_from, resolve_time = q_des_arm.copy(), current_time
             blend_time = blend_duration(blend_from, q_final_parked, arm_params.max_joint_vel)
         blending = resolve_time is not None and current_time - resolve_time < blend_time
-        if base_navigation_done and not blending:
+        # The phase stays "orient" once the base is done, so this covers the final turn and after it
+        ik_active = base_navigation_done or (ARM_EARLY_IK and base_state.phase not in ("align", "drive"))
+        if ik_active and not blending:
             arm_mode = 2
             torque_arm, q_des_arm, qd_des_arm = arm_controller(
                 dyn_model, q_pin, q_mes[4:11], qd_mes[4:11], q_des_arm, q_init_arm, TARGET_EE_POS, ee_pos,
@@ -420,6 +425,7 @@ def main():
         # Which arm controller made each frame's torques: 0 path to q_final, 1 blend to q_final_parked, 2 Cartesian IK
         arm_mode=np.array(arm_mode_all, dtype=np.int8),
         arm_resolve=ARM_RESOLVE,
+        arm_early_ik=ARM_EARLY_IK,
         # Re-solve only (nan without): the pose for where the base really stopped, its EE error, and when (s)
         q_final_parked=q_final_parked.astype(np.float32),
         q_final_parked_error=q_final_parked_error,
