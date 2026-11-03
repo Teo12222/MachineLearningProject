@@ -21,6 +21,7 @@ with `pixi run python <script>` from there.
 | `train.py` | Trains one model (early stopping on the **validation** loss), then tests it offline on the test episodes; writes `results/<model>.csv`. Options: `--model`, settings, `--seed`, `--gravity-residual` (12), `--vw-outputs` (13), `--history-k` / `--history-spacing` (14), `--split` (15), `--dagger` (21), `--arm-from` (copy a trained split arm, so models differ only in the base), `--no-test` / `--test-only`; `--split` doesn't combine with `--vw-outputs` or `--history-k` yet. Saves the loss curves as `checkpoints/<model>_loss.png` (25) |
 | `train_tcn.py` | Trains a TCN (14): same data, split, early stopping and results as `train.py`; windows cut per batch. Options: `--layers`, `--channels`, `--spacing` |
 | `train_gru.py` | Trains a GRU (14): scored on whole windows, memory warmed up at the episode start. Options: `--hidden`, `--window`, `--burn-in` |
+| `analyse_distances.py` | How close a model gets on test 150, from its saved runs (no simulation): ever / held within 5 mm-10 cm, after the latch, runs never within 1 cm (closing in v drifting out), by distance / height band; writes `results/analysis/` (Plan from 3 Nov, distances table) |
 | `analyse_temporal.py` | Failure metrics for the temporal models from their simulation runs (first torque-clip hit, arm deviation, base off the floor), in `quick_*` / `full_*` results columns |
 | `tune.py` | Hyperparameter search for a final model (staged grid via `train.py`, closed-loop check of the best few on the 50 validation episodes) |
 | `robotnik_arm_policy_task.py` | Same simulation as the expert, but a trained model drives the robot (`ROBOENV_POLICY` picks the checkpoint; single MLP, history window, TCN / GRU or split) |
@@ -129,6 +130,29 @@ Route A in detail:
   **5 mm / 1 cm / 2 cm / 5 cm / 10 cm** on test 150. It shows where the model stands: 100% held within 5 cm, 97%
   within 2 cm, 70% held within 1 cm, 69% at 5 mm. Computed from the saved runs (Matteo's 1 cm analyses tonight add the
   other thresholds; DART alone and DAgger alone from Kris's Mac runs).
+  **Done (3 Nov, Matteo): final model + expert** (`analyse_distances.py`, from the saved test-150 runs, no
+  simulation; files `results/analysis/final_distances.csv` and `final_bands.csv`, the second one for Jamie). Ever /
+  held for 0.5 s, test 150, mean of the 3 seeds (per seed in the file):
+
+  | | 5 mm | 1 cm | 2 cm | 5 cm | 10 cm |
+  |---|---|---|---|---|---|
+  | final model (DART + DAgger r5) | 103.7 / 29.7 (69% / 20%) | 132.7 / 105.0 (88% / 70%) | 148.3 / 145.7 (99% / 97%) | 150 / 150 | 150 / 150 |
+  | expert | 149 / 145 | 150 / 149 | 150 / 150 | 150 / 150 | 150 / 150 |
+
+  - **Held within 5 mm is only 20%** (69% ever): the model touches 5 mm and hovers at 5-10 mm. Non-obvious: runs end
+    1 s after first reaching 5 mm, so the 0.5 s hold must fit into that second; the expert's runs end the same way and
+    hold 145/150, so the gap is the model's.
+  - **Ever within 1 cm after the latch = at any time** (all seeds): nothing gets within 1 cm while the base drives.
+  - **Runs never within 1 cm (29 / 9 / 14 per seed) aren't still closing in at 30 s** (rule fixed before looking:
+    closing in = the last 0.5 s at least 2 mm below 5 s earlier: 1 / 0 / 2). They get to ~1.2 cm (median closest
+    approach) at ~12-15 s, then **drift back out to 3-4 cm by 30 s**: the slow creeping, not a steady hover. **45 of
+    the 52 are low targets** (below 0.5 m).
+  - **By band: distance doesn't matter, height does.** Held within 1 cm 69-71% in every distance band (1-3 m); by
+    height 39% for 0.2-0.5 m (58 targets), 97% for 0.5-0.8 m, 85% for 0.8-1.1 m (ever within 1 cm 74 / 99 / 96%).
+    The expert gets within 1 cm on every target in every band. So the weak point is the arm in low, stretched-down
+    poses, where gravity torques are largest: fits Kris's 3 Nov hypothesis (posture drift in the arm's spare
+    directions changes the gravity load, so the small torques for the last 2 cm stop fitting) and is where a
+    Cartesian DART should help most. Report: the limitation, with this table.
 
 | When | Matteo | Kris | Jamie |
 |---|---|---|---|
