@@ -1,4 +1,4 @@
-"""Concurrent expert: turn to face the target, then drive while the arm moves to its final pose (PLAN.md step 26).
+"""Concurrent expert: turn to face the target, then drive while the arm moves to its final pose (PLAN.md step 28).
 
 Same simulation, target, base controller, Cartesian arm IK and stop rules as ../robotnik_arm_task/robotnik_arm_task.py
 (the sequential expert, where the arm waits for the base to park). What changes is the arm while the base travels:

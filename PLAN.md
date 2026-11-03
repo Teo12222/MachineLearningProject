@@ -2053,19 +2053,58 @@ named; mark the set, the machine and the number of seeds in every row):
     base has arrived. Order: 1. turn in place to face the target (no drive, no arm motion), 2. drive and move the arm
     at the same time. This is "parking pose + arm early" from 15, so far left as future work in the report (D under
     "Plan from 2 Nov"; Matteo's in "Plan from 1 Nov"): **agree with Matteo how far it goes before the 6 Nov deadline.**
-    - **Expert** (`concurrent_arm/concurrent_expert.py`, a copy of `robotnik_arm_task.py` with the arm section changed;
-      arm pieces in `concurrent_control.py`; base controller, Cartesian IK and stop rules imported unchanged):
-      - At t = 0, `solve_final_arm_pose` finds `q_final`, the arm pose that puts the EE on the target with the base at
-        its planned parking spot (`base_goal`). It uses kinematics only: the expert's own IK iterated from the start
-        joint angles, so it finds the pose the IK would reach.
-      - align: the arm holds its start pose. drive: minimum-jerk joint path from the start pose to `q_final`, timed by
-        drive progress (1 - distance left / distance at the start of the drive), capped at the IK's 1 rad/s.
-        `ROBOENV_ARM_PATH_START` starts the path later in the drive (default 0). Once parked: the usual Cartesian IK
-        corrects for where the base really parked.
-      - Saved like the expert's episodes, plus `q_final`, `q_final_error`, `arm_progress` (per frame), `arm_path_start`.
-      - Run: `cd concurrent_arm && ROBOENV_TARGET=x,y,z python concurrent_expert.py`, or in batches with
-        `run_batch.py --script ../concurrent_arm/concurrent_expert.py --out-dir <folder>`; in a fresh checkout,
-        `concurrent_arm/models` and `configs` are symlinks to `robotnik_arm_task/`'s (git-ignored).
+    - **Files:** `concurrent_arm/concurrent_expert.py` (a copy of `robotnik_arm_task.py` with the changes below) and
+      `concurrent_arm/concurrent_control.py` (the new arm functions). The shared `robotnik_arm_control.py` is imported
+      from `../robotnik_arm_task`, not copied or edited.
+    - **Run:** `cd concurrent_arm && ROBOENV_TARGET=x,y,z python concurrent_expert.py` (GUI; add `ROBOENV_HEADLESS=1`
+      for none), or in batches from `robotnik_arm_task/` with `run_batch.py --script ../concurrent_arm/concurrent_expert.py
+      --out-dir data_concurrent` (`data_concurrent/` is git-ignored). In a fresh checkout, `concurrent_arm/models` and
+      `configs` are symlinks to `robotnik_arm_task/`'s (git-ignored; create them with `ln -s`).
+
+#### Concurrent expert: exact changes vs the sequential expert (`robotnik_arm_task.py`)
+The sequential expert runs the base through align (turn in place) -> drive -> orient -> done, and the arm calls
+`arm_controller(..., q_hold_arm=q_init_arm, reach_active=base_navigation_done)` every step: it holds its start pose
+until the base is done, then reaches with Cartesian IK. The concurrent expert changes only the arm, as follows:
+
+1. **New: final arm pose, solved once at t = 0** (`solve_final_arm_pose`, after the parking spot is planned, before
+   the loop). The base is placed virtually at its planned parking spot (`base_goal_pos`, `base_goal_bearing`, start
+   height, no tilt), and `arm_controller` with `reach_active=True` is iterated with no simulation: the joints follow
+   their reference exactly (q = q_des, zero velocity), dt = 0.01 s, from the start joint angles. It stops at 1 mm EE
+   error, after 200 iterations without 0.01 mm of improvement, or at 3,000 iterations, and returns the best pose seen
+   (`q_final`) and its EE error. Same IK as the reach: damping, joint-limit band, reach limit 0.85 m (`q_final_error`
+   stays above 1 mm for targets beyond it). One dynamics model, so this overwrites `pin_data`, which the loop
+   recomputes every step anyway.
+2. **New: drive progress per step** (`drive_progress`): 0 in align, `1 - distance to parking spot / distance when
+   the drive phase started` in drive (clipped to 0..1), and 1 in orient and once done. Uses the same
+   `base_goal_pos` and phase as the base controller, which is unchanged.
+3. **Changed: the arm while the base is not done.** Instead of holding `q_init_arm` with zero velocity reference:
+   - reference `q_ref = q_init + (q_final - q_init) * b(u)`, with `b(u) = 10u^3 - 15u^4 + 6u^5` (minimum jerk: zero
+     velocity and acceleration at both ends) and `u = (progress - ARM_PATH_START) / (1 - ARM_PATH_START)`, clipped
+     to 0..1 (`arm_path_reference`). `ARM_PATH_START` comes from `ROBOENV_ARM_PATH_START`, default 0 (the arm moves
+     over the whole drive);
+   - `q_des_arm` steps towards `q_ref`, at most `max_joint_vel * dt` per step (1 rad/s on the fastest joint, the
+     same cap as the IK; scaled so all joints keep their direction). `qd_des_arm` = that step / dt, so the PD gets
+     a velocity feed-forward (the hold had 0) (`arm_path_controller`);
+   - torque = `kp (q_des - q) + kd (qd_des - qd) + gravity`, clipped to +-30 N*m: the same gains (100, 20), gravity
+     compensation and clip as `arm_controller`.
+   So during align u = 0 and the arm holds its start pose exactly as before; during drive it moves to `q_final`;
+   during orient progress is 1 and it finishes the path (if the rate cap left some of it).
+4. **Unchanged once the base is done:** the same `arm_controller` call with `reach_active=True`, continuing from the
+   current `q_des_arm` (no jump in the reference): Cartesian IK corrects for where the base really parked.
+5. **Saved per episode, new fields** (all old fields unchanged, same names and types): `q_final` (7, float32),
+   `q_final_error` (m), `arm_progress` (per frame, float32), `arm_path_start`. Printed at the start: `q_final`, its
+   error and the IK iterations.
+6. **Removed:** the commented-out plotting block at the end (a string literal, never ran).
+
+**Not changed:** simulation setup, target, start pose, standoff and parking spot, the base controller and its
+phases (so `nav_phase` / `nav_done` mean the same), the stop rules (5 mm + 1 s settle; "reached" and the stall rule
+still count only once the base is done, so an EE passing the target during the drive does not end the run), the
+time cap, DART noise, and what is logged per frame. **Differs as a side effect:** the wheel labels come from the same
+controller, but the base now carries a moving arm, so its motion and the wheel commands along it are not identical
+to the sequential expert's on the same target. Two things the path phase does not do, unlike `arm_controller`:
+clip `q_des_arm` to within 0.15 rad of the measured angles, or to the joint limits. Neither is needed for
+`q_final` (inside the limits by the IK), but the path starts from the start pose, whose J6 (1.0 rad) is below its
+lower limit (see "Found on the way" below).
     - **Done (Kris, 3 Nov, not pushed):** a184e79. Smoke test against the sequential expert on 4 targets (side, far behind, low
       behind, high near):
 
