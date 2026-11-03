@@ -444,6 +444,20 @@ report must already be complete without it; Thursday only swaps in results, nobo
       - Not run: other fade radii (e.g. 1-2 cm) or weaker rather than zero noise near the target; the result points
         the other way (more recovery data near the target, not less), so a smaller fade isn't expected to beat full
         noise.
+    - **(d) Cartesian DART: the noise as a force on the end effector** (3 Nov, Kris; the professor's second "smart
+      DART" suggestion). Instead of independent torque noise per joint, a random 3D force F on the end effector
+      (same 0.1 s correlation, seed per episode), applied as `J_arm^T F` on the arm torques (`J_arm` = the expert's
+      own world-aligned position Jacobian, columns 6..12); labels stay the clean commands. The hand is then pushed
+      along x / y / z in every pose, and no noise is spent on null-space motion that doesn't move the hand
+      (`run_batch.py --cart-noise <N>`, off by default).
+      **Calibration (16-episode pilot, `--seed 2`, against the clean runs on the same targets in `dart/a0`, RMS
+      time-aligned, median over episodes):** torque noise 60: hand 1.90 cm during the reach, joints 0.065 rad, expert
+      12/16 reached; 5 N: 1.92 cm, 0.033 rad, 14/16; 10 N: 3.40 cm, 0.061 rad, 10/16; 20 N: 7.15 cm, 0.196 rad, 2/16.
+      So half the current joint noise is null-space motion. Two levels run: **5 N (same hand displacement as now)**
+      and **10 N (same joint displacement)**, each on the same 300 targets as `dart/a60` / `a60b` (`--seed 2` / `3`, into
+      `dart/c5`, `c5b`, `c10`, `c10b`), models `split_dart_c5x2_s*` / `split_dart_c10x2_s*`, trained and checked
+      exactly like (c). **Rule, fixed before the results:** the same as (c), each level against `split_dart_a60x2_s*`
+      on its own; if both are better, the one with the higher held 1 cm mean.
 
 **D. Extensions:** camera (Kris from 3 Nov once the winner's test 150 is done, finished 5 Nov; Matteo joins after the
 final edit; cut-off Thursday evening, see the week table); parking pose + arm early: future work in the report. Dropped unless time: parked-start arm episodes, randomised arm start

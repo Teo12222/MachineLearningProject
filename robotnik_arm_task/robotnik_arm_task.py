@@ -42,6 +42,9 @@ WHEEL_NOISE_STD = 0.24   # rad/s
 # linear between, so the last cm of the reach are clean expert frames. Default off
 _fade = os.environ.get("ROBOENV_NOISE_FADE", "")
 NOISE_FADE = tuple(float(v) for v in _fade.split(",")) if _fade else None
+# Cartesian DART (PLAN.md C18d): std (N) of a random force on the end effector, applied as J^T F on the arm torques
+# instead of the per-joint torque noise; same correlation time and seed. Default 0 = off
+CART_NOISE = float(os.environ.get("ROBOENV_CART_NOISE", "0"))
 
 # Fixed gripper finger configuration (angles in radians, held fixed during simulation):
 # [finger_1, finger_tip_1, finger_2, finger_tip_2, finger_3, finger_tip_3]
@@ -211,7 +214,7 @@ def main():
     stop_message = None
     noise_rng = np.random.default_rng(NOISE_SEED)
     noise_keep = np.exp(-time_step / NOISE_TAU)
-    arm_noise, wheel_noise = np.zeros(7), np.zeros(4)
+    arm_noise, wheel_noise, ee_force_noise = np.zeros(7), np.zeros(4), np.zeros(3)
     while True:
         # Measure current states
         base_pos = np.array(sim.GetBasePosition())
@@ -259,12 +262,18 @@ def main():
         # ----------------------------------------------------------------------
         # 4 wheels (velocity) + 7 arm joints (torque) + 6 fingers (torque)
         cmd_all = np.concatenate((wheel_cmds, torque_arm, torque_fingers))
-        if ARM_NOISE > 0 or WHEEL_NOISE > 0:
+        if ARM_NOISE > 0 or WHEEL_NOISE > 0 or CART_NOISE > 0:
             # Correlated noise, std unchanged by the correlation. Wheels only while driving: the base stands still
             # once it has arrived, under the policy too
             spread = np.sqrt(1 - noise_keep ** 2)
             arm_noise = noise_keep * arm_noise + spread * ARM_NOISE * ARM_NOISE_STD * noise_rng.standard_normal(7)
             wheel_noise = noise_keep * wheel_noise + spread * WHEEL_NOISE * WHEEL_NOISE_STD * noise_rng.standard_normal(4)
+            if CART_NOISE > 0:
+                ee_force_noise = noise_keep * ee_force_noise + spread * CART_NOISE * noise_rng.standard_normal(3)
+                pin.computeJointJacobians(dyn_model.pin_model, dyn_model.pin_data, q_pin)
+                J_arm = pin.computeFrameJacobian(dyn_model.pin_model, dyn_model.pin_data, q_pin, ee_frame_id,
+                                                 pin.LOCAL_WORLD_ALIGNED)[:3, 6:13]
+                arm_noise = J_arm.T @ ee_force_noise
             fade = 1.0 if NOISE_FADE is None else np.clip(
                 (ee_dist_error - NOISE_FADE[0]) / (NOISE_FADE[1] - NOISE_FADE[0]), 0.0, 1.0)
             cmd_all[4:11] += fade * arm_noise
