@@ -69,6 +69,14 @@ def arm_path_reference(q_start, q_final, progress, start_at=0.0):
     return q_start + (q_final - q_start) * blend
 
 
+def blend_duration(q_from, q_to, max_joint_vel, min_time=0.2):
+    """Time (s) for a minimum-jerk move q_from -> q_to whose fastest joint peaks at max_joint_vel.
+
+    A minimum-jerk move of size d over time T peaks at 1.875 d / T.
+    """
+    return max(min_time, 1.875 * float(np.max(np.abs(q_to - q_from))) / max_joint_vel)
+
+
 def arm_path_controller(dyn_model, q_pin, q_arm, qd_arm, q_des_arm, q_ref, dt, params):
     """Joint PD + gravity compensation tracking q_ref, moved towards at most params.max_joint_vel.
 

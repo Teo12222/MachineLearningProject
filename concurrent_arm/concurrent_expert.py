@@ -6,6 +6,8 @@ Same simulation, target, base controller, Cartesian arm IK and stop rules as ../
 - drive: the arm follows a minimum-jerk joint path to q_final, timed by drive progress, so it arrives with the base.
   q_final is solved once at t = 0 (kinematics only) for the base parked at its planned spot;
 - orient / parked: the arm finishes the path, then the usual Cartesian IK corrects for where the base really parked.
+- with ROBOENV_ARM_RESOLVE=1: when the drive ends, q_final is solved again for where the base really is (it stops
+  ~7 cm short of the planned spot), and the arm blends to that pose before the Cartesian IK takes over.
 Saved episodes have the same fields plus q_final, its IK error and the path progress per frame.
 """
 import numpy as np
@@ -26,7 +28,9 @@ import pybullet as p
 import pinocchio as pin
 from simulation_and_control import pb, MotorCommands, PinWrapper
 # Puts ../robotnik_arm_task on the path too: the shared controllers live with the sequential expert
-from concurrent_control import arm_path_controller, arm_path_reference, drive_progress, solve_final_arm_pose
+from concurrent_control import (
+    arm_path_controller, arm_path_reference, blend_duration, drive_progress, solve_final_arm_pose,
+)
 from robotnik_arm_control import (
     ArmControllerParams, BaseControllerParams, BaseNavState, StopCriteria,
     arm_controller, base_controller, check_stop, configure_gripper_fingers, parse_start_pose, quaternion2bearing,
@@ -76,6 +80,9 @@ STALL_WINDOW = 2.0
 # Drive progress (0..1) at which the arm starts moving to its final pose; 0 = from the start of the drive. Raise it
 # if the arm swinging out early unsettles the base (ROBOENV_ARM_PATH_START)
 ARM_PATH_START = float(os.environ.get("ROBOENV_ARM_PATH_START", "0.0"))
+# Re-solve q_final when the drive ends, for the base's real position (PLAN.md step 28, "slower on 32 targets"):
+# the base stops short of its planned spot, and that miss would otherwise become EE error for the Cartesian IK
+ARM_RESOLVE = os.environ.get("ROBOENV_ARM_RESOLVE", "0").strip().lower() in ("1", "true", "yes")
 # ==============================================================================
 
 
@@ -200,6 +207,9 @@ def main():
     print(f"Final arm pose: {np.round(q_final, 3)} (EE error {q_final_error:.4f} m at the planned spot, "
           f"{ik_iters} IK iterations)")
     dist_at_drive_start = None
+    # Re-solve state (ROBOENV_ARM_RESOLVE): the pose for where the base really stops, and the blend to it
+    q_final_parked, q_final_parked_error = np.full(7, np.nan), np.nan
+    resolve_time, blend_time, blend_from = None, 0.0, None
     # Stop conditions (target reached, time cap, unreachable-target stall), see StopCriteria
     stop_criteria = StopCriteria(reach_tolerance=REACH_TOLERANCE, max_time=max_time, stall_window=STALL_WINDOW)
 
@@ -224,6 +234,7 @@ def main():
     nav_done_all = []
     q_des_arm_all = []
     arm_progress_all = []
+    arm_mode_all = []
 
     # --------------------------------------------------------------------------
     # Main Simulation Loop
@@ -268,13 +279,34 @@ def main():
         if base_state.phase == "drive" and dist_at_drive_start is None:
             dist_at_drive_start = dist_to_goal
         progress = drive_progress(base_state.phase, dist_to_goal, dist_at_drive_start or 0.0)
-        if base_navigation_done:
+        # Re-solve once, on the first step after the drive (base within ~1 cm of where it ends, PLAN.md step 28):
+        # the base's real position, the goal heading (the final turn only rotates it there), from the current reference
+        if ARM_RESOLVE and resolve_time is None and base_state.phase not in ("align", "drive"):
+            q_motors = q_mes.copy()
+            q_motors[4:11] = q_des_arm
+            q_final_parked, q_final_parked_error, _ = solve_final_arm_pose(
+                dyn_model, base_pos, base_goal_bearing, q_motors, TARGET_EE_POS, ee_frame_id, shoulder_frame_id,
+                arm_lower, arm_upper, arm_params,
+            )
+            # The solve leaves its own pose in pin_data; arm_controller needs this step's forward kinematics
+            pin.forwardKinematics(dyn_model.pin_model, dyn_model.pin_data, q_pin)
+            pin.updateFramePlacements(dyn_model.pin_model, dyn_model.pin_data)
+            blend_from, resolve_time = q_des_arm.copy(), current_time
+            blend_time = blend_duration(blend_from, q_final_parked, arm_params.max_joint_vel)
+        blending = resolve_time is not None and current_time - resolve_time < blend_time
+        if base_navigation_done and not blending:
+            arm_mode = 2
             torque_arm, q_des_arm, qd_des_arm = arm_controller(
                 dyn_model, q_pin, q_mes[4:11], qd_mes[4:11], q_des_arm, q_init_arm, TARGET_EE_POS, ee_pos,
                 ee_frame_id, shoulder_frame_id, arm_lower, arm_upper, time_step, arm_params, reach_active=True,
             )
         else:
-            q_ref = arm_path_reference(q_init_arm, q_final, progress, ARM_PATH_START)
+            if blending:
+                arm_mode = 1
+                q_ref = arm_path_reference(blend_from, q_final_parked, (current_time - resolve_time) / blend_time)
+            else:
+                arm_mode = 0
+                q_ref = arm_path_reference(q_init_arm, q_final, progress, ARM_PATH_START)
             torque_arm, q_des_arm, qd_des_arm = arm_path_controller(
                 dyn_model, q_pin, q_mes[4:11], qd_mes[4:11], q_des_arm, q_ref, time_step, arm_params,
             )
@@ -339,6 +371,7 @@ def main():
         nav_done_all.append(base_navigation_done)
         q_des_arm_all.append(q_des_arm)
         arm_progress_all.append(progress)
+        arm_mode_all.append(arm_mode)
 
         if not headless:
             time.sleep(0.001)
@@ -384,6 +417,13 @@ def main():
         q_final_error=q_final_error,
         arm_progress=np.array(arm_progress_all, dtype=np.float32),
         arm_path_start=ARM_PATH_START,
+        # Which arm controller made each frame's torques: 0 path to q_final, 1 blend to q_final_parked, 2 Cartesian IK
+        arm_mode=np.array(arm_mode_all, dtype=np.int8),
+        arm_resolve=ARM_RESOLVE,
+        # Re-solve only (nan without): the pose for where the base really stopped, its EE error, and when (s)
+        q_final_parked=q_final_parked.astype(np.float32),
+        q_final_parked_error=q_final_parked_error,
+        resolve_time=np.nan if resolve_time is None else resolve_time,
     )
 
     if headless:

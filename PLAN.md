@@ -2093,8 +2093,17 @@ until the base is done, then reaches with Cartesian IK. The concurrent expert ch
    current `q_des_arm` (no jump in the reference): Cartesian IK corrects for where the base really parked.
 5. **Saved per episode, new fields** (all old fields unchanged, same names and types): `q_final` (7, float32),
    `q_final_error` (m), `arm_progress` (per frame, float32), `arm_path_start`. Printed at the start: `q_final`, its
-   error and the IK iterations.
+   error and the IK iterations. Added with the re-solve option (7; `data_concurrent` was collected before, so its
+   files don't have them): `arm_mode` (per frame, int8: 0 path to `q_final`, 1 blend to `q_final_parked`,
+   2 Cartesian IK), `arm_resolve`, `q_final_parked` (7; nan without the re-solve), `q_final_parked_error`,
+   `resolve_time` (s; nan without).
 6. **Removed:** the commented-out plotting block at the end (a string literal, never ran).
+7. **Option, off by default: re-solve at the end of the drive** (`ROBOENV_ARM_RESOLVE=1`; tried and not used, see
+   "Tried" below). On the first step after the drive phase, `solve_final_arm_pose` runs again for the measured base
+   position and the goal heading, from the current reference (then forward kinematics are recomputed for the step,
+   since the solve overwrites `pin_data`). The arm blends from its reference to that pose by minimum jerk over
+   `blend_duration` (1.875 x the largest joint change / 1 rad/s, at least 0.2 s), and the Cartesian IK takes over
+   only when the blend is over, even if the base is done before. Off, the expert is unchanged (checked: bit for bit).
 
 **Not changed:** simulation setup, target, start pose, standoff and parking spot, the base controller and its
 phases (so `nav_phase` / `nav_done` mean the same), the stop rules (5 mm + 1 s settle; "reached" and the stall rule
@@ -2145,17 +2154,41 @@ lower limit (see "Found on the way" below).
         2. **At these heights the sequential expert's start pose is already almost the final pose.** In the start pose
            the EE is 0.71 m ahead of the base at 0.757 m height; for targets at 0.72-0.82 m the standoff is 0.65 m,
            so the parked base has the target about 6 cm from the EE before the arm moves (EE error when parked:
-           1.3-10.4 cm on the 32). The concurrent arm is aimed at the *planned* parking spot, and the base misses it by
-           7.4 cm (median), so it always parks with 3.9-11.1 cm of EE error. From there its correction takes
-           ln(error / 5 mm) / 1.5 s, the Cartesian IK's exponential approach (`cartesian_kp` 1.5): the measured times
-           match that formula to within 1% (median ratio 0.99, r = 0.91), 1.39-2.21 s. So any target where the start
-           pose happens to land closer than the parking miss is corrected faster by the sequential expert.
+           1.3-10.4 cm on the 32). The concurrent expert always parks with 3.9-11.1 cm of EE error (7.2 cm median),
+           and from there its correction takes ln(error / 5 mm) / 1.5 s, the Cartesian IK's exponential approach
+           (`cartesian_kp` 1.5): the measured times match that formula to within 1% (median ratio 0.99, r = 0.91),
+           1.39-2.21 s. So any target where the start pose happens to land closer than that is corrected faster by
+           the sequential expert. **Where the 7.2 cm come from** (corrected 3 Nov: first written as "the parking miss"
+           alone, which is one of three parts). Medians over the 300, in the base's frame when parked:
+           - forward -5.9 cm: the base stops 7.3 cm short of its planned spot (the drive ends inside `pos_tol`,
+             8 cm), and the arm was aimed at the planned spot (r = 0.50);
+           - sideways 2.9 cm: the final turn stops at its tolerance (`ang_tol`, 0.05 rad: the median heading error is
+             exactly 0.050), which swings the EE by reach x angle = 3.6 cm (r = 0.82);
+           - vertical -3.3 cm: the arm sags below its joint reference (PD tracking lag, up to 0.05 rad).
 
         Counted by "stays within 5 mm from here on" instead of the first pass (the swing-throughs no longer count
         early), the concurrent expert is faster on 269 of 295 paired targets (11.44 -> 10.31 s mean) and slower on 26,
-        by 0.21 s on average (all 26 among the 32). **Possible fix, not done:** re-solve `q_final` near the end of the
-        drive from where the base really is (or aim at the spot it actually parks), so the parking miss no longer
-        becomes EE error. That would cut the correction on every target, not only these.
+        by 0.21 s on average (all 26 among the 32).
+      - **Tried (3 Nov): re-solve `q_final` at the end of the drive, for where the base really is
+        (`ROBOENV_ARM_RESOLVE=1`, off by default). Not better, so not used.** On the first step after the drive (the
+        base is within 0.6 cm, median, of where it finally stops; the final turn lasts 0.35 s, median), `q_final` is
+        solved again from the current reference for the real base position and the goal heading, and the arm blends
+        to it (minimum jerk, the fastest joint peaking at 1 rad/s: 0.4-0.5 s) before the Cartesian IK takes over.
+        Same 300 targets (run on the Mac into the scratchpad, not kept):
+
+        | expert, same 300 targets | reached | time to reach, mean of the 298 the sequential reaches | EE error when parked, median | slower than sequential on |
+        |---|---|---|---|---|
+        | concurrent | 300 | 10.29 s | 7.2 cm | 32 |
+        | concurrent + re-solve | 300 | 10.36 s | 5.9 cm | 49 |
+
+        It removes only the forward part (the parking miss), not the sideways (heading) or vertical (sag) parts, and
+        the correction time only grows with the log of the error. The blend then starts the Cartesian IK later, which
+        costs more than that saves: +0.07 s mean (+0.035 s median), faster on 129 targets, slower on 171. Checked
+        twice: the reach times from the `.npz` files match `index.csv` within one 6 ms step, and with the switch off
+        the script reproduces `data_concurrent` bit for bit (10 episodes rerun through `run_batch.py`). **What would
+        help instead** (not tried): start the Cartesian IK when the drive ends rather than after the final turn (it
+        uses the measured EE, so it corrects all three parts; about 0.35 s earlier), or a higher `cartesian_kp` (a
+        change to the shared IK, so it would speed up both experts).
       - The arm moves at most 0.063 rad while the base turns (the same sag as the sequential expert's). The base never
         leaves the floor (lowest base z -0.004 m in both). `q_final`'s IK error is at most 1 mm on all 300 targets:
         none is beyond the reach limit.
