@@ -458,6 +458,28 @@ report must already be complete without it; Thursday only swaps in results, nobo
       `dart/c5`, `c5b`, `c10`, `c10b`), models `split_dart_c5x2_s*` / `split_dart_c10x2_s*`, trained and checked
       exactly like (c). **Rule, fixed before the results:** the same as (c), each level against `split_dart_a60x2_s*`
       on its own; if both are better, the one with the higher held 1 cm mean.
+      **Result (3 Nov, Kris, Mac): not adopted, neither level beats torque noise.** Expert reached 259 / 300 under
+      5 N (228 under torque noise 60), 176 / 300 under 10 N; frames within 2 cm 447 k / 204 k (torque noise 443 k).
+      Val 50, recomputed twice from the episode files (two separate scripts), same 50 targets as the baseline:
+
+      | model | reached | ever 1 cm | held 1 cm | held 2 cm | held 5 cm | median final error | 2 cm -> 1 cm (median) | spins / off floor |
+      |---|---|---|---|---|---|---|---|---|
+      | `split_dart_a60x2_s*` (torque noise 60) | 30 / 16 / 25 | 39 / 33 / 44 | 39 / 30 / 41 | 45 / 43 / 47 | 50 / 50 / 50 | 0.7 / 2.1 / 0.9 cm | 1.72 / 2.22 / 1.36 s | 0 / 0 |
+      | `split_dart_c5x2_s*` (hand force 5 N) | 24 / 25 / 11 | 35 / 39 / 22 | 31 / 33 / 14 | 44 / 46 / 36 | 50 / 49 / 50 | 1.8 / 1.4 / 5.9 cm | 1.64 / 1.69 / 0.70 s | 0 / 5 (0 / 1 / 4) |
+      | `split_dart_c10x2_s*` (hand force 10 N) | 17 / 14 / 15 | 31 / 24 / 30 | 16 / 21 / 21 | 41 / 40 / 41 | 48 / 46 / 50 | 3.7 / 3.8 / 3.7 cm | 1.21 / 3.44 / 1.27 s | 0 / 0 |
+
+      - **5 N: a tie by the rule, so not adopted.** Held 1 cm 14-33 v 30-41 and ever 1 cm 22-39 v 33-44 overlap, and
+        held within 5 cm drops to 49 in seed 1. The seed means are lower: held 1 cm 26.0 v 36.7, ever 1 cm 32.0 v 38.7,
+        reached 20.0 v 23.7. Seed 2 is the weak one (14 held), the other two sit at the bottom of the baseline's range.
+        New: the base leaves the floor in 5 runs (lifted 11-43 cm, 11-18 s after the latch, i.e. the arm tips the
+        robot during the reach); none under torque noise.
+      - **10 N: worse by the rule** (held 1 cm 16-21 and ever 1 cm 24-31, no overlap with 30-41 / 33-44; held 5 cm
+        48 / 46). The expert itself reaches less under it, so the data has half the frames within 2 cm.
+      - Reading (not tested): 5 N moves the hand as much as torque noise 60 but the joints half as much (0.033 v
+        0.065 rad), i.e. it drops the null-space part of the noise. With the same data near the target (447 k v
+        443 k frames) and more expert reaches, it still holds no better, so the null-space spread in the torque-noise
+        data isn't wasted: it covers postures the policy reaches on its own. Fits the null-space diagnostic (the
+        policies' posture drifts as much as the expert's). Not run: torque noise plus a hand force.
 
 **D. Extensions:** camera (Kris from 3 Nov once the winner's test 150 is done, finished 5 Nov; Matteo joins after the
 final edit; cut-off Thursday evening, see the week table); parking pose + arm early: future work in the report. Dropped unless time: parked-start arm episodes, randomised arm start
