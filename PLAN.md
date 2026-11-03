@@ -2093,7 +2093,7 @@ until the base is done, then reaches with Cartesian IK. The concurrent expert ch
    current `q_des_arm` (no jump in the reference): Cartesian IK corrects for where the base really parked.
 5. **Saved per episode, new fields** (all old fields unchanged, same names and types): `q_final` (7, float32),
    `q_final_error` (m), `arm_progress` (per frame, float32), `arm_path_start`. Printed at the start: `q_final`, its
-   error and the IK iterations. Added with the re-solve option (7; `data_concurrent` was collected before, so its
+   error and the IK iterations. Added with the re-solve option (7; `data_concurrent_v1` was collected before, so its
    files don't have them): `arm_mode` (per frame, int8: 0 path to `q_final`, 1 blend to `q_final_parked`,
    2 Cartesian IK), `arm_resolve`, `q_final_parked` (7; nan without the re-solve), `q_final_parked_error`,
    `resolve_time` (s; nan without).
@@ -2104,7 +2104,7 @@ until the base is done, then reaches with Cartesian IK. The concurrent expert ch
    since the solve overwrites `pin_data`). The arm blends from its reference to that pose by minimum jerk over
    `blend_duration` (1.875 x the largest joint change / 1 rad/s, at least 0.2 s), and the Cartesian IK takes over
    only when the blend is over, even if the base is done before. Off, the expert is unchanged (checked: bit for bit).
-8. **Option, off by default: Cartesian IK from the end of the drive** (`ROBOENV_ARM_EARLY_IK=1`; better, see "Tried"
+8. **Cartesian IK from the end of the drive, on by default from 3 Nov** (`ROBOENV_ARM_EARLY_IK=0` turns it off; see "Tried"
    below). The reach (`arm_controller`, `reach_active=True`) runs whenever the base is done *or* its phase is past
    "drive" (orient; the phase stays "orient" once done), instead of only once done. Saved: `arm_early_ik`. With both
    options on, the blend of 7 still comes first. Off, the expert is unchanged (checked: bit for bit).
@@ -2135,7 +2135,8 @@ lower limit (see "Found on the way" below).
       1.0 rad, below its URDF lower limit (1.134). When J6 first moves up to about 1.095, PyBullet jolts it
       (about 8 rad/s) and the torques clip for about 20 ms. The sequential expert hits this at the start of its reach,
       the concurrent one mid-drive, so the arm net sees the jolt in different states.
-    - **Done (Kris, 3 Nov, not pushed): `data_concurrent`, 300 episodes** (`run_batch.py --n 300 --seed 0 --workers 10
+    - **Done (Kris, 3 Nov, not pushed): `data_concurrent`, 300 episodes, first version (no early IK; renamed
+      `data_concurrent_v1` when early IK became the default, see below)** (`run_batch.py --n 300 --seed 0 --workers 10
       --script ../concurrent_arm/concurrent_expert.py --out-dir data_concurrent`, Mac, 138 s, 796 MB, git-ignored).
       Episodes 0-299 have the same targets as `data_main`'s 0-299 (checked per episode), so the two experts compare
       target by target. Checked twice: `index.csv`, then recomputed from the `.npz` files (reached = within 5 mm once
@@ -2144,7 +2145,7 @@ lower limit (see "Found on the way" below).
       | expert, same 300 targets | reached | time to reach, mean of the 298 both reach | EE error when parked, median / max | clipped-torque frames per episode, median / max |
       |---|---|---|---|---|
       | sequential (`data_main` 0-299) | 298 (stalled: 77 at 6.3 mm, 297 at 5.3 mm) | 11.38 s | 23.6 / 53.2 cm | 23 / 34 |
-      | concurrent (`data_concurrent`) | 300 (77, 297 reached at 6.09 s, 12.41 s) | 10.29 s | 7.2 / 11.1 cm | 18 / 30 |
+      | concurrent, first version (`data_concurrent_v1`) | 300 (77, 297 reached at 6.09 s, 12.41 s) | 10.29 s | 7.2 / 11.1 cm | 18 / 30 |
 
       - **Faster by 1.10 s per target** (mean; median 1.09 s; paired over the 298). The base parks at the same time
         (8.52 s mean in both): all of the gain is in the shorter correction after parking.
@@ -2189,9 +2190,9 @@ lower limit (see "Found on the way" below).
         the correction time only grows with the log of the error. The blend then starts the Cartesian IK later, which
         costs more than that saves: +0.07 s mean (+0.035 s median), faster on 129 targets, slower on 171. Checked
         twice: the reach times from the `.npz` files (+ the 1 s settle) match `index.csv`'s `sim_time` within 6 ms
-        (1 ms steps), and with the switch off the script reproduces `data_concurrent` bit for bit (10 episodes rerun
+        (1 ms steps), and with the switch off the script reproduces `data_concurrent_v1` bit for bit (10 episodes rerun
         through `run_batch.py`).
-      - **Tried (3 Nov): start the Cartesian IK when the drive ends (`ROBOENV_ARM_EARLY_IK=1`, off by default). Better:
+      - **Tried (3 Nov): start the Cartesian IK when the drive ends (`ROBOENV_ARM_EARLY_IK`, now on by default). Better:
         -0.22 s per target, every reach still held.** Instead of holding `q_final` during the final turn in place
         (0.35 s median), the arm runs the same `arm_controller` reach from the first step after the drive. It steers
         from the measured EE, so it shrinks all three parts of the parking error at once. Same 300 targets, Mac,
@@ -2200,7 +2201,7 @@ lower limit (see "Found on the way" below).
         | expert, same 300 targets | reached | time to reach, mean of the 298 the sequential reaches | held within 5 mm through the settle | EE error when parked, median | parked -> reached, median | slower than sequential on |
         |---|---|---|---|---|---|---|
         | sequential (`data_main`) | 298 | 11.38 s | 288 | 23.6 cm | 2.77 s | - |
-        | concurrent (`data_concurrent`) | 300 | 10.29 s | 300 | 7.2 cm | 1.74 s | 32 |
+        | concurrent, first version (`data_concurrent_v1`) | 300 | 10.29 s | 300 | 7.2 cm | 1.74 s | 32 |
         | concurrent + early IK | 300 | 10.07 s | 300 | 5.2 cm | 1.55 s | 21 |
 
         - Against the concurrent expert, target by target: -0.22 s mean (-0.25 s median), faster on 269, slower on 21
@@ -2210,8 +2211,14 @@ lower limit (see "Found on the way" below).
           counts "reached" from then on, so it couldn't end earlier anyway).
         - Clipped-torque frames unchanged (median 18, max 29 vs 30).
         - Checked twice: the `.npz` reach times match `index.csv` within 5 ms, and with the switch off the script
-          still reproduces `data_concurrent` bit for bit (10 episodes).
-        - **Not yet the default:** `data_concurrent` was collected without it. Recollecting with it on takes ~2 min.
+          still reproduces `data_concurrent_v1` bit for bit (10 episodes).
+        - **Done (Kris, 3 Nov, not pushed): made the default and `data_concurrent` recollected with it.** The first
+          version moved to `data_concurrent_v1` (+ `data_concurrent_v1.log`; git-ignored, kept for comparison). Same
+          command (`run_batch.py --n 300 --seed 0 --workers 10 --script ../concurrent_arm/concurrent_expert.py
+          --out-dir data_concurrent`), Mac, 129 s, 785 MB. Checked twice: all 300 reached in `index.csv` and
+          recomputed from the `.npz` files (10.07 s mean over the 298, as in the table), `arm_early_ik` set in all
+          300, and every episode identical bit for bit to the early-IK test run above. **`data_concurrent` is now
+          the dataset for the concurrent model.**
       - **Still to try: a higher `cartesian_kp`** (e.g. 2 and 3). Correction time is ln(error / 5 mm) / kp, so up to
         half the correction (~0.8 s). The expert builds its own `ArmControllerParams`, so the concurrent expert can
         set it without touching the shared code. Risk: overshoot, i.e. swing-throughs like the sequential expert's,

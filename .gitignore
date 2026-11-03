@@ -31,4 +31,6 @@ concurrent_arm/models
 
 # concurrent expert episodes (regenerated with run_batch.py --script ../concurrent_arm/concurrent_expert.py, PLAN.md step 28; not submitted)
 robotnik_arm_task/data_concurrent
+robotnik_arm_task/data_concurrent_v1
+robotnik_arm_task/data_concurrent*.log
 concurrent_arm/episode.npz

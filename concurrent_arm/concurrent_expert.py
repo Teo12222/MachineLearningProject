@@ -84,8 +84,9 @@ ARM_PATH_START = float(os.environ.get("ROBOENV_ARM_PATH_START", "0.0"))
 # the base stops short of its planned spot, and that miss would otherwise become EE error for the Cartesian IK
 ARM_RESOLVE = os.environ.get("ROBOENV_ARM_RESOLVE", "0").strip().lower() in ("1", "true", "yes")
 # Start the Cartesian IK when the drive ends instead of once the base is done (PLAN.md step 28): it corrects from the
-# measured EE, so it can already work during the final turn in place (~0.35 s) instead of the arm holding q_final
-ARM_EARLY_IK = os.environ.get("ROBOENV_ARM_EARLY_IK", "0").strip().lower() in ("1", "true", "yes")
+# measured EE, so it can already work during the final turn in place (~0.35 s) instead of the arm holding q_final.
+# On by default from 3 Nov (-0.22 s per target); ROBOENV_ARM_EARLY_IK=0 gives the first version (old data_concurrent)
+ARM_EARLY_IK = os.environ.get("ROBOENV_ARM_EARLY_IK", "1").strip().lower() in ("1", "true", "yes")
 # ==============================================================================
 
 
