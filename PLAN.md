@@ -420,6 +420,30 @@ report must already be complete without it; Thursday only swaps in results, nobo
       rounds). Also reported, not part of the rule: reached, held 2 cm, median final error, and the creep times (median
       time from first within 2 cm to first within 1 cm / 5 mm; `split_dart_a60x2_s*`: 1.72 / 2.22 / 1.36 s to 1 cm,
       3.79 / 2.43 / 5.08 s to 5 mm).
+      **Result (3 Nov, Kris, Mac): not adopted, the fade is worse.** Under the noise fade the expert reached all 300
+      (228 under full noise); the data has more frames within 2 cm (597 k v 443 k), all clean, and fewer between 2
+      and 5 cm. Val 50, recomputed twice from the episode files (two separate scripts), same 50 targets as the
+      baseline:
+
+      | model | reached | ever 1 cm | held 1 cm | held 2 cm | held 5 cm | median final error | 2 cm -> 1 cm (median) | spins / off floor |
+      |---|---|---|---|---|---|---|---|---|
+      | `split_dart_a60x2_s*` (full noise) | 30 / 16 / 25 | 39 / 33 / 44 | 39 / 30 / 41 | 45 / 43 / 47 | 50 / 50 / 50 | 0.7 / 2.1 / 0.9 cm | 1.72 / 2.22 / 1.36 s | 0 / 0 |
+      | `split_dart_a60fx2_s*` (fade 2-5 cm) | 21 / 17 / 26 | 36 / 34 / 34 | 29 / 25 / 30 | 42 / 46 / 38 | 50 / 49 / 50 | 2.5 / 3.9 / 2.4 cm | 1.31 / 0.36 / 0.58 s | 0 / 0 |
+
+      - By the rule it is a tie on held / ever 1 cm (held 25-30 v 30-41 touch at 30), and held within 5 cm drops to
+        49 in seed 1, so it fails the rule either way. The seed means are lower on everything except speed: held 1 cm
+        28.0 v 36.7, ever 1 cm 34.7 v 38.7, reached 21.3 v 23.7, and the median final error is worse with no seed
+        overlap (2.4-3.9 v 0.7-2.1 cm).
+      - **The fade fixes the creep but loses the hold.** Runs that get within 1 cm get there faster (no seed overlap),
+        but then drift back out: of the runs ever within 1 cm, 64 / 104 end more than 1 cm away (full noise 44 / 116),
+        and 43 v 26 of the 150 runs end more than 5 cm off. The policy's own errors near the target are not small,
+        and without noisy frames there it has no recovery examples in the last 2 cm. So the professor's hypothesis
+        (noise near the target teaches repositioning and stops the arm settling) doesn't hold here: the near-target
+        noise is what keeps the arm at the target. For the report: a DART variant that removes the noise where
+        precision matters made holding worse, which supports noise near the target, not against it.
+      - Not run: other fade radii (e.g. 1-2 cm) or weaker rather than zero noise near the target; the result points
+        the other way (more recovery data near the target, not less), so a smaller fade isn't expected to beat full
+        noise.
 
 **D. Extensions:** camera (Kris from 3 Nov once the winner's test 150 is done, finished 5 Nov; Matteo joins after the
 final edit; cut-off Thursday evening, see the week table); parking pose + arm early: future work in the report. Dropped unless time: parked-start arm episodes, randomised arm start
