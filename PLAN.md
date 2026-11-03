@@ -2047,6 +2047,47 @@ named; mark the set, the machine and the number of seeds in every row):
       data only), engineer (sin/cos angles, robot-frame inputs, velocities), balance (adaptive subsampling around
       phase switches), format (sequences for the RNN). Timestamp alignment doesn't apply: one synchronous sim loop.
 
+### Extension: concurrent expert, arm moves while the base drives (professor, 3 Nov)
+28. **Concurrent expert** (Kris, folder `concurrent_arm/`, nothing in `robotnik_arm_task/` changed). Suggested by the
+    professor on 3 Nov: the model should estimate the arm's final pose for the target and move the arm there before the
+    base has arrived. Order: 1. turn in place to face the target (no drive, no arm motion), 2. drive and move the arm
+    at the same time. This is "parking pose + arm early" from 15, so far left as future work in the report (D under
+    "Plan from 2 Nov"; Matteo's in "Plan from 1 Nov"): **agree with Matteo how far it goes before the 6 Nov deadline.**
+    - **Expert** (`concurrent_arm/concurrent_expert.py`, a copy of `robotnik_arm_task.py` with the arm section changed;
+      arm pieces in `concurrent_control.py`; base controller, Cartesian IK and stop rules imported unchanged):
+      - At t = 0, `solve_final_arm_pose` finds `q_final`, the arm pose that puts the EE on the target with the base at
+        its planned parking spot (`base_goal`). It uses kinematics only: the expert's own IK iterated from the start
+        joint angles, so it finds the pose the IK would reach.
+      - align: the arm holds its start pose. drive: minimum-jerk joint path from the start pose to `q_final`, timed by
+        drive progress (1 - distance left / distance at the start of the drive), capped at the IK's 1 rad/s.
+        `ROBOENV_ARM_PATH_START` starts the path later in the drive (default 0). Once parked: the usual Cartesian IK
+        corrects for where the base really parked.
+      - Saved like the expert's episodes, plus `q_final`, `q_final_error`, `arm_progress` (per frame), `arm_path_start`.
+      - Run: `cd concurrent_arm && ROBOENV_TARGET=x,y,z python concurrent_expert.py`, or in batches with
+        `run_batch.py --script ../concurrent_arm/concurrent_expert.py --out-dir <folder>`; in a fresh checkout,
+        `concurrent_arm/models` and `configs` are symlinks to `robotnik_arm_task/`'s (git-ignored).
+    - **Done (Kris, 3 Nov, not pushed):** smoke test against the sequential expert on 4 targets (side, far behind, low
+      behind, high near):
+
+      | target | sequential: EE error when parked / reached at | concurrent: EE error when parked / reached at |
+      |---|---|---|
+      | (0, 1.1, 0.5) | 22.5 cm / 7.38 s | 5.7 cm / 6.26 s |
+      | (2, -1, 0.9) | 18.0 cm / 9.66 s | 5.0 cm / 9.27 s |
+      | (-1.5, -1.5, 0.2) | 53.6 cm / 13.22 s | 11.0 cm / 10.87 s |
+      | (1.2, 0.3, 1.2) | 52.2 cm / 7.93 s | 4.2 cm / 5.69 s |
+
+      All 8 runs reach 5 mm. The arm stays still while turning (0.06 rad of sag, the same as the sequential expert's),
+      the base never leaves the floor, and the IK reaches `q_final` within 1 mm in 300-1,500 iterations. The final
+      correction moves the joints up to 0.12-0.21 rad from `q_final`: that is the parking error.
+    - **Found on the way, also in the sequential expert (not changed, it is shared):** the arm's start pose has J6 at
+      1.0 rad, below its URDF lower limit (1.134). When J6 first moves up to about 1.095, PyBullet jolts it
+      (about 8 rad/s) and the torques clip for about 20 ms. The sequential expert hits this at the start of its reach,
+      the concurrent one mid-drive, so the arm net sees the jolt in different states.
+    - **Next:** collect data (about 300 episodes; same targets as `data_main`, `--seed 0`, so the comparison is per
+      target), then the model: a goal network (target -> `q_final`; its labels need no simulation) plus the split arm
+      net with `q_final` and progress as inputs. Expect the goal network to be easy: with perfect parking the target
+      is always `standoff(z)` straight ahead at height z, so `q_final` depends on the target height alone.
+
 ### Low priority: other model families (comparison only, unassigned: only if time is left at the end)
 Purpose: show in the report why a neural network is the right choice. One or two of these in the results table is
 enough. All from scikit-learn (already installed); reuse `make_features` from `bc_data.py` so inputs are identical.

@@ -24,3 +24,7 @@ robotnik_arm_task/dagger
 
 # DART episodes (regenerated with run_batch.py --noise, PLAN.md step 19; not submitted)
 robotnik_arm_task/dart
+
+# concurrent expert: links to robotnik_arm_task/models and configs (PLAN.md step 28)
+concurrent_arm/configs
+concurrent_arm/models
