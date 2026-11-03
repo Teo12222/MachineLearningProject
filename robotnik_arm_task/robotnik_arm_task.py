@@ -38,6 +38,10 @@ _noise = [float(v) for v in os.environ.get("ROBOENV_NOISE", "0,0,0.1,0").split("
 ARM_NOISE, WHEEL_NOISE, NOISE_TAU, NOISE_SEED = _noise[0], _noise[1], _noise[2], int(_noise[3])
 ARM_NOISE_STD = np.array([0.050, 0.064, 0.035, 0.066, 0.043, 0.077, 0.011])   # N*m
 WHEEL_NOISE_STD = 0.24   # rad/s
+# Near-target fade of the arm noise (PLAN.md C18c): "r0,r1" in m scales it by 0 within r0 of the target, 1 beyond r1,
+# linear between, so the last cm of the reach are clean expert frames. Default off
+_fade = os.environ.get("ROBOENV_NOISE_FADE", "")
+NOISE_FADE = tuple(float(v) for v in _fade.split(",")) if _fade else None
 
 # Fixed gripper finger configuration (angles in radians, held fixed during simulation):
 # [finger_1, finger_tip_1, finger_2, finger_tip_2, finger_3, finger_tip_3]
@@ -261,7 +265,9 @@ def main():
             spread = np.sqrt(1 - noise_keep ** 2)
             arm_noise = noise_keep * arm_noise + spread * ARM_NOISE * ARM_NOISE_STD * noise_rng.standard_normal(7)
             wheel_noise = noise_keep * wheel_noise + spread * WHEEL_NOISE * WHEEL_NOISE_STD * noise_rng.standard_normal(4)
-            cmd_all[4:11] += arm_noise
+            fade = 1.0 if NOISE_FADE is None else np.clip(
+                (ee_dist_error - NOISE_FADE[0]) / (NOISE_FADE[1] - NOISE_FADE[0]), 0.0, 1.0)
+            cmd_all[4:11] += fade * arm_noise
             if not base_navigation_done:
                 cmd_all[:4] += wheel_noise
         control_modes = ["velocity"] * 4 + ["torque"] * 7 + ["torque"] * 6
