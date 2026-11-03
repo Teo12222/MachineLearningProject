@@ -36,9 +36,9 @@ from torch import nn
 from bc_data import (split_episodes, clean_ids, load_episode, load_episodes, load_frames, decode_outputs, arm_gravity,
                      with_history)
 from bc_gru import fit_gru, normalised, predict_frames
-from bc_model import GRU, MLP, save_model
+from bc_model import ACTIVATIONS, GRU, MLP, save_model
 from bc_split import (SplitPolicy, ArrivedLatch, arm_inputs, base_inputs, base_labels, base_loss, load_dagger_arm,
-                      load_policy, net_settings)
+                      load_policy, net_activation, net_output_act, net_settings)
 from results import SIM_COLUMNS, update_results
 
 # Paths are relative to this file, so the script works from any working directory
@@ -81,7 +81,14 @@ parser.add_argument("--weight-decay", type=float, default=0.0, help="L2 weight d
 parser.add_argument("--dropout", type=float, default=0.0, help="dropout after each hidden layer")
 # Per-network size and dropout of a split model (default: the shared --hidden / --layers / --dropout), so the arm can
 # be tuned on top of a copied base (PLAN.md 4a)
+parser.add_argument("--activation", choices=ACTIVATIONS, default="relu",
+                    help="hidden-layer activation (PLAN.md C15); with --split, of both networks unless set per network")
 for _part in ("base", "arm"):
+    parser.add_argument(f"--{_part}-activation", choices=ACTIVATIONS,
+                        help=f"with --split: the {_part} network's own --activation")
+    parser.add_argument(f"--{_part}-output-act", choices=("linear", "bounded"),
+                        help=f"with --split: the {_part} network's output: linear (default) or bounded, i.e. "
+                             f"s tanh(z / s) with s from the training labels' range (PLAN.md C15)")
     parser.add_argument(f"--{_part}-hidden", type=int, help=f"with --split: the {_part} network's own --hidden")
     parser.add_argument(f"--{_part}-layers", type=int, help=f"with --split: the {_part} network's own --layers")
     parser.add_argument(f"--{_part}-dropout", type=float, help=f"with --split: the {_part} network's own --dropout")
@@ -128,8 +135,10 @@ if args.arm_from and not args.split:
     parser.error("--arm-from needs --split")
 if args.base_from and not args.split:
     parser.error("--base-from needs --split")
-PER_NET = [f"{p}_{k}" for p in ("base", "arm") for k in ("hidden", "layers", "dropout")]   # base_hidden, ...
-NET_OPTIONS = dict(hidden=args.hidden, layers=args.layers, dropout=args.dropout,
+# base_hidden, ..., arm_output_act: the per-network options
+PER_NET = [f"{p}_{k}" for p in ("base", "arm")
+           for k in ("hidden", "layers", "dropout", "activation", "output_act")]
+NET_OPTIONS = dict(hidden=args.hidden, layers=args.layers, dropout=args.dropout, activation=args.activation,
                    **{k: getattr(args, k) for k in PER_NET})
 if not args.split and any(NET_OPTIONS[k] is not None for k in PER_NET):
     parser.error("--base-hidden / --arm-hidden etc. need --split")
@@ -164,6 +173,13 @@ for part, source in copied:
             net_settings(NET_OPTIONS, part), args.gru_hidden, args.gru_burn_in):
         parser.error(f"--{part}-from: the copied {part} network's size or dropout {net_settings(source.config, part)} "
                      f"differs from this run's {net_settings(NET_OPTIONS, part)} (--{part}-hidden etc.)")
+    # The activation too: the checkpoint rebuilds the copied network with this run's (no weights would show it)
+    if net_output_act(source.config, part) != net_output_act(NET_OPTIONS, part):
+        parser.error(f"--{part}-from: the copied {part} network's output is {net_output_act(source.config, part)}, "
+                     f"this run's {net_output_act(NET_OPTIONS, part)} (--{part}-output-act)")
+    if net_activation(source.config, part) != net_activation(NET_OPTIONS, part):
+        parser.error(f"--{part}-from: the copied {part} network uses {net_activation(source.config, part)}, this run "
+                     f"{net_activation(NET_OPTIONS, part)} (--{part}-activation)")
 uses_gru = args.split and "gru" in (base_arch, arm_arch)
 if args.split and args.history_k:
     # base_inputs / arm_inputs pick the current frame's columns, so the past frames would be silently dropped
@@ -263,7 +279,7 @@ if not args.test_only:
         model = SplitPolicy(hidden=args.hidden, layers=args.layers, dropout=args.dropout,
                             gravity_residual=args.gravity_residual, vw_outputs=args.vw_outputs, base_arch=base_arch,
                             arm_arch=arm_arch, gru_hidden=args.gru_hidden, burn_in=args.gru_burn_in,
-                            **{k: NET_OPTIONS[k] for k in PER_NET})
+                            activation=args.activation, **{k: NET_OPTIONS[k] for k in PER_NET})
         model.set_normalisation(x_tr, y_tr, a_tr)
         if args.base_from:
             model.base = base_source.base   # weights and its own normalisation, as for --arm-from
@@ -317,6 +333,10 @@ if not args.test_only:
                 dagger_frames = len(x_dag)
                 print(f"arm training frames: {len(x_arm) - dagger_frames} expert + {dagger_frames} DAgger "
                       f"({', '.join(Path(f).name for f in args.dagger)})")
+            if net_output_act(model.config, "arm") == "bounded":
+                # From all the arm's training labels, extra data included (they can exceed the expert's range)
+                model.arm.set_output_bound(y_arm)
+                print(f"arm output bound (normalised units): {model.arm.y_bound.numpy().round(2)}")
             arm_val, arm_best, arm_epochs = fit(
                 model.arm, *normalise(model.arm, x_arm, y_arm),
                 *normalise(model.arm, arm_inputs(x_va, a_va), y_va[:, -7:]), nn.MSELoss(), "arm  ")
@@ -337,12 +357,15 @@ if not args.test_only:
                              base_arch=base_arch, arm_arch=arm_arch,
                              **{f"{p}_{k}": v for p in ("base", "arm")
                                 for k, v in zip(("hidden", "layers", "dropout"), net_settings(model.config, p))},
+                             base_activation=net_activation(model.config, "base"),
+                             arm_activation=net_activation(model.config, "arm"),
+                             arm_output_act=net_output_act(model.config, "arm"),
                              **(dict(gru_hidden=args.gru_hidden, gru_window=args.gru_window, gru_burn_in=args.gru_burn_in,
                                      gru_lr=args.gru_lr) if uses_gru else {}))
     else:
         model = MLP(x_tr.shape[1], y_tr.shape[1], hidden=args.hidden, layers=args.layers, dropout=args.dropout,
                     gravity_residual=args.gravity_residual, vw_outputs=args.vw_outputs, history_k=args.history_k,
-                    history_spacing=args.history_spacing)
+                    history_spacing=args.history_spacing, activation=args.activation)
         model.set_normalisation(x_tr, y_tr)
         best_val, best_epoch, epoch = fit(model, *normalise(model, x_tr, y_tr), *normalise(model, x_va, y_va),
                                           nn.MSELoss())
@@ -383,6 +406,7 @@ if not args.test_only:
         subsample=SUBSAMPLE or "off", keep_frac=KEEP_FRAC if SUBSAMPLE else None,
         weight_decay=args.weight_decay, dropout=args.dropout, max_epochs=args.max_epochs, patience=args.patience,
         gravity_residual=args.gravity_residual, vw_outputs=args.vw_outputs, split=args.split, history_k=args.history_k,
+        activation=args.activation,
         history_spacing=args.history_spacing if args.history_k else None, seed=args.seed,
         architecture=f"{base_arch}+{arm_arch}" if uses_gru else "mlp",
         **split_columns,

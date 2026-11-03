@@ -486,6 +486,38 @@ report must already be complete without it; Thursday only swaps in results, nobo
       `best_val_loss` across a loss change (Huber, if tried, is a different scale).
     - If something clearly wins, it would need its own DAgger rounds to become the final model: too late for that, so
       report it as a result on the DART model and as future work for the final one.
+    **Done (3 Nov, Matteo's PC, branch `tonight/3nov`): no activation or output function beats ReLU / linear.**
+    Code: `--activation` / `--base-activation` / `--arm-activation` {relu, silu, tanh} and `--base-output-act` /
+    `--arm-output-act` {linear, bounded} in `train.py`, stored per network in the checkpoint (`bc_model.MLP`,
+    `bc_split.net_activation` / `net_output_act`); old checkpoints load as ReLU / linear, unchanged; `dagger.py`
+    passes them on. **Per network on purpose:** with `--base-from` the base object is copied as it is, and a shared
+    setting would be saved for it too, so reloading would rebuild the ReLU base with the arm's activation and silently
+    drive with a wrong base; `train.py` refuses a copied network whose activation / output differs. Val 50, arm only,
+    DART-300 recipe, base copied from `split_arrived_s0`; reference ReLU / linear = `split_dart_a60x2_s*_pc_val`:
+
+    | arm | seeds | reached | ever 1 cm | held 1 cm | held 2 cm | held 5 cm |
+    |---|---|---|---|---|---|---|
+    | ReLU, linear (reference) | 32 / 18 / 25 | 25.0 | 38.0 (34-42) | 35.0 (31-37) | 45.7 | 50 |
+    | SiLU, linear | 32 / 27 / 20 | 26.3 | 38.7 (31-44) | 35.3 (30-38) | 47.0 | 50 |
+    | Tanh (hidden layers), linear | 16 (seed 0) | | 33 | 32 | 48 | 50 |
+    | ReLU, bounded output | 26 (seed 0) | | 36 | 36 | 46 | 50 |
+
+    - **SiLU: level** (every mean within 1.3 of ReLU's, seed spreads 6-14). Seed 0 alone looked better (ever 1 cm 44
+      v 38 at the same seed), which is why seeds 1 and 2 were run: one seed would have suggested a gain that isn't
+      there.
+    - **Tanh in the hidden layers: worse** (seed 0: fewest reached of all, 16; 1 cm counts at ReLU's worst seed); not
+      repeated.
+    - **Bounded output (`s * tanh(z / s)`, s = 1.1 x the largest |label| per output, from ALL the arm's training
+      labels incl. DART, which exceed the expert's): level.** Non-obvious: the bounds come out at 8-40 standard
+      deviations (set by rare extreme labels: the reach's start kick at +-30 N*m, J6's jolt, large DART corrections),
+      so the output is practically linear for every normal value. A tighter bound (e.g. a percentile) would act, but
+      also clip those real labels. The DART models don't produce extreme torques anyway (no collapse, no spins, the
+      +-30 N*m clip rarely acts), so there was little for a bound to fix.
+    - Offline all alike (test torque RMSE 0.78-0.80 N*m). **The final model keeps ReLU / linear.** Report line: hidden
+      activation and output function don't matter here (SiLU level, Tanh worse, a bound inactive in practice).
+    - **Base variants (SiLU / bounded base, 3 seeds each, paired with the DART-300 arm via `--arm-from`), queued
+      overnight if time:** a bounded base needs one more change first (`train.py` sets the bound for the arm only, so a
+      bounded base would stay linear; its arrival logit must stay unbounded, or p(arrived) couldn't pass ~0.75).
 16. **Near-target weight in the arm loss (3 Nov, Kris, Mac): doesn't help.** Weight w = 1 + k exp(-d / 1 cm), d = EE
     to target distance (frames within 2 cm: 7.9% of the arm's frames, 16.5% / 31.0% of the weight). DART recipe as
     `split_dart_a60x2_s0`, seed 0, val 50: reference s0 30 reached / 39 ever 1 cm / 39 held 1 cm (seed spread on

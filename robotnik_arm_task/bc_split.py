@@ -34,6 +34,18 @@ def net_settings(config, part):
                  for k in ("hidden", "layers", "dropout"))
 
 
+def net_activation(config, part):
+    """Hidden activation of a split model's "base" or "arm" network: its own (base_activation, arm_activation) where
+    given, else the shared one; checkpoints from before the option have neither and use ReLU (PLAN.md C15)."""
+    return config.get(f"{part}_activation") or config.get("activation") or "relu"
+
+
+def net_output_act(config, part):
+    """Output function ("linear" / "bounded") of a split model's "base" or "arm" network; checkpoints from before
+    the option are linear (PLAN.md C15)."""
+    return config.get(f"{part}_output_act") or "linear"
+
+
 class SplitPolicy(nn.Module):
     """Base network: 3 inputs -> 4 wheel commands (or v, w) + 1 "arrived" logit. Arm network: 25 inputs -> 7 torques.
 
@@ -44,7 +56,8 @@ class SplitPolicy(nn.Module):
 
     def __init__(self, hidden=256, layers=3, dropout=0.0, gravity_residual=False, vw_outputs=False, base_arch="mlp",
                  arm_arch="mlp", gru_hidden=192, burn_in=200, base_hidden=None, base_layers=None, base_dropout=None,
-                 arm_hidden=None, arm_layers=None, arm_dropout=None):
+                 arm_hidden=None, arm_layers=None, arm_dropout=None, activation="relu", base_activation=None,
+                 arm_activation=None, base_output_act=None, arm_output_act=None):
         super().__init__()
         # kind tells load_policy which class to build; gravity_residual and vw_outputs are read by whoever runs the
         # model (decode_outputs), as for the MLP
@@ -54,7 +67,10 @@ class SplitPolicy(nn.Module):
                            # Per-network size and dropout (None: the shared one, see net_settings), so the arm can
                            # be tuned on a copied base of another size (PLAN.md 4a)
                            base_hidden=base_hidden, base_layers=base_layers, base_dropout=base_dropout,
-                           arm_hidden=arm_hidden, arm_layers=arm_layers, arm_dropout=arm_dropout)
+                           arm_hidden=arm_hidden, arm_layers=arm_layers, arm_dropout=arm_dropout,
+                           # Per network too: a base copied with --base-from keeps its own activation (PLAN.md C15)
+                           activation=activation, base_activation=base_activation, arm_activation=arm_activation,
+                           base_output_act=base_output_act, arm_output_act=arm_output_act)
         n_base = BASE_INPUTS.stop - BASE_INPUTS.start
         n_arm = ARM_INPUTS.stop - ARM_INPUTS.start + 1   # + the flag
         n_wheel = 2 if vw_outputs else 4
@@ -63,7 +79,8 @@ class SplitPolicy(nn.Module):
             if arch == "gru":
                 return GRU(n_in, n_out, hidden=gru_hidden, burn_in=burn_in)
             h, n, p = net_settings(self.config, part)
-            return MLP(n_in, n_out, hidden=h, layers=n, dropout=p)
+            return MLP(n_in, n_out, hidden=h, layers=n, dropout=p, activation=net_activation(self.config, part),
+                       output_act=net_output_act(self.config, part))
 
         self.base = network(base_arch, n_base, n_wheel + 1, "base")
         self.arm = network(arm_arch, n_arm, 7, "arm")

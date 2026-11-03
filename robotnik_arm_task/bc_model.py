@@ -4,12 +4,15 @@ from collections import deque
 import torch
 from torch import nn
 
+# Hidden-layer activations an MLP can use (PLAN.md C15); ReLU is what every model before 3 Nov used
+ACTIVATIONS = {"relu": nn.ReLU, "silu": nn.SiLU, "tanh": nn.Tanh}
+
 
 class MLP(nn.Module):
     """Baseline behaviour-cloning network. Stores its own normalisation so it can be used in real units."""
 
     def __init__(self, n_in, n_out, hidden=256, layers=3, dropout=0.0, gravity_residual=False, vw_outputs=False,
-                 history_k=0, history_spacing=1):
+                 history_k=0, history_spacing=1, activation="relu", output_act="linear"):
         super().__init__()
         # gravity_residual: the torque outputs are torque minus arm gravity (PLAN.md step 12).
         # vw_outputs: the wheel outputs are (v, w) instead of 4 wheel commands (PLAN.md step 13).
@@ -17,13 +20,14 @@ class MLP(nn.Module):
         # decode its outputs (decode_outputs). Older checkpoints don't have them and load with the default False.
         # history_k, history_spacing: past frames in each input (bc_data.with_history, PLAN.md step 14). Saved the same
         # way, so whoever runs the model builds the same inputs. n_in already counts them.
+        # activation: the hidden layers' (ACTIVATIONS); saved too, older checkpoints load as ReLU (PLAN.md C15)
         self.config = dict(n_in=n_in, n_out=n_out, hidden=hidden, layers=layers, dropout=dropout,
                            gravity_residual=gravity_residual, vw_outputs=vw_outputs, history_k=history_k,
-                           history_spacing=history_spacing)
+                           history_spacing=history_spacing, activation=activation, output_act=output_act)
         dims = [n_in] + [hidden] * layers
         blocks = []
         for a, b in zip(dims[:-1], dims[1:]):
-            blocks += [nn.Linear(a, b), nn.ReLU()]
+            blocks += [nn.Linear(a, b), ACTIVATIONS[activation]()]
             # Only added when used, so models without dropout keep the same layers (older checkpoints still load);
             # dropout is only active in training mode (model.train()), never in predict
             if dropout > 0:
@@ -35,6 +39,13 @@ class MLP(nn.Module):
         self.register_buffer("x_std", torch.ones(n_in))
         self.register_buffer("y_mean", torch.zeros(n_out))
         self.register_buffer("y_std", torch.ones(n_out))
+        # output_act "bounded" (PLAN.md C15): the normalised output is y_bound * tanh(z / y_bound), linear near zero
+        # and never beyond the training labels' range (set_output_bound). Only stored for bounded networks, so
+        # linear checkpoints (all before 3 Nov) keep exactly their saved weights
+        if output_act == "bounded":
+            self.register_buffer("y_bound", torch.full((n_out,), 1e6))
+        elif output_act != "linear":
+            raise ValueError(f"unknown output_act {output_act!r}")
 
     def set_normalisation(self, x, y):
         """Mean/std of each input and output column, from the TRAINING data only (numpy arrays)."""
@@ -44,15 +55,24 @@ class MLP(nn.Module):
         self.y_mean.copy_(y.mean(0))
         self.y_std.copy_(y.std(0).clamp(min=1e-3))
 
+    def set_output_bound(self, y, margin=1.1):
+        """Bound of a bounded output: margin x the largest |label| per output in normalised units, from ALL the
+        training labels (y in real units; for the split arm: expert + extra data, which can exceed the expert's)."""
+        y = (torch.from_numpy(y) - self.y_mean) / self.y_std
+        self.y_bound.copy_(margin * y.abs().max(0).values.clamp(min=1e-3))
+
     def forward(self, x_norm):
         """Normalised in, normalised out (used in training)."""
-        return self.net(x_norm)
+        z = self.net(x_norm)
+        if self.config.get("output_act", "linear") == "bounded":
+            z = self.y_bound * torch.tanh(z / self.y_bound)
+        return z
 
     @torch.no_grad()
     def predict(self, x):
         """Real units in, real units out (used in the simulation). x is a numpy array."""
         x = torch.as_tensor(x, dtype=torch.float32)
-        y = self.net((x - self.x_mean) / self.x_std)
+        y = self.forward((x - self.x_mean) / self.x_std)
         return (y * self.y_std + self.y_mean).numpy()
 
 
