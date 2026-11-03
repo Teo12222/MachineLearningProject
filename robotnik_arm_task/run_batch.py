@@ -80,6 +80,10 @@ def run_episode(idx, target, args, script_dir):
     env["ROBOENV_OUT"] = str(out_file)
     env["ROBOENV_START"] = args.start_pose
     env["ROBOENV_NOISE"] = f"{args.noise},{args.wheel_noise},{args.noise_tau},{idx}"
+    if args.cart_noise:
+        env["ROBOENV_CART_NOISE"] = str(args.cart_noise)
+    if args.noise_fade:
+        env["ROBOENV_NOISE_FADE"] = args.noise_fade
     start = time.time()
     try:
         proc = subprocess.run(
@@ -120,6 +124,11 @@ def main():
                         help="DART noise scale on the applied arm torques (PLAN.md step 19); labels stay clean")
     parser.add_argument("--wheel-noise", type=float, default=0.0, help="the same for the wheels, while driving")
     parser.add_argument("--noise-tau", type=float, default=0.1, help="correlation time of that noise (s)")
+    parser.add_argument("--cart-noise", type=float, default=0.0,
+                        help="std (N) of a random force on the end effector, applied as J^T F instead of --noise "
+                             "(PLAN.md C18d)")
+    parser.add_argument("--noise-fade", default="",
+                        help="r0,r1 (m): arm noise off within r0 of the target, full beyond r1, linear between (PLAN.md C18c)")
     args = parser.parse_args()
 
     script_dir = str(Path(__file__).resolve().parent)

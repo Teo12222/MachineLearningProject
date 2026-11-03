@@ -527,6 +527,110 @@ report must already be complete without it; Thursday only swaps in results, nobo
       training, like the simulation, differs between machines.
     **C16-C18 together: three fixes for the last 2 cm (loss weighting, averaging, filtering), none better**; with (b),
     the limit is the arm-base pair learned from the data, not noise in the outputs. A report point.
+    - **(c) DART noise faded out near the target** (3 Nov, Kris; the professor's "smart DART" suggestion). Idea: the
+      policy creeps over the last 2 cm. Near the target the DART frames are mostly the expert pushing back against
+      3-4 N*m of noise (and their labels depend on its hidden `q_des_arm`), so the network may learn that region as
+      "big corrections" and fit the small final push badly; the noisy expert also fails 72/300, hovering near the
+      target until timeout. Test: the same 300 DART episodes (`--seed 2` / `3`, noise 60) with the arm noise scaled by 0
+      within 2 cm of the target, 1 beyond 5 cm, linear between (`run_batch.py --noise-fade 0.02,0.05`, into
+      `dart/a60f` / `dart/a60fb`; the noise sequence is unchanged, so each run is bit-identical to `dart/a60`'s until the
+      arm first enters 5 cm, checked on 2 episodes). Models `split_dart_a60fx2_s0/_s1/_s2`, trained exactly like
+      `split_dart_a60x2_s*` (gravity residual, base copied from `split_arrived_s0`), val 50 into
+      `compare_out/<model>_val`. **Against DART alone, not the final model:** DAgger data only fits the policy it was
+      collected behind, so a new DART model would need new DAgger rounds; those only if this wins.
+      **Rule, fixed before the results:** better = held within 1 cm for 0.5 s or ever within 1 cm better with no seed
+      overlap against `split_dart_a60x2_s*` (held 30-41, ever 33-44), with held within 5 cm still 50/50 and no arm
+      spins; worse the same way round; anything else is a tie and the fade is not adopted (it would cost new DAgger
+      rounds). Also reported, not part of the rule: reached, held 2 cm, median final error, and the creep times (median
+      time from first within 2 cm to first within 1 cm / 5 mm; `split_dart_a60x2_s*`: 1.72 / 2.22 / 1.36 s to 1 cm,
+      3.79 / 2.43 / 5.08 s to 5 mm).
+      **Result (3 Nov, Kris, Mac): not adopted, the fade is worse.** Under the noise fade the expert reached all 300
+      (228 under full noise); the data has more frames within 2 cm (597 k v 443 k), all clean, and fewer between 2
+      and 5 cm. Val 50, recomputed twice from the episode files (two separate scripts), same 50 targets as the
+      baseline:
+
+      | model | reached | ever 1 cm | held 1 cm | held 2 cm | held 5 cm | median final error | 2 cm -> 1 cm (median) | spins / off floor |
+      |---|---|---|---|---|---|---|---|---|
+      | `split_dart_a60x2_s*` (full noise) | 30 / 16 / 25 | 39 / 33 / 44 | 39 / 30 / 41 | 45 / 43 / 47 | 50 / 50 / 50 | 0.7 / 2.1 / 0.9 cm | 1.72 / 2.22 / 1.36 s | 0 / 0 |
+      | `split_dart_a60fx2_s*` (fade 2-5 cm) | 21 / 17 / 26 | 36 / 34 / 34 | 29 / 25 / 30 | 42 / 46 / 38 | 50 / 49 / 50 | 2.5 / 3.9 / 2.4 cm | 1.31 / 0.36 / 0.58 s | 0 / 0 |
+
+      - By the rule it is a tie on held / ever 1 cm (held 25-30 v 30-41 touch at 30), and held within 5 cm drops to
+        49 in seed 1, so it fails the rule either way. The seed means are lower on everything except speed: held 1 cm
+        28.0 v 36.7, ever 1 cm 34.7 v 38.7, reached 21.3 v 23.7, and the median final error is worse with no seed
+        overlap (2.4-3.9 v 0.7-2.1 cm).
+      - **The fade fixes the creep but loses the hold.** Runs that get within 1 cm get there faster (no seed overlap),
+        but then drift back out: of the runs ever within 1 cm, 64 / 104 end more than 1 cm away (full noise 44 / 116),
+        and 43 v 26 of the 150 runs end more than 5 cm off. The policy's own errors near the target are not small,
+        and without noisy frames there it has no recovery examples in the last 2 cm. So the professor's hypothesis
+        (noise near the target teaches repositioning and stops the arm settling) doesn't hold here: the near-target
+        noise is what keeps the arm at the target. For the report: a DART variant that removes the noise where
+        precision matters made holding worse, which supports noise near the target, not against it.
+      - Not run: other fade radii (e.g. 1-2 cm) or weaker rather than zero noise near the target; the result points
+        the other way (more recovery data near the target, not less), so a smaller fade isn't expected to beat full
+        noise.
+    - **(d) Cartesian DART: the noise as a force on the end effector** (3 Nov, Kris; the professor's second "smart
+      DART" suggestion). Instead of independent torque noise per joint, a random 3D force F on the end effector
+      (same 0.1 s correlation, seed per episode), applied as `J_arm^T F` on the arm torques (`J_arm` = the expert's
+      own world-aligned position Jacobian, columns 6..12); labels stay the clean commands. The hand is then pushed
+      along x / y / z in every pose, and no noise is spent on null-space motion that doesn't move the hand
+      (`run_batch.py --cart-noise <N>`, off by default).
+      **Calibration (16-episode pilot, `--seed 2`, against the clean runs on the same targets in `dart/a0`, RMS
+      time-aligned, median over episodes):** torque noise 60: hand 1.90 cm during the reach, joints 0.065 rad, expert
+      12/16 reached; 5 N: 1.92 cm, 0.033 rad, 14/16; 10 N: 3.40 cm, 0.061 rad, 10/16; 20 N: 7.15 cm, 0.196 rad, 2/16.
+      So half the current joint noise is null-space motion. Two levels run: **5 N (same hand displacement as now)**
+      and **10 N (same joint displacement)**, each on the same 300 targets as `dart/a60` / `a60b` (`--seed 2` / `3`, into
+      `dart/c5`, `c5b`, `c10`, `c10b`), models `split_dart_c5x2_s*` / `split_dart_c10x2_s*`, trained and checked
+      exactly like (c). **Rule, fixed before the results:** the same as (c), each level against `split_dart_a60x2_s*`
+      on its own; if both are better, the one with the higher held 1 cm mean.
+      **Result (3 Nov, Kris, Mac): not adopted, neither level beats torque noise.** Expert reached 259 / 300 under
+      5 N (228 under torque noise 60), 176 / 300 under 10 N; frames within 2 cm 447 k / 204 k (torque noise 443 k).
+      Val 50, recomputed twice from the episode files (two separate scripts), same 50 targets as the baseline:
+
+      | model | reached | ever 1 cm | held 1 cm | held 2 cm | held 5 cm | median final error | 2 cm -> 1 cm (median) | spins / off floor |
+      |---|---|---|---|---|---|---|---|---|
+      | `split_dart_a60x2_s*` (torque noise 60) | 30 / 16 / 25 | 39 / 33 / 44 | 39 / 30 / 41 | 45 / 43 / 47 | 50 / 50 / 50 | 0.7 / 2.1 / 0.9 cm | 1.72 / 2.22 / 1.36 s | 0 / 0 |
+      | `split_dart_c5x2_s*` (hand force 5 N) | 24 / 25 / 11 | 35 / 39 / 22 | 31 / 33 / 14 | 44 / 46 / 36 | 50 / 49 / 50 | 1.8 / 1.4 / 5.9 cm | 1.64 / 1.69 / 0.70 s | 0 / 5 (0 / 1 / 4) |
+      | `split_dart_c10x2_s*` (hand force 10 N) | 17 / 14 / 15 | 31 / 24 / 30 | 16 / 21 / 21 | 41 / 40 / 41 | 48 / 46 / 50 | 3.7 / 3.8 / 3.7 cm | 1.21 / 3.44 / 1.27 s | 0 / 0 |
+
+      - **5 N: a tie by the rule, so not adopted.** Held 1 cm 14-33 v 30-41 and ever 1 cm 22-39 v 33-44 overlap, and
+        held within 5 cm drops to 49 in seed 1. The seed means are lower: held 1 cm 26.0 v 36.7, ever 1 cm 32.0 v 38.7,
+        reached 20.0 v 23.7. Seed 2 is the weak one (14 held), the other two sit at the bottom of the baseline's range.
+        New: the base leaves the floor in 5 runs (lifted 11-43 cm, 11-18 s after the latch, i.e. the arm tips the
+        robot during the reach); none under torque noise.
+      - **10 N: worse by the rule** (held 1 cm 16-21 and ever 1 cm 24-31, no overlap with 30-41 / 33-44; held 5 cm
+        48 / 46). The expert itself reaches less under it, so the data has half the frames within 2 cm.
+      - Reading (not tested): 5 N moves the hand as much as torque noise 60 but the joints half as much (0.033 v
+        0.065 rad), i.e. it drops the null-space part of the noise. With the same data near the target (447 k v
+        443 k frames) and more expert reaches, it still holds no better, so the null-space spread in the torque-noise
+        data isn't wasted: it covers postures the policy reaches on its own. Fits the null-space diagnostic (the
+        policies' posture drifts as much as the expert's). Not run: torque noise plus a hand force.
+    - **(e) Redundancy: posture-only labels near the target** (3 Nov, Kris and Matteo; the professor's redundancy
+      point). The expert does position-only IK on 7 joints (4 null-space directions) and tracks a reference q_des it
+      integrates and the policy never sees. Labels minus gravity within 2 cm, split with the orthogonal projector
+      J+ J into a hand part and a posture-only part (RMS; two separate scripts, pseudo-inverse and SVD; relabelling the
+      expert's own runs reproduces its torques, median per-run max gap 0.22 N*m):
+
+      | labels within 2 cm | hand | posture only | q_des - q, posture only |
+      |---|---|---|---|
+      | expert, clean runs (val 50) | 6.0 N*m | 0.3-0.6 N*m | 0.008 rad |
+      | DART data `dart/a60` (stored clean commands) | 8.3 | 5.4 (of which damping on the measured qd 4.3, hidden q_des 3.5) | |
+      | expert relabel along `split_dartdagger_r5_s0`'s val runs (DAgger labels) | 12.0 | 11.3 | 0.092 rad |
+
+      The policies' posture doesn't drift more than the expert's (null share of the drift after first within 2 cm:
+      0.36 / 0.30 / 0.36, DART + DAgger / DART / expert). **By target height** (DAgger relabel along the final model's
+      val runs, 3 seeds, 150 runs): posture share of the label energy 0.85 below 0.4 m (posture 29.7 N*m RMS, held
+      1 cm 5 / 24), 0.46 at 0.4-0.75 m (11.4, 58 / 66), 0.03 above 0.75 m (2.8, 53 / 60); in the DART data flat,
+      0.26-0.34. Fits Matteo's distances analysis (low targets the weak ones). Hypothesis, not shown: unpredictable
+      posture labels are what costs the last 2 cm at low targets.
+      **Test 1 (offline, no new collection):** `relabel_posture.py dart/a60 dart/a60b` -> `dart/a60_np`, `a60b_np`:
+      after the latch each label keeps its hand part and its posture part is replaced by the expert's damping on the
+      measured joint velocity (`g + P (tau - g) - kd (I - P) qd`, P = J+ J); before the latch copied. Clean expert labels
+      change by ~0.3 N*m. Done on the labels, not in the integrator: replaying the expert offline with the null part of
+      q_des - q removed each step leaves an offset that never unwinds and adds ~15 N*m of hand torque on clean runs at
+      the target (5.9 -> 14.9 N*m, two episodes). Models `split_dart_a60npx2_s*`, otherwise exactly as `split_dart_a60x2_s*`.
+      **Rule, fixed before the results:** the same as (c) against `split_dart_a60x2_s*`. Also reported: held 1 cm for
+      targets below 0.4 m. Only 3.5 N*m of the DART posture label is the hidden part, so a small effect is the likely
+      outcome; the DAgger side (9 N*m) is test 2 if this isn't worse.
 
 **D. Extensions:** camera (Kris from 3 Nov once the winner's test 150 is done, finished 5 Nov; Matteo joins after the
 final edit; cut-off Thursday evening, see the week table); parking pose + arm early: future work in the report. Dropped unless time: parked-start arm episodes, randomised arm start
