@@ -2122,8 +2122,24 @@ lower limit (see "Found on the way" below).
       1.0 rad, below its URDF lower limit (1.134). When J6 first moves up to about 1.095, PyBullet jolts it
       (about 8 rad/s) and the torques clip for about 20 ms. The sequential expert hits this at the start of its reach,
       the concurrent one mid-drive, so the arm net sees the jolt in different states.
-    - **Next:** collect data (about 300 episodes; same targets as `data_main`, `--seed 0`, so the comparison is per
-      target), then the model: a goal network (target -> `q_final`; its labels need no simulation) plus the split arm
+    - **Done (Kris, 3 Nov, not pushed): `data_concurrent`, 300 episodes** (`run_batch.py --n 300 --seed 0 --workers 10
+      --script ../concurrent_arm/concurrent_expert.py --out-dir data_concurrent`, Mac, 138 s, 796 MB, git-ignored).
+      Episodes 0-299 have the same targets as `data_main`'s 0-299 (checked per episode), so the two experts compare
+      target by target. Checked twice: `index.csv`, then recomputed from the `.npz` files (reached = within 5 mm once
+      the base is done, as `check_stop`); both agree.
+
+      | expert, same 300 targets | reached | time to reach, mean of the 298 both reach | EE error when parked, median / max | clipped-torque frames per episode, median / max |
+      |---|---|---|---|---|
+      | sequential (`data_main` 0-299) | 298 (stalled: 77 at 6.3 mm, 297 at 5.3 mm) | 11.38 s | 23.6 / 53.2 cm | 23 / 34 |
+      | concurrent (`data_concurrent`) | 300 (77, 297 reached at 6.09 s, 12.41 s) | 10.29 s | 7.2 / 11.1 cm | 18 / 30 |
+
+      - **Faster by 1.10 s per target** (mean; median 1.09 s; paired over the 298). The base parks at the same time
+        (8.52 s mean in both): all of the gain is in the shorter correction after parking.
+      - **Slower on 32 targets** (by 0.38 s on average, at most 1.44 s): not looked at yet.
+      - The arm moves at most 0.063 rad while the base turns (the same sag as the sequential expert's). The base never
+        leaves the floor (lowest base z -0.004 m in both). `q_final`'s IK error is at most 1 mm on all 300 targets:
+        none is beyond the reach limit.
+    - **Next:** the model: a goal network (target -> `q_final`; its labels need no simulation) plus the split arm
       net with `q_final` and progress as inputs. Expect the goal network to be easy: with perfect parking the target
       is always `standoff(z)` straight ahead at height z, so `q_final` depends on the target height alone.
 
