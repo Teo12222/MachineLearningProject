@@ -2286,7 +2286,7 @@ to the sequential expert's on the same target. Two things the path phase does no
 clip `q_des_arm` to within 0.15 rad of the measured angles, or to the joint limits. Neither is needed for
 `q_final` (inside the limits by the IK), but the path starts from the start pose, whose J6 (1.0 rad) is below its
 lower limit (see "Found on the way" below).
-    - **Done (Kris, 3 Nov, not pushed):** a184e79. Smoke test against the sequential expert on 4 targets (side, far behind, low
+    - **Done (Kris, 3 Nov, pushed 3 Nov):** a184e79. Smoke test against the sequential expert on 4 targets (side, far behind, low
       behind, high near):
 
       | target | sequential: EE error when parked / reached at | concurrent: EE error when parked / reached at |
@@ -2303,7 +2303,7 @@ lower limit (see "Found on the way" below).
       1.0 rad, below its URDF lower limit (1.134). When J6 first moves up to about 1.095, PyBullet jolts it
       (about 8 rad/s) and the torques clip for about 20 ms. The sequential expert hits this at the start of its reach,
       the concurrent one mid-drive, so the arm net sees the jolt in different states.
-    - **Done (Kris, 3 Nov, not pushed): `data_concurrent`, 300 episodes, first version (no early IK; renamed
+    - **Done (Kris, 3 Nov, pushed 3 Nov): `data_concurrent`, 300 episodes, first version (no early IK; renamed
       `data_concurrent_v1` when early IK became the default, see below)** (`run_batch.py --n 300 --seed 0 --workers 10
       --script ../concurrent_arm/concurrent_expert.py --out-dir data_concurrent`, Mac, 138 s, 796 MB, git-ignored).
       Episodes 0-299 have the same targets as `data_main`'s 0-299 (checked per episode), so the two experts compare
@@ -2380,7 +2380,7 @@ lower limit (see "Found on the way" below).
         - Clipped-torque frames unchanged (median 18, max 29 vs 30).
         - Checked twice: the `.npz` reach times match `index.csv` within 5 ms, and with the switch off the script
           still reproduces `data_concurrent_v1` bit for bit (10 episodes).
-        - **Done (Kris, 3 Nov, not pushed): made the default and `data_concurrent` recollected with it.** The first
+        - **Done (Kris, 3 Nov, pushed 3 Nov): made the default and `data_concurrent` recollected with it.** The first
           version moved to `data_concurrent_v1` (+ `data_concurrent_v1.log`; git-ignored, kept for comparison). Same
           command (`run_batch.py --n 300 --seed 0 --workers 10 --script ../concurrent_arm/concurrent_expert.py
           --out-dir data_concurrent`), Mac, 129 s, 785 MB. Checked twice: all 300 reached in `index.csv` and
