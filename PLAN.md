@@ -480,6 +480,33 @@ report must already be complete without it; Thursday only swaps in results, nobo
         443 k frames) and more expert reaches, it still holds no better, so the null-space spread in the torque-noise
         data isn't wasted: it covers postures the policy reaches on its own. Fits the null-space diagnostic (the
         policies' posture drifts as much as the expert's). Not run: torque noise plus a hand force.
+    - **(e) Redundancy: posture-only labels near the target** (3 Nov, Kris and Matteo; the professor's redundancy
+      point). The expert does position-only IK on 7 joints (4 null-space directions) and tracks a reference q_des it
+      integrates and the policy never sees. Labels minus gravity within 2 cm, split with the orthogonal projector
+      J+ J into a hand part and a posture-only part (RMS; two separate scripts, pseudo-inverse and SVD; relabelling the
+      expert's own runs reproduces its torques, median per-run max gap 0.22 N*m):
+
+      | labels within 2 cm | hand | posture only | q_des - q, posture only |
+      |---|---|---|---|
+      | expert, clean runs (val 50) | 6.0 N*m | 0.3-0.6 N*m | 0.008 rad |
+      | DART data `dart/a60` (stored clean commands) | 8.3 | 5.4 (of which damping on the measured qd 4.3, hidden q_des 3.5) | |
+      | expert relabel along `split_dartdagger_r5_s0`'s val runs (DAgger labels) | 12.0 | 11.3 | 0.092 rad |
+
+      The policies' posture doesn't drift more than the expert's (null share of the drift after first within 2 cm:
+      0.36 / 0.30 / 0.36, DART + DAgger / DART / expert). **By target height** (DAgger relabel along the final model's
+      val runs, 3 seeds, 150 runs): posture share of the label energy 0.85 below 0.4 m (posture 29.7 N*m RMS, held
+      1 cm 5 / 24), 0.46 at 0.4-0.75 m (11.4, 58 / 66), 0.03 above 0.75 m (2.8, 53 / 60); in the DART data flat,
+      0.26-0.34. Fits Matteo's distances analysis (low targets the weak ones). Hypothesis, not shown: unpredictable
+      posture labels are what costs the last 2 cm at low targets.
+      **Test 1 (offline, no new collection):** `relabel_posture.py dart/a60 dart/a60b` -> `dart/a60_np`, `a60b_np`:
+      after the latch each label keeps its hand part and its posture part is replaced by the expert's damping on the
+      measured joint velocity (`g + P (tau - g) - kd (I - P) qd`, P = J+ J); before the latch copied. Clean expert labels
+      change by ~0.3 N*m. Done on the labels, not in the integrator: replaying the expert offline with the null part of
+      q_des - q removed each step leaves an offset that never unwinds and adds ~15 N*m of hand torque on clean runs at
+      the target (5.9 -> 14.9 N*m, two episodes). Models `split_dart_a60npx2_s*`, otherwise exactly as `split_dart_a60x2_s*`.
+      **Rule, fixed before the results:** the same as (c) against `split_dart_a60x2_s*`. Also reported: held 1 cm for
+      targets below 0.4 m. Only 3.5 N*m of the DART posture label is the hidden part, so a small effect is the likely
+      outcome; the DAgger side (9 N*m) is test 2 if this isn't worse.
 
 **D. Extensions:** camera (Kris from 3 Nov once the winner's test 150 is done, finished 5 Nov; Matteo joins after the
 final edit; cut-off Thursday evening, see the week table); parking pose + arm early: future work in the report. Dropped unless time: parked-start arm episodes, randomised arm start
