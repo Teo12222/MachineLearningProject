@@ -2135,7 +2135,27 @@ lower limit (see "Found on the way" below).
 
       - **Faster by 1.10 s per target** (mean; median 1.09 s; paired over the 298). The base parks at the same time
         (8.52 s mean in both): all of the gain is in the shorter correction after parking.
-      - **Slower on 32 targets** (by 0.38 s on average, at most 1.44 s): not looked at yet.
+      - **Slower on 32 targets** (by 0.38 s on average, at most 1.44 s). **Looked at (3 Nov):** all 32 are at heights
+        0.72-0.82 m (the 266 others span the whole range), and there are two reasons:
+        1. **10 of the 32 are swing-throughs by the sequential expert, not faster reaches.** Its EE passes through the
+           5 mm ball, counts as reached on that pass, and leaves it again during the 1 s settle (5 of them by more
+           than 1 cm, at most 20.7 mm). Example: episode 170, 7.1 -> 0.5 cm in 0.4 s, then back out to 2.1 cm, still
+           1.1 cm off 1 s later. All 10 of the sequential expert's swing-throughs on these 298 targets are among the
+           32. The concurrent expert holds within 5 mm through the settle on all 298 (it approaches smoothly).
+        2. **At these heights the sequential expert's start pose is already almost the final pose.** In the start pose
+           the EE is 0.71 m ahead of the base at 0.757 m height; for targets at 0.72-0.82 m the standoff is 0.65 m,
+           so the parked base has the target about 6 cm from the EE before the arm moves (EE error when parked:
+           1.3-10.4 cm on the 32). The concurrent arm is aimed at the *planned* parking spot, and the base misses it by
+           7.4 cm (median), so it always parks with 3.9-11.1 cm of EE error. From there its correction takes
+           ln(error / 5 mm) / 1.5 s, the Cartesian IK's exponential approach (`cartesian_kp` 1.5): the measured times
+           match that formula to within 1% (median ratio 0.99, r = 0.91), 1.39-2.21 s. So any target where the start
+           pose happens to land closer than the parking miss is corrected faster by the sequential expert.
+
+        Counted by "stays within 5 mm from here on" instead of the first pass (the swing-throughs no longer count
+        early), the concurrent expert is faster on 269 of 295 paired targets (11.44 -> 10.31 s mean) and slower on 26,
+        by 0.21 s on average (all 26 among the 32). **Possible fix, not done:** re-solve `q_final` near the end of the
+        drive from where the base really is (or aim at the spot it actually parks), so the parking miss no longer
+        becomes EE error. That would cut the correction on every target, not only these.
       - The arm moves at most 0.063 rad while the base turns (the same sag as the sequential expert's). The base never
         leaves the floor (lowest base z -0.004 m in both). `q_final`'s IK error is at most 1 mm on all 300 targets:
         none is beyond the reach limit.
