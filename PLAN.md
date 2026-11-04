@@ -3294,6 +3294,87 @@ lower limit (see "Found on the way" below).
         with `--data-dir data_route_b` it put the concurrent expert into Matteo's expert row. Restored from git, not
         committed; run Route B tests with that in mind (or give compare.py its own expert file for other folders).
 
+### Extension: camera expert, the concurrent expert finds the target with a mast camera (Kris, 4 Nov)
+29. **Camera expert** (Kris, folder `concurrent_arm/`, nothing in `robotnik_arm_task/` changed). The robot is no longer
+    told `TARGET_EE_POS`: one forward-facing RGB-D camera on a mast finds the red sphere, the base searches by turning
+    on the spot when it is not in view, and the concurrent expert (step 28) runs from the camera's estimate. Departs
+    from the "Final extension" design below on purpose: **one camera + search instead of four cameras at t = 0**
+    (with 360 deg coverage the camera is the true target plus ~1 mm noise, which adds nothing over the sensor-noise
+    test, step 12); the search is scripted, not learned (the expert data never shows it). The segmentation mask is
+    still not used to find the target (colour + depth), only as the robot's self-filter (below).
+    - **Files:** `concurrent_arm/mast_camera.py` (camera, detector, estimator), `concurrent_arm/camera_expert.py` (a
+      copy of `concurrent_expert.py` with the changes below), `concurrent_arm/analyse_camera.py` (results from the
+      saved episodes, paired with `data_concurrent`), `concurrent_arm/check_camera_physics.py` (the no-physics check).
+    - **Run:** `cd concurrent_arm && ROBOENV_TARGET=x,y,z python camera_expert.py` (GUI), or in batches from
+      `robotnik_arm_task/` with `run_batch.py --script ../concurrent_arm/camera_expert.py --out-dir data_camera`.
+      `ROBOENV_CAMERA_REFINE=0` keeps the first clean detection only; `ROBOENV_CAMERA_MOUNT=x,y,z,pitch_deg` moves the
+      camera; step 28's switches (`ROBOENV_ARM_EARLY_IK` etc.) work as there (early IK on by default, like
+      `data_concurrent`; Route B's data had it off).
+    - **Camera and mounting:** 320 x 240, 80 x 64 deg field of view, 10 Hz, at (-0.10, -0.20, 1.00) m in the base
+      frame (behind the arm, right of the centre line, 1 m up), tilted 15 deg down. Chosen from probe renders: the
+      arm's travel pose puts the hand at (0.71, 0, 0.76), in the middle of a centred mast camera's image, i.e. exactly
+      where the target sits once the base faces it, so the camera is offset 0.2 m to the side; from 1 m up it sees
+      every target height (0.2-1.1 m) from 3 m away down to the parking distance. A front-bumper camera (the 27 Oct
+      prototype) is blocked by the concurrent arm mid-drive and can't see high targets close up.
+    - **Assumption: the camera and mast are weightless and have no collision shape.** Nothing is added to the
+      simulation (pose computed from the base pose each frame, image rendered from there), so the physics are those
+      of every other expert. **Checked** (`check_camera_physics.py`): 4 s of driving with random arm torques, with v
+      without rendering every 0.1 s: base and joint states bit-identical (max difference 0), robot mass 60.562 kg both.
+      A real mast (~1-2 kg at 1 m) would raise the centre of mass a little; not modelled.
+    - **Detector:** red pixels -> one 3D point per pixel from the depth image -> mean + 2r/3 along the viewing ray
+      (centroid of a visible hemisphere) = sphere centre. Thrown away when the blob touches the image border or the
+      robot's own body in the image (self-filter: a partly hidden blob biases the centre; a real robot would do this
+      from its known geometry). **Pixel convention found and fixed:** TinyRenderer samples column u at x = u and row
+      v at y = v + 1, not at pixel centres (measured on 33 targets against their exact projection, offsets
+      -0.04 / -0.96 px, spread 0.2 / 0.1 px). With the usual +0.5 the estimate was off sideways by ~1 px: 12 mm mean
+      at 3 m. Static accuracy after the fix (72 placements, 0.75-3 m, heights 0.2-1.1 m, base at rest): **mean 1.6 mm,
+      max 4.9 mm**; 0.9 mm at 0.75 m, 2.3 mm at 3 m. Render + detect ~9 ms per frame.
+    - **Estimator:** weighted mean of the clean detections, weight 1 / distance^4 (pixel error grows with distance,
+      depth error with its square), so close views dominate as the base approaches.
+    - **Exact changes vs `concurrent_expert.py`:** (1) search: until the first clean detection the base turns on the
+      spot counter-clockwise at 0.8 rad/s (4.6 deg per camera frame), the arm holds its start pose; after a full turn
+      + 0.5 rad without a sighting the run stops ("Target not found"); (2) parking spot, q_final and the 25 s
+      navigation time-out are computed from the first sighting (spot on the line from where the base was then to the
+      estimate); (3) the camera keeps running, the spot follows the estimate, q_final is solved again while the base
+      turns or drives if the estimate moved > 1 cm (never happened: 1 solve in all 600 runs), and the Cartesian IK
+      uses the latest estimate; (4) the stop rule measures to the estimate (all the robot knows), so "reached" = within
+      5 mm of the estimate; the saved `final_error` is the true error. Extra fields: `searching`, `target_est` (per
+      frame), `est_error`, `first_seen_time`, `search_turned`, per camera frame `cam_status` / `cam_pos` / ...
+    - **Done (Kris, 4 Nov, not pushed): 300 targets, same as `data_concurrent`** (`run_batch.py --n 300 --seed 0
+      --workers 10 --script ../concurrent_arm/camera_expert.py --out-dir data_camera`, Mac, 201 s; the seen-once
+      variant with `ROBOENV_CAMERA_REFINE=0` into `data_camera_once`, 196 s; both git-ignored). Same targets checked
+      episode by episode against `data_concurrent/index.csv`. True errors from `ee_pos` v `target`:
+
+      | 300 targets | reached | held within 1 cm (0.5 s) | true final error, reached runs: median / max | estimate error at the end: median / max | time to reach (paired with the concurrent expert) |
+      |---|---|---|---|---|---|
+      | concurrent expert (true target, `data_concurrent`) | 300 | 300 | 1.12 / 1.95 mm | (0) | 10.08 s |
+      | **camera, refined (`data_camera`)** | **298** | **298** | **1.15 / 2.29 mm** | 0.8 / 1.2 mm | 11.23 s (+1.15 s, 298 paired) |
+      | camera, seen once (`data_camera_once`) | 296 | 296 | 1.58 / 3.98 mm | 1.5 / 4.0 mm | 11.23 s (+1.13 s, 296 paired) |
+
+      - **Perception is not the limit:** every run found the target (300 / 300 both), the estimate at the first
+        sighting is within 1.5 mm (median, max 4.0 mm), and refining it while approaching brings the reach back to
+        the concurrent expert's precision (1.15 v 1.12 mm median). No reached run is more than 5 mm off the true
+        target in either variant. Seen once is ~0.5 mm worse at the median, ~2 mm at the max.
+      - **The cost is time, and it depends on the side:** first sighting 0.02 s for the 72 targets within 40 deg of
+        straight ahead, 2.75 s mean (max 5.6 s) for the others. Paired with the concurrent expert: front +0.05 s,
+        left +0.26 s, **right +2.75 s** (max +5.4 s). The concurrent expert turns on the spot to face the target
+        anyway, so searching left costs almost nothing; the search always turns counter-clockwise, so targets on the
+        right are found the long way round. Turning toward the nearer side isn't possible without knowing where the
+        target is; a second camera facing backwards would halve the worst case.
+      - **Failures (2 refined: episodes 157, 180; 4 seen once: also 65, 207) are the base controller's known
+        circling quirk, not perception** (expert quirks above, `data_main` episode 774): close targets behind-right
+        (~1.25 m, bearing -110 to -117 deg, parking spot ~0.6 m away); the base passes its spot 8.5 cm away, just
+        outside `pos_tol` = 8 cm (the concurrent expert passes the same spot at 7.8 cm), then circles it until the
+        25 s time-out and ends ~1.2 m from the target. The estimate was fine in all of them (0.7-1.9 mm). The search
+        spin moves the base ~0.13 m before it sets off, which makes the near miss more likely on these targets. Not
+        fixed here: the fix belongs in the shared base controller and would change every expert's data.
+      - **Checked twice:** `analyse_camera.py` (per-episode loop) and a separate vectorised recount with the outcomes
+        from `index.csv`: same counts (298 / 296 reached and held), same failed episodes, same times (11.23 v 10.08 /
+        10.10 s).
+    - **Not done yet:** running a trained concurrent policy (Route B) with the camera estimate instead of the true
+      target (`robotnik_arm_policy_task.py` gets the estimate; the search turn stays scripted, then the policy takes
+      over from wherever the base is, which step 11 shows it handles).
+
 ### Low priority: other model families (comparison only, unassigned: only if time is left at the end)
 Purpose: show in the report why a neural network is the right choice. One or two of these in the results table is
 enough. All from scikit-learn (already installed); reuse `make_features` from `bc_data.py` so inputs are identical.

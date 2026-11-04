@@ -45,3 +45,8 @@ concurrent_arm/episode.npz
 # Route B (concurrent expert, early IK off; PLAN.md step 28): expert and low-target episodes (not submitted)
 robotnik_arm_task/data_route_b
 robotnik_arm_task/data_low_b
+
+# camera expert episodes (regenerated with run_batch.py --script ../concurrent_arm/camera_expert.py, PLAN.md step 29; not submitted)
+robotnik_arm_task/data_camera
+robotnik_arm_task/data_camera_once
+robotnik_arm_task/data_camera*.log
