@@ -3371,9 +3371,48 @@ lower limit (see "Found on the way" below).
       - **Checked twice:** `analyse_camera.py` (per-episode loop) and a separate vectorised recount with the outcomes
         from `index.csv`: same counts (298 / 296 reached and held), same failed episodes, same times (11.23 v 10.08 /
         10.10 s).
-    - **Not done yet:** running a trained concurrent policy (Route B) with the camera estimate instead of the true
-      target (`robotnik_arm_policy_task.py` gets the estimate; the search turn stays scripted, then the policy takes
-      over from wherever the base is, which step 11 shows it handles).
+    - **Done (Kris, 4 Nov, not pushed): the trained Route B policy driven by the camera, no retraining.**
+      Why no retraining: the estimate is within ~1 mm of the truth, so the policy's inputs barely change, and the
+      search can't be learned by imitation (the expert data never shows it); the question is whether the learned
+      policy still works when nobody tells it the target.
+      - **Files:** `concurrent_arm/camera_policy_task.py` (a copy of `robotnik_arm_policy_task.py`, which is Matteo's
+        and not edited, with the camera in front of the policy), `concurrent_arm/camera_policy_eval.py` (the 50 val
+        targets and start poses of `compare.py --val-set`, output readable by `route_b_eval.py`).
+      - **How it runs:** until the camera sees the target, the base turns on the spot (scripted, as in the camera
+        expert) and the arm holds its start pose (joint PD + gravity, as the concurrent expert's arm does while the
+        base turns); the policy can't run before that, it has no target to put in its inputs. From the first clean
+        detection the policy drives everything with the estimate in place of `TARGET_EE_POS` (still refined at
+        10 Hz); the arrival latch's 25 s time-out counts from the sighting. The stop rule, reached / held and the
+        saved errors are measured to the true target (the referee), exactly as in the true-target runs; the 30 s
+        cap includes the search.
+      - **Checked:** with `ROBOENV_CAMERA=0` the copy reproduces stored Route B val runs bit for bit (seed 0,
+        episodes 5, 13, 19: all 16 fields identical).
+      - **Val 50, Route B CLD r3, seeds 0 / 1 / 2, Mac** (`compare_out/split_conc_dartdagger_bb_plusCLD_r3_s*_camera_val`;
+        true-target runs are the stored ones above):
+
+        | val 50, s0 / s1 / s2 (mean) | reached (5 mm) | ever 1 cm | held 1 cm | held 5 cm | collapsed | time to reach (mean of reached) |
+        |---|---|---|---|---|---|---|
+        | Route B, true target | 50 / 49 / 47 (48.7) | 50 / 50 / 50 (50.0) | 50 / 46 / 49 (48.3) | 50 | 0 | 10.43 / 10.15 / 10.08 (10.22 s) |
+        | **Route B, camera** | 49 / 49 / 48 (**48.7**) | 49 / 50 / 50 (**49.7**) | 47 / 48 / 48 (**47.7**) | 50 | 0 | 10.93 / 10.50 / 11.12 (**10.85 s**) |
+
+        - **The learned policy works from the camera as well as from the true target:** reached the same (48.7),
+          held within 1 cm -0.7 (143 v 145 of 150 runs; the true-target seed spread is 4), ever within 1 cm -0.3,
+          nothing collapses, every target found (150 / 150), estimate error at the end 0.83 mm median (max 1.29 mm).
+        - The run-by-run differences go both ways (16 runs differ in reached or held: camera worse in 9, better in
+          7), mostly runs hovering 1-2 cm off, the policy's known failure mode, i.e. noise rather than a perception
+          effect. **Slight right-side cost:** held within 1 cm right 37 v 40 (42 runs), front 57 v 55, left 49 v 50;
+          one target (episode 99, bearing -87 deg, found after a ~270 deg turn) is held by all 3 seeds with the true
+          target and by none with the camera. Likely cause (not tested): after a long search the policy takes over
+          from a base still spinning counter-clockwise, which the expert never does for a target on its right.
+        - **Time:** +0.58 s mean (median +0.23 s) over the 143 target-seed pairs both reach; front -0.35 s, left
+          -0.08 s, right +2.78 s: same side pattern as the camera expert (step 29 above).
+        - 4 runs hit the 30 s cap (s0: 99; s1: 590; s2: 244, 634), all with the estimate within 1 mm; 590 and 634
+          still held within 1 cm before the cap, hovering just outside 5 mm.
+        - **Checked twice:** `route_b_eval.py` and a separate paired script (same targets and start poses asserted
+          per episode): same reached / held counts per seed, same times.
+      - **For the report:** perception error (static 1.6 mm mean, 0.8 mm at the end of a run) and closed-loop success
+        with v without the camera on the same policy and targets: the gap is within the seed spread, so the camera
+        replaces the given target without costing success; the cost is time, on targets the search finds last.
 
 ### Low priority: other model families (comparison only, unassigned: only if time is left at the end)
 Purpose: show in the report why a neural network is the right choice. One or two of these in the results table is
