@@ -502,8 +502,8 @@ report must already be complete without it; Thursday only swaps in results, nobo
         drops by 6 (46 -> 40) but every run still gets within 5 cm and almost all within 1 cm; at 10 (1 cm on the base
         position, 10 mrad on every joint) the 5 mm reach halves (21.3) and the final error grows to 1-3 cm, while
         nothing collapses, spins or leaves the floor. The expert, with the same noisy readings, reaches all 50 at every
-        level: its controller averages the noise out (high-gain PD on an integrated reference), the policy reacts to
-        every noisy frame.
+        level: likely because its integrated reference smooths the noise while the policy reacts to every noisy frame
+        (not tested).
       - **Read "held 1 cm" with care across levels:** fewer runs stop at the 5 mm rule under noise, so more run to the
         30 s cap (12 -> 30 -> 86 of 150) and have more time to be held within 1 cm; its rise at sigma 5 is that, not
         better holding. Reached (5 mm, on the true hand) and the median final error are the comparable columns.
