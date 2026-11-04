@@ -3027,6 +3027,20 @@ lower limit (see "Found on the way" below).
         expert's 1.09 s lead, not 1.31 s); (4) the drive phase is never DAgger-labelled (the window starts at the
         latch), only DART covers it; (5) Mac only: CLD r2's Mac val numbers are a little below Matteo's PC ones
         (held 40-41 v 41-44), so compare on one machine.
+      - **Test 150 (report information, not a decision; Mac, `compare_out/split_conc_dartdagger_bb_plusCLD_r3_s*_test`).**
+        CLD r2's test 150 is Matteo's on the PC (not rerun here: `compare.py --test-set` writes into the model's
+        results file, which is Matteo's), so machine differs; on val the Mac was the lower one.
+
+        | test 150, s0 / s1 / s2 (mean) | reached (5 mm) | ever 1 cm | held 1 cm | held 2 cm | held 5 mm | collapsed | time to reach (compare.py, incl. 1 s settle) |
+        |---|---|---|---|---|---|---|---|
+        | CLD r2, final model (PC) | 127 / 124 / 123 (124.7, 83.1%) | 140.7 (93.8%) | 117 / 108 / 112 (112.3, 74.9%) | 144.7 | | 0 | 12.92 / 12.56 / 12.88 s |
+        | **Route B, CLD r3 (Mac)** | 146 / 145 / 145 (**145.3, 96.9%**) | 150 / 149 / 150 (**149.7, 99.8%**) | 141 / 141 / 144 (**142.0, 94.7%**) | 150 / 148 / 150 (149.3) | 91 / 77 / 69 (79.0) | 0 | **11.76 / 11.43 / 11.99 s** |
+
+        The test agrees with val: +13.8 points reached, +19.8 points held within 1 cm, every run within 1 cm in two
+        of the three seeds, no collapses, ~1 s faster. Time to reach without the settle: 10.76 / 10.43 / 10.99 s
+        (mean of reached), medians 10.19-10.49 s. Checked twice: reached by the `.npz` (within 5 mm after the latch),
+        by the stop messages and by compare.py's success lines (146 / 145 / 145 each); ever / held from
+        `analyse_distances.run_stats`; the test ids are the same for `data_route_b` and `data_main`.
 
 ### Low priority: other model families (comparison only, unassigned: only if time is left at the end)
 Purpose: show in the report why a neural network is the right choice. One or two of these in the results table is
