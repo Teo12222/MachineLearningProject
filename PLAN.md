@@ -693,6 +693,26 @@ report must already be complete without it; Thursday only swaps in results, nobo
         the latch, concentrated in a few runs (median 428 frames per run, up to 15 k): the intended effect, in the last
         2 cm late in the run. On clean expert runs the largest change (40 N*m) is instead the J6 jolt at the start of
         the reach (the damping term on ~8 rad/s, clipped), a few frames per run, not near the target.
+      **B done (23:52-00:39):** val 50, seed 0 (`split_dartdagger_w25_r*_s0`, `compare_out/split_dartdagger_w25_r*_s0`):
+
+      | round | labelled frames | reached | ever 1 cm | held 1 cm | held 2 cm | held 5 cm | closest (median) | collapsed |
+      |---|---|---|---|---|---|---|---|---|
+      | final model `split_dartdagger_r5_s0` (5 s window) | | 35 | 44 | 41 | 47 | 50 | 0.35 cm | 0 |
+      | 1 | 2.32 M | 9 | 27 | 15 | 39 | 50 | 0.93 cm | 0 |
+      | 2 | 2.37 M | 28 | 43 | 17 | 47 | 50 | 0.48 cm | 2 |
+      | 3 | 1.59 M | 41 | 48 | 19 | 47 | 50 | 0.36 cm | 2 |
+      | 4 | 1.14 M | 40 | 50 | 23 | 50 | 50 | 0.29 cm | 1 |
+      | **5** (chosen: most held 1 cm) | 1.07 M | **45** | 49 | **31** | 50 | 50 | 0.32 cm | 0 |
+
+      - **The long window makes the arm reach far more but swing through more.** Of round 5's 45 reached runs 31 hold
+        1 cm for 0.5 s (final model: 34 of 35); in the 1 s after first reaching 5 mm it spends a median 0.53 s within
+        1 cm (final model 1.00 s); final error of reached runs 0.71 v 0.56 cm. "Reached" counts the first pass, so it
+        flatters B: that is why the rule judges on held / ever within 1 cm. By the rule B (seed 0) doesn't beat the final
+        model (held 31 v its 3-seed mean 39.0; ever 1 cm 49 is near the ceiling, so it can't beat 46.3 by more than 4).
+        Seeds 1 and 2 decide. Reading (not tested): the long window adds many large near-target labels, posture-heavy at
+        low targets, which make the arm livelier there; C tests exactly that.
+      - Labelled frames over the 5 rounds: 8.48 M, 2.47 M of them at targets below 0.5 m (final model's rounds: 4.02 M,
+        1.33 M); fewer per round as the policy improves (shorter runs once it reaches).
 
 **D. Extensions:** camera (Kris from 3 Nov once the winner's test 150 is done, finished 5 Nov; Matteo joins after the
 final edit; cut-off Thursday evening, see the week table); parking pose + arm early: future work in the report. Dropped unless time: parked-start arm episodes, randomised arm start
