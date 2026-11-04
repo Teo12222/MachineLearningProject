@@ -3200,6 +3200,21 @@ lower limit (see "Found on the way" below).
         **Catch:** `compare.py --test-set` rewrites `results/expert.csv` from the `--data-dir` folder's stored runs, so
         with `--data-dir data_route_b` it put the concurrent expert into Matteo's expert row. Restored from git, not
         committed; run Route B tests with that in mind (or give compare.py its own expert file for other folders).
+      - **Confirmed on Matteo's PC (4 Nov ~16:05, Matteo), val 50, 3 seeds**, against CLD r2's PC val runs (the
+        decision machine for every other model; `compare.py --val-set`, no results written,
+        `compare_out/split_conc_dartdagger_bb_plusCLD_r3_s*_pc_val`):
+
+        | val 50, PC, s0 / s1 / s2 | reached | ever 1 cm | held 1 cm | held 5 cm | collapsed | time to reach (mean of reached, no settle) |
+        |---|---|---|---|---|---|---|
+        | CLD r2 (final) | 46 / 44 / 45 = 45.0 | 50 / 48 / 49 = 49.0 | 44 / 41 / 43 = 42.7 (spread 3) | 50 | 0 | 11.34 / 11.45 / 11.30 = 11.36 s |
+        | **Route B, CLD r3** | 49 / 49 / 47 = **48.3** | 50 / 50 / 49 = **49.7** | 50 / 46 / 48 = **48.0** (spread 4) | 50 | 0 | 10.59 / 10.22 / 10.47 = **10.43 s** |
+
+        Same picture as the Mac: held within 1 cm +5.3 (> CLD's PC spread 3), held within 5 cm equal, time to reach
+        -0.93 s, so it **passes both rules on both machines** (the project rule and C19's). Route B's worst seed (46)
+        is above CLD's best (44), which weakens the "rounds picked on seed 0" caveat. The gap is smaller than on the
+        Mac (+5.3 v +8.0) because CLD is higher on the PC (42.7 v 40.3); Route B is the same (48.0 v 48.3). Base
+        unchanged: parks 1.3-1.5 cm from the sequential expert's spot, latches at a median 8.1 s, never off the floor.
+        **Final-model decision: Matteo and Kris** (pending a drive-phase DAgger attempt on top of Route B, see C19).
 
 ### Low priority: other model families (comparison only, unassigned: only if time is left at the end)
 Purpose: show in the report why a neural network is the right choice. One or two of these in the results table is
