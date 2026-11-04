@@ -126,7 +126,11 @@ parser.add_argument("--history-k", type=int, default=0, help="past frames added 
 parser.add_argument("--history-spacing", type=int, default=50, help="frames between them (1 frame = 1 ms)")
 parser.add_argument("--seed", type=int, default=0, help="training seed (weights, batch order); put it in --model too")
 parser.add_argument("--threads", type=int, help="torch CPU threads (several runs at once share the cores)")
+parser.add_argument("--data-dir", default="data_main",
+                    help="expert episode folder, relative to this script (PLAN.md step 28: data_route_b); the split "
+                         "comes from its episode ids, so a folder with ids 0-999 has data_main's split")
 args = parser.parse_args()
+DATA_DIR = SCRIPT_DIR / args.data_dir
 if args.no_test and args.test_only:
     parser.error("--no-test and --test-only together would do nothing")
 if args.dagger and not args.split:

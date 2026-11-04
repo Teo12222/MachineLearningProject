@@ -52,7 +52,7 @@ SATURATION_GRACE = 500  # frames: ... but not in the first 0.5 s after the latch
 LOW_Z = 0.5             # m: targets below this are "low" (--low-extra; all collapses were below it, PLAN.md C18e)
 
 
-def label_run(raw_path, out_path, window, posture_free=False, posture_kp=0.0):
+def label_run(raw_path, out_path, window, posture_free=False, posture_kp=0.0, q_des0=None):
     """Label one policy run's arm phase with the expert and save it as a DAgger episode. Returns the labelled frames.
 
     Labelled from the latch until window seconds later, or until the expert's label stays at its torque limit for
@@ -66,6 +66,10 @@ def label_run(raw_path, out_path, window, posture_free=False, posture_kp=0.0):
     BEFORE the saturation check, so the stop judges the cleaned labels. The expert's q_des still integrates as before.
     posture_kp (with posture_free, PLAN.md C18e 4 Nov): plus a spring pulling joints 1, 3, 5 to 0 in the null space
     (remove_posture's kp_ref), against the drift on low targets.
+    q_des0 (PLAN.md step 28, concurrent expert): the expert's joint reference when its reach starts, instead of the
+    arm's start pose. The concurrent expert moves the arm to its final pose q_final while driving, and with early IK
+    off its reference at the latch is exactly q_final (checked on 6 episodes: relabelling from it gives back the
+    saved torques to 0.012 N*m, from the start pose 7.9 N*m off, from the measured pose 1.1 N*m).
     """
     from expert_relabel import relabel_arm
     d = load_npz(raw_path)
@@ -76,7 +80,8 @@ def label_run(raw_path, out_path, window, posture_free=False, posture_kp=0.0):
         k = int(np.argmax(d["nav_done"]))
         stop = min(n, k + round(window * 1000))
         # The expert holds the arm's start pose until it arrives, so that is its joint reference when the reach starts
-        labels = relabel_arm(d, k, stop, d["q_mes"][0, 4:11])
+        # (the concurrent expert's is its q_final: q_des0)
+        labels = relabel_arm(d, k, stop, d["q_mes"][0, 4:11] if q_des0 is None else q_des0)
         if posture_free:
             from relabel_posture import remove_posture
             # torque_arm holds the policy's torques here: put the expert's labels in first (only up to stop, so
@@ -113,7 +118,7 @@ def save_episode(path, d, torque, mask):
     )
 
 
-def collect(model, ids, out_dir, workers, window, posture_free=False, posture_kp=0.0):
+def collect(model, ids, out_dir, workers, window, posture_free=False, posture_kp=0.0, from_final=False):
     """Run model on the training episodes ids and save their labelled DAgger episodes in out_dir."""
     out_dir.mkdir(parents=True, exist_ok=True)
     os.environ["ROBOENV_POLICY"] = str(SCRIPT_DIR / "checkpoints" / f"{model}.pt")   # passed on to the policy runs
@@ -127,7 +132,8 @@ def collect(model, ids, out_dir, workers, window, posture_free=False, posture_kp
     with ProcessPoolExecutor(max_workers=workers) as pool:
         frames = list(pool.map(label_run, [out_dir / f"raw_{i:04d}.npz" for i in done],
                                [out_dir / f"ep_{i:04d}.npz" for i in done], [window] * len(done),
-                               [posture_free] * len(done), [posture_kp] * len(done)))
+                               [posture_free] * len(done), [posture_kp] * len(done),
+                               [experts[i]["q_final"] if from_final else None for i in done]))
     print(f"  labelled {sum(frames)} frames ({sum(f > 0 for f in frames)} of {len(done)} runs latched)", flush=True)
 
 
@@ -153,7 +159,15 @@ def main():
                         help="episode folders added to every round's training next to the rounds' own, e.g. the DART "
                              "data of the --start model (run_batch.py --noise); without them a DART start model's "
                              "rounds would train without its DART data (PLAN.md A2)")
+    parser.add_argument("--data-dir", default="data_main",
+                        help="expert episode folder (training targets, start poses, split), relative to this script; "
+                             "passed on to train.py and compare.py (PLAN.md step 28: data_route_b)")
+    parser.add_argument("--relabel-from-final", action="store_true",
+                        help="the expert's reach starts from q_final of the target's expert episode, not the arm's "
+                             "start pose (label_run's q_des0; for the concurrent expert, PLAN.md step 28)")
     args = parser.parse_args()
+    global DATA_DIR
+    DATA_DIR = SCRIPT_DIR / args.data_dir
 
     # Checked up front, so a typo stops the run before any simulation
     extra = [str(Path(f).resolve()) for f in args.extra_data]
@@ -166,7 +180,9 @@ def main():
         parser.error("--posture-kp needs --posture-free (the spring replaces the expert's posture part)")
     info = dict(start=args.start, extra_data=extra, **({"posture_free": True} if args.posture_free else {}),
                 **({"posture_kp": args.posture_kp} if args.posture_kp else {}),
-                **({"low_extra": args.low_extra} if args.low_extra else {}))
+                **({"low_extra": args.low_extra} if args.low_extra else {}),
+                **({"data_dir": args.data_dir} if args.data_dir != "data_main" else {}),
+                **({"relabel_from_final": True} if args.relabel_from_final else {}))
     if info_file.exists():
         if json.loads(info_file.read_text()) != info:
             parser.error(f"--name {args.name} belongs to another run ({info_file}: {info_file.read_text().strip()}); "
@@ -191,7 +207,7 @@ def main():
                      "--base-activation", net_activation(cfg, "base"), "--arm-activation", net_activation(cfg, "arm"),
                      # Output type too: train.py refuses a copied base whose output differs from the run's (PLAN.md C15)
                      "--base-output-act", net_output_act(cfg, "base"), "--arm-output-act", net_output_act(cfg, "arm"),
-                     "--seed", str(args.seed), "--base-from", args.start]
+                     "--seed", str(args.seed), "--base-from", args.start, "--data-dir", args.data_dir]
     for option, column in (("--lr", "lr"), ("--batch", "batch"), ("--weight-decay", "weight_decay")):
         if row.get(column):
             train_options += [option, row[column]]
@@ -226,7 +242,8 @@ def main():
             if k == 1:
                 folder.mkdir(parents=True, exist_ok=True)
                 info_file.write_text(json.dumps(info))
-            collect(model, ids, folder, args.workers, args.window, args.posture_free, args.posture_kp)
+            collect(model, ids, folder, args.workers, args.window, args.posture_free, args.posture_kp,
+                    args.relabel_from_final)
         folders.append(str(folder))
         if (SCRIPT_DIR / "checkpoints" / f"{new_model}.pt").exists():
             print(f"  {new_model} already trained, skipping the training")
@@ -234,7 +251,7 @@ def main():
             subprocess.run([sys.executable, "train.py", "--model", new_model, *train_options, "--dagger", *folders],
                            cwd=SCRIPT_DIR, env=env, check=True)
         if args.val_set:
-            subprocess.run([sys.executable, "compare.py", "--val-set", "--model", new_model,
+            subprocess.run([sys.executable, "compare.py", "--val-set", "--model", new_model, "--data-dir", args.data_dir,
                             "--out-dir", str(SCRIPT_DIR / "compare_out" / new_model)], cwd=SCRIPT_DIR, env=env, check=True)
         model = new_model
 
