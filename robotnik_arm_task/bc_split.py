@@ -192,7 +192,11 @@ def load_dagger_arm(folders, step, gravity_residual):
         y = d["torque_arm"][keep].astype(np.float32)
         if gravity_residual:
             y -= arm_gravity(d["q_mes"][keep])
-        xs.append(arm_inputs(x, 1.0 if dagger else d["nav_done"][keep]))
+        # Each frame's own flag (4 Nov, Route B drive-phase DAgger: frames before the latch are labelled too and need
+        # flag 0, as in the expert's data). Was 1.0 for every DAgger frame; identical for every earlier DAgger folder,
+        # whose labelled frames all come after the latch (nav_done = 1 there)
+        # xs.append(arm_inputs(x, 1.0 if dagger else d["nav_done"][keep]))
+        xs.append(arm_inputs(x, d["nav_done"][keep]))
         ys.append(y)
     return np.concatenate(xs), np.concatenate(ys)
 

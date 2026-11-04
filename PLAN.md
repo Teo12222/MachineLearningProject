@@ -3215,6 +3215,29 @@ lower limit (see "Found on the way" below).
         Mac (+5.3 v +8.0) because CLD is higher on the PC (42.7 v 40.3); Route B is the same (48.0 v 48.3). Base
         unchanged: parks 1.3-1.5 cm from the sequential expert's spot, latches at a median 8.1 s, never off the floor.
         **Final-model decision: Matteo and Kris** (pending a drive-phase DAgger attempt on top of Route B, see C19).
+      - **Drive-phase DAgger on top of Route B (coded 4 Nov, Matteo, branch `routeb-drive-dagger`, not run yet).**
+        Why: Route B's DAgger window starts at the latch (caveat 4), so its arm's driving phase is only covered by
+        the expert's demonstrations and DART; C19 Route A's labeller labels exactly that phase from the policy's
+        states. `dagger.py --label-drive` (needs `--relabel-from-final` and `--data-dir data_route_b`): the frames
+        before the latch are labelled too, by `expert_relabel.relabel_arm_drive`: the concurrent expert's arm path
+        (`arm_path_reference` / `arm_path_controller`, unchanged) to the target's `q_final`, with **Kris's progress
+        definition** (0 while the base turns, 1 - distance to the spot / distance at the drive's start, 1 within
+        8 cm of the spot), so the labels match `data_route_b`'s; `q_final` and the spot are read from the target's
+        expert episode. Plus the sequential expert's 0.15 rad lead limit (inactive on the expert's own runs). From
+        the latch: the Cartesian reach from `q_final`, as before. The driving frames keep their own flag 0:
+        `bc_split.load_dagger_arm` now uses each DAgger frame's stored `nav_done` instead of 1 (identical for every
+        earlier DAgger folder: their labelled frames all come after the latch; checked on 266 files).
+        **Smoke test (PC, Route B s0 on 3 training targets, `q_final` / spot reproduced as the expert computes them at
+        t = 0):** every frame before the latch labelled, flag 0, 0.2-0.4% of driving labels at the limit (Route A:
+        83%), label v the policy's own torque RMS 0.6 N*m on two targets, 3.7 N*m on the short drive (1.34 m), i.e.
+        Route B's arm already follows the path; the short drives are where the labels can correct most.
+        **Run:** on Kris's Mac (the data is there), or here once his `data_route_b`, DART `b_a60` / `b_a60b`,
+        `data_low_b` and DAgger folders (`split_conc_dartdagger_bb_r1-r3`, `..._plusCLD_r1-r3`: the 9 extra folders
+        in Route B's results file) are copied. 2-3 rounds on top of `split_conc_dartdagger_bb_plusCLD_r3_s0` with its
+        settings (`--window 25 --posture-free --low-extra 100`). **Rule to agree before running** (Route B is at the
+        ceiling on held within 1 cm, so it can't win on that): replaces Route B only if held within 1 cm is not
+        below Route B's mean minus its spread AND (time to reach at least 0.3 s lower OR held within 1 cm on low
+        targets clearly up); otherwise a note in the report.
 
 ### Low priority: other model families (comparison only, unassigned: only if time is left at the end)
 Purpose: show in the report why a neural network is the right choice. One or two of these in the results table is

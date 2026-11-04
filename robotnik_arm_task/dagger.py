@@ -52,7 +52,7 @@ SATURATION_GRACE = 500  # frames: ... but not in the first 0.5 s after the latch
 LOW_Z = 0.5             # m: targets below this are "low" (--low-extra; all collapses were below it, PLAN.md C18e)
 
 
-def label_run(raw_path, out_path, window, posture_free=False, posture_kp=0.0, q_des0=None):
+def label_run(raw_path, out_path, window, posture_free=False, posture_kp=0.0, q_des0=None, drive=None):
     """Label one policy run's arm phase with the expert and save it as a DAgger episode. Returns the labelled frames.
 
     Labelled from the latch until window seconds later, or until the expert's label stays at its torque limit for
@@ -96,6 +96,14 @@ def label_run(raw_path, out_path, window, posture_free=False, posture_kp=0.0, q_
             stop = k + int(np.argmax(runs))
         torque[k:stop] = labels[:stop - k]
         mask[k:stop] = True
+        if drive is not None and k > 0:
+            # Route B drive-phase DAgger (--label-drive, PLAN.md C19, 4 Nov): the frames before the latch too (the
+            # base turning and driving, flag 0 in the saved nav_done), labelled by the concurrent expert's arm path
+            # (expert_relabel.relabel_arm_drive). Kept even at the torque limit (as C19 Route A, option 1): they are
+            # the expert's bounded pull back toward the path; the stop rule above still judges the reach after it
+            from expert_relabel import relabel_arm_drive
+            torque[:k] = relabel_arm_drive(d, k, *drive)
+            mask[:k] = True
     save_episode(out_path, d, torque, mask)
     raw_path.unlink()
     return int(mask.sum())
@@ -118,7 +126,8 @@ def save_episode(path, d, torque, mask):
     )
 
 
-def collect(model, ids, out_dir, workers, window, posture_free=False, posture_kp=0.0, from_final=False):
+def collect(model, ids, out_dir, workers, window, posture_free=False, posture_kp=0.0, from_final=False,
+            label_drive=False):
     """Run model on the training episodes ids and save their labelled DAgger episodes in out_dir."""
     out_dir.mkdir(parents=True, exist_ok=True)
     os.environ["ROBOENV_POLICY"] = str(SCRIPT_DIR / "checkpoints" / f"{model}.pt")   # passed on to the policy runs
@@ -133,7 +142,10 @@ def collect(model, ids, out_dir, workers, window, posture_free=False, posture_kp
         frames = list(pool.map(label_run, [out_dir / f"raw_{i:04d}.npz" for i in done],
                                [out_dir / f"ep_{i:04d}.npz" for i in done], [window] * len(done),
                                [posture_free] * len(done), [posture_kp] * len(done),
-                               [experts[i]["q_final"] if from_final else None for i in done]))
+                               [experts[i]["q_final"] if from_final else None for i in done],
+                               # --label-drive: the expert's final pose and parking spot for this target
+                               [(experts[i]["q_final"].astype(float), experts[i]["base_goal"][:2].astype(float))
+                                if label_drive else None for i in done]))
     print(f"  labelled {sum(frames)} frames ({sum(f > 0 for f in frames)} of {len(done)} runs latched)", flush=True)
 
 
@@ -165,7 +177,13 @@ def main():
     parser.add_argument("--relabel-from-final", action="store_true",
                         help="the expert's reach starts from q_final of the target's expert episode, not the arm's "
                              "start pose (label_run's q_des0; for the concurrent expert, PLAN.md step 28)")
+    parser.add_argument("--label-drive", action="store_true",
+                        help="Route B: also label the frames before the latch (turning and driving) with the concurrent "
+                             "expert's arm path to q_final (expert_relabel.relabel_arm_drive; needs --relabel-from-final "
+                             "and a --data-dir of concurrent-expert episodes, which store q_final and base_goal)")
     args = parser.parse_args()
+    if args.label_drive and not args.relabel_from_final:
+        parser.error("--label-drive needs --relabel-from-final (the expert's reach after the latch starts from q_final)")
     global DATA_DIR
     DATA_DIR = SCRIPT_DIR / args.data_dir
 
@@ -182,7 +200,8 @@ def main():
                 **({"posture_kp": args.posture_kp} if args.posture_kp else {}),
                 **({"low_extra": args.low_extra} if args.low_extra else {}),
                 **({"data_dir": args.data_dir} if args.data_dir != "data_main" else {}),
-                **({"relabel_from_final": True} if args.relabel_from_final else {}))
+                **({"relabel_from_final": True} if args.relabel_from_final else {}),
+                **({"label_drive": True} if args.label_drive else {}))
     if info_file.exists():
         if json.loads(info_file.read_text()) != info:
             parser.error(f"--name {args.name} belongs to another run ({info_file}: {info_file.read_text().strip()}); "
@@ -243,7 +262,7 @@ def main():
                 folder.mkdir(parents=True, exist_ok=True)
                 info_file.write_text(json.dumps(info))
             collect(model, ids, folder, args.workers, args.window, args.posture_free, args.posture_kp,
-                    args.relabel_from_final)
+                    args.relabel_from_final, args.label_drive)
         folders.append(str(folder))
         if (SCRIPT_DIR / "checkpoints" / f"{new_model}.pt").exists():
             print(f"  {new_model} already trained, skipping the training")

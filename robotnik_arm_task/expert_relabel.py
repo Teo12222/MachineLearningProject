@@ -69,6 +69,49 @@ def relabel_arm(d, start, stop, q_des):
     return torques
 
 
+DRIVE_SPEED = 0.05     # m/s: forward speed of the policy's wheel commands above which its first turn is over
+WHEEL_RADIUS = 0.11    # m, BaseControllerParams.wheel_radius
+POS_TOL = 0.08         # m, BaseControllerParams.pos_tol: the concurrent expert's drive ends this close to its spot
+
+
+def relabel_arm_drive(d, latch, q_final, goal_xy):
+    """Route B drive-phase DAgger (PLAN.md C19 / step 28, 4 Nov): the concurrent expert's arm torques for frames
+    0..latch-1 of a policy run d, i.e. while the base turns and drives, as concurrent_arm/concurrent_expert.py
+    commands them (early IK off, the setting of data_route_b), along the policy's own states.
+
+    q_final, goal_xy: the expert's final arm pose and planned parking spot for this target (stored in its episode).
+    Progress as the expert's drive_progress: 0 while the base turns in place (here: until the policy's wheel
+    commands first drive forward faster than DRIVE_SPEED, as the policy has no phase), then
+    1 - distance to the spot / that distance when the drive started, and 1 from when the base is within POS_TOL of
+    the spot (the expert's drive ends there; its final turn holds q_final). The arm follows arm_path_reference /
+    arm_path_controller from its start pose, unchanged, plus the sequential expert's lead limit (joint reference at
+    most max_q_lead from the measured angle; inactive on the expert's own runs, but the policy's arm can be off the
+    path, PLAN.md C19 Route A). From the latch on, dagger.label_run's Cartesian reach from q_final takes over, as in
+    the expert with early IK off. Returns (latch, 7) torques.
+    """
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "concurrent_arm"))
+    from concurrent_control import arm_path_controller, arm_path_reference
+    q_start = d["q_mes"][0, 4:11].astype(float)
+    q_des = q_start.copy()
+    speed = WHEEL_RADIUS * np.asarray(d["wheel_cmds"], dtype=float).mean(axis=1)
+    torques = np.empty((latch, 7))
+    d0, done = None, False
+    for i in range(latch):
+        dist = float(np.linalg.norm(d["base_pos"][i, :2] - goal_xy))
+        if d0 is None and speed[i] > DRIVE_SPEED:
+            d0 = dist                                     # the drive starts: the expert's dist_at_drive_start
+        done = done or (d0 is not None and dist < POS_TOL)
+        progress = 0.0 if d0 is None else 1.0 if done else float(np.clip(1.0 - dist / max(d0, 1e-6), 0.0, 1.0))
+        q_ref = arm_path_reference(q_start, q_final, progress)
+        q_arm = d["q_mes"][i, 4:11].astype(float)
+        q_des = np.clip(q_des, q_arm - _PARAMS.max_q_lead, q_arm + _PARAMS.max_q_lead)
+        q_pin = _q_pin(d["base_pos"][i], d["base_bearing"][i], d["q_mes"][i])
+        torques[i], q_des, _ = arm_path_controller(
+            _Dyn, q_pin, q_arm, d["qd_mes"][i, 4:11].astype(float), q_des, q_ref, _DT, _PARAMS)
+    return torques
+
+
 if __name__ == "__main__":
     # Check: on expert episodes, relabelling the 3 s after arrival (starting from the expert's own reference) must
     # give back the torques it saved
