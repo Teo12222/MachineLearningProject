@@ -19,6 +19,32 @@ def parse_start_pose(text):
     return np.array([float(v) for v in text.split(",")])
 
 
+EE_LINK = "robot_j2s7s300_end_effector"
+
+
+def add_payload(sim, payload):
+    """Robustness test (PLAN.md step 11, payload, 4 Nov): add payload kg to the end-effector link's mass in PyBullet only.
+
+    The controllers' Pinocchio model is not told (an unknown load, like picking something up). Does nothing for 0, so
+    runs without ROBOENV_PAYLOAD are exactly as before. Note: the URDF gives this link no inertial data, so PyBullet
+    already gives it a default 1.0 kg (and 1 kg*m^2 inertia) that Pinocchio treats as massless: every run, expert and
+    policy, already carries that unmodelled 1 kg; the payload comes on top. Returns the link's new mass.
+    """
+    if not payload:
+        return None
+    client, body = sim.pybullet_client, sim.bot[0].bot_pybullet
+    for j in range(client.getNumJoints(body)):
+        if client.getJointInfo(body, j)[12].decode() == EE_LINK:
+            info = client.getDynamicsInfo(body, j)
+            mass = info[0] + float(payload)
+            # The inertia must be passed again: changeDynamics(mass=...) alone resets the link's local inertia to 0, and
+            # a 1.5 kg link with no rotational inertia made the simulation blow up (hand 9-30 m off, joints at up to
+            # 91 rad/s, first try 4 Nov). Only the mass changes
+            client.changeDynamics(body, j, mass=mass, localInertiaDiagonal=list(info[2]))
+            return mass
+    raise ValueError(f"no link {EE_LINK} in the robot")
+
+
 def set_start_pose(sim, start_pose):
     """Place the base at start_pose (x, y, yaw) before the first step; height, arm and fingers are unchanged.
 

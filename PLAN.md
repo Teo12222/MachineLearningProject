@@ -587,6 +587,37 @@ report must already be complete without it; Thursday only swaps in results, nobo
     - Report: the final model is insensitive to the start pose and generalises to targets 3-5 m away; only targets
       closer than ~0.8 m (where the base can barely back off) cost precision. The expert reference is the sequential
       expert (the concurrent one wasn't run here; both reach ~100%).
+
+    **Payload test (4 Nov ~22:45, Matteo's request, PC): extra mass at the hand, unknown to the controllers.**
+    `ROBOENV_PAYLOAD=<kg>` in both task scripts (`robotnik_arm_control.add_payload`, off by default: unset = exactly
+    as before) raises the end-effector link's mass in PyBullet only; Pinocchio (the gravity term of the expert and of
+    the gravity-residual models) is not told. **Catches found on the way:** (1) the URDF's end-effector link has no
+    inertial data, so PyBullet already gives it a default **1.0 kg** (and 1 kg*m^2 inertia) that Pinocchio treats as
+    massless: every run so far (expert, data, every model) already carried an unmodelled 1 kg at the hand; the payload
+    comes on top. (2) `changeDynamics(mass=...)` alone **resets the link's inertia to 0**, which made the first try
+    blow up (hand 9-30 m off, joints at 91 rad/s); fixed by passing the inertia back (`localInertiaDiagonal`), checked
+    (mass 1.5 kg, inertia kept; physics sane). Final model seed 0 v the sequential expert, the 50 start-pose targets
+    (seed 21, default start; 0 kg = `starts/<who>_default`), folders `payload/<who>_<kg>kg` (git-ignored):
+
+    | extra payload | final model: reached / ever 1 cm / held 1 cm / held 5 cm | final model: final height error (median) | expert: reached / ever / held 1 cm / held 5 cm | expert: torque at the 30 N*m limit (% of frames) |
+    |---|---|---|---|---|
+    | 0 kg | 50 / 50 / 48 / 50 | ~0 | 50 / 50 / 50 / 50 | 0.2% |
+    | 0.5 kg | 5 / 24 / 5 / 50 | -1.4 cm (final error 2.2 cm) | 49 / 50 / 50 / 50 | 0.3% |
+    | 1 kg | 0 / 4 / 0 / 50 | -3.4 cm (4.2 cm) | 49 / 50 / 50 / 50 | 0.8% |
+    | 2 kg | 0 / 0 / 0 / 2 (6 collapses) | -7.8 cm (8.9 cm) | 34 / 42 / 42 / 49 | 66.7% |
+
+    - **The final model is not robust to an unknown payload; the expert is (up to 1 kg).** With 0.5-1 kg the model
+      still parks and reaches (every run within 5 cm) but the hand **sags** below the target by an amount growing
+      with the load (-1.4 / -3.4 / -7.8 cm): it has learned the torques for the known arm (gravity term + residual),
+      and nothing in it integrates the remaining error, so a constant extra load leaves a constant offset. The
+      expert's Cartesian loop keeps moving its joint reference until the error is gone (integral-like action), so it
+      compensates up to 1 kg; at 2 kg it is itself torque-limited (joint torques at 30 N*m in 67% of frames: the
+      arm's physical limit in this simulation, 2 kg on top of the unmodelled 1 kg).
+    - Report: a clear limitation of behaviour cloning here (it copies the expert's commands for the conditions in the
+      data, not its feedback structure); remedies as future work: payload / mass randomisation in the data (DART-like),
+      or giving the policy the error history (integral input). One line on the unmodelled 1 kg in the method.
+    - **REMINDER (Matteo, 4 Nov):** once Kris has done his two tests on the sequential pre-shaping model (5 Nov), run
+      this payload test on that model too (same command, same targets), for the comparison.
 12. **Robustness: sensor noise only** (Kris; **runs on Wed 4 Nov in the background while we write the report**, on the final model, with 11;
     the noise-config change is done and smoke-tested on Tuesday; decided 2 Nov:
     friction and shoves dropped, the start-pose test (11) is the other robustness result). Uses the simulator's own

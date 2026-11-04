@@ -18,7 +18,8 @@ import pybullet as p
 import pinocchio as pin
 from simulation_and_control import pb, MotorCommands, PinWrapper
 from robotnik_arm_control import (
-    StopCriteria, check_stop, configure_gripper_fingers, parse_start_pose, quaternion2bearing, set_start_pose,
+    StopCriteria, add_payload, check_stop, configure_gripper_fingers, parse_start_pose, quaternion2bearing,
+    set_start_pose,
 )
 
 import torch
@@ -84,6 +85,10 @@ def main():
     sim.bot[0].servo_motor_model.set_motor_gains(400, 30)
     # Place the base at its start pose (does nothing for the default origin start)
     set_start_pose(sim, START_POSE)
+    # Payload robustness test (PLAN.md step 11): extra kg at the hand, unknown to the controllers; unset = as before
+    payload_mass = add_payload(sim, float(os.environ.get("ROBOENV_PAYLOAD", "0")))
+    if payload_mass is not None:
+        print(f"Payload: end-effector link mass now {payload_mass:.2f} kg")
 
     # --------------------------------------------------------------------------
     # Gripper Fingers: Fix gripper finger configuration

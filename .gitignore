@@ -31,6 +31,7 @@ robotnik_arm_task/data_low
 # Start-pose and out-of-range test runs (PLAN.md step 11 and C11; numbers are in PLAN.md, not submitted)
 robotnik_arm_task/starts
 robotnik_arm_task/oor
+robotnik_arm_task/payload
 
 # concurrent expert: links to robotnik_arm_task/models and configs (PLAN.md step 28)
 concurrent_arm/configs
