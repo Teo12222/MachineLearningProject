@@ -546,6 +546,26 @@ report must already be complete without it; Thursday only swaps in results, nobo
       own folder, so it runs from a copy in a separate workspace with `data_main` pointing at the new data.
       **Rule, fixed before the results:** the same as (c) against `split_dart_a60x2_s*`, also reported under the team
       rule of 4 Nov; plus held 1 cm below 0.4 m.
+      **Result (4 Nov, Kris, Mac): every gain fails the gate, (f) ends here.** Episodes 0-15 of `--seed 2`:
+
+      | expert | clean reached | clean median time to 5 mm | noise 60 reached | posture from hold pose at the end | label posture part within 2 cm, noise 60 |
+      |---|---|---|---|---|---|
+      | current | 16 / 16 | 10.5 s | 12 / 16 | 0.42 rad | 5.3 N*m |
+      | posture gain 0.5 | 3 / 16 | 13.2 s | 2 / 16 | 0.37 rad | 5.0 N*m |
+      | posture gain 1 | 3 / 16 | 13.2 s | 1 / 16 | 0.34 rad | 4.9 N*m |
+      | posture gain 2 | 3 / 16 | 13.1 s | 1 / 16 | 0.29 rad | 5.1 N*m |
+
+      No spins, nothing off the floor; the misses are stalls 2-3 cm short. **Cause (one episode replayed, the replay
+      matches the stored torques to 0.1 N*m): the pull ignores the joint-limit handling.** The IK slows a joint moving
+      into a limit and gives its share to the others (fix 5); the null-space term is added after that, unweighted,
+      so it drives J6 onto its limit (margin 0 at the stall), the reference is clipped there and the lead ends up
+      pointing the hand away from the target (5 cm up v 2.5 cm to go, down). So this is a flaw of this posture term,
+      not evidence against a posture term. Even at gain 2 the posture moves only 0.13 rad toward the hold pose and the
+      posture part of the labels under noise doesn't drop. Not run: a posture term that respects the limits (weighted
+      like the IK, or as a null-space torque `(I - J+ J)(kp_n (q_hold - q) - kd qd)` outside the integrator, which
+      would also make the posture torque a function of the measured state directly). The chain itself had a bug
+      (the gate crashed on a missing import path and the chain went on with an empty gain; `run_batch.py` refused it,
+      so nothing was collected).
 
 **D. Extensions:** camera (Kris from 3 Nov once the winner's test 150 is done, finished 5 Nov; Matteo joins after the
 final edit; cut-off Thursday evening, see the week table); parking pose + arm early: future work in the report. Dropped unless time: parked-start arm episodes, randomised arm start
