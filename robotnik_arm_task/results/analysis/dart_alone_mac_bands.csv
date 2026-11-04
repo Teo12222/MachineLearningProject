@@ -1,0 +1,8 @@
+band,targets,split_dart_a60x2_s0 ever_1cm,split_dart_a60x2_s0 held_1cm,split_dart_a60x2_s0 ever_5mm,split_dart_a60x2_s1 ever_1cm,split_dart_a60x2_s1 held_1cm,split_dart_a60x2_s1 ever_5mm,split_dart_a60x2_s2 ever_1cm,split_dart_a60x2_s2 held_1cm,split_dart_a60x2_s2 ever_5mm,expert ever_1cm,expert held_1cm,expert ever_5mm,mean ever_1cm,mean ever_1cm %,mean held_1cm,mean held_1cm %,mean ever_5mm,mean ever_5mm %
+distance 1.0-1.5 m,25,17,16,7,17,15,10,21,17,10,25,25,25,18.3,73.3,16.0,64.0,9.0,36.0
+distance 1.5-2.0 m,36,25,23,19,23,21,18,26,20,15,36,35,36,24.7,68.5,21.3,59.3,17.3,48.1
+distance 2.0-2.5 m,38,33,29,23,23,22,10,31,24,14,38,38,38,29.0,76.3,25.0,65.8,15.7,41.2
+distance 2.5-3.0 m,51,37,34,27,35,32,18,38,33,22,51,51,50,36.7,71.9,33.0,64.7,22.3,43.8
+height 0.2-0.5 m,58,28,21,14,34,30,15,31,15,11,58,58,57,31.0,53.4,22.0,37.9,13.3,23.0
+height 0.5-0.8 m,40,37,36,28,26,23,21,40,37,21,40,39,40,34.3,85.8,32.0,80.0,23.3,58.3
+height 0.8-1.1 m,52,47,45,34,38,37,20,45,42,29,52,52,52,43.3,83.3,41.3,79.5,27.7,53.2

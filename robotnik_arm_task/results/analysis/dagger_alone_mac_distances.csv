@@ -1,0 +1,6 @@
+model,episodes,ever_5mm,held_5mm,ever_1cm,held_1cm,ever_2cm,held_2cm,ever_5cm,held_5cm,ever_10cm,held_10cm,ever_1cm_after_latch
+split_dagger_r5_s0,150,55,3,86,34,108,88,129,123,132,126,86
+split_dagger_r5_s1,150,69,7,110,48,134,115,144,140,148,146,110
+split_dagger_r5_s2,150,53,2,106,38,131,95,150,149,150,150,106
+mean of seeds,150,59.0,4.0,100.7,40.0,124.3,99.3,141.0,137.3,143.3,140.7,100.7
+expert,150,149,145,150,149,150,150,150,150,150,150,150
