@@ -68,7 +68,10 @@ Look there for the current state of each model instead of this file.
 
 ### Plan from 3 Nov (overrides the 2 Nov plan where they differ)
 
-**Superseded again 4 Nov ~10:00 (C18e): final model = `split_dartdagger_bb_plusC_r3_s0/1/2`** (3 extra posture-free
+**FINAL MODEL, 4 Nov ~13:10 (C18e, Matteo): `split_dartdagger_bb_plusCLD_r2_s0/1/2`** (+C plus extra low-target
+DAgger runs and 60 extra low-target expert episodes; ties +C on val, ahead on every val mean, tie rule "higher val
+means" added after the results; test 150: 83.1% reached, 74.9% held within 1 cm, 0 collapses).
+**Superseded 4 Nov ~13:10. Was, from ~10:00 (C18e): final model = `split_dartdagger_bb_plusC_r3_s0/1/2`** (3 extra posture-free
 whole-run DAgger rounds on top of the bounded-base model; ties it on val, wins on the new tie-breaker "fewer
 collapses" (val 0 v 1); test 150 85.8% reached, 75.8% held within 1 cm, 0 / 2 / 0 collapses). Pending the drift
 tests R, CL, CD.
@@ -996,6 +999,70 @@ report must already be complete without it; Thursday only swaps in results, nobo
         0.2,0.5 --out-dir data_low`, all 60 reached and kept by `clean_ids`; arm training only, via --extra-data, so
         the base and the val/test split are untouched). Then: combine every one that is as good or better than +C
         without drift. First attempt crashed out of memory (a test 150 run at the same time); rerun one at a time.
+      - **Drift tests done (09:55-11:36), val 50, seed 0 per round; best round picked by held 1 cm, then ever, then
+        reached:**
+
+        | val 50, seed 0 | reached | ever 1 cm | held 1 cm | collapsed |
+        |---|---|---|---|---|
+        | +C r3 (final model) | 44 | 49 | 41 | 0 |
+        | R r1 / r2 / r3 (spring, kp 20) | 38 / 28 / 40 | 48 / 37 / 44 | 36 / 33 / 38 | 0 |
+        | CL r1 / r2 / r3 (+ low runs) | 40 / 41 / 43 | 49 / 47 / 48 | **45** / 42 / 35 | 0 |
+        | CD r1 / r2 / r3 (+ data_low) | 36 / 46 / 46 | 48 / 47 / 47 | 37 / **45** / 41 | 0 |
+
+        R dropped (below +C on every round: the spring to 0 fights the posture the expert actually uses, ~0.3 rad
+        on low targets). Seeds 1-2 of CL r1 and CD r2 (same data, base copied from `bb_r5_s0`):
+
+        | val 50, 3 seeds | reached | ever 1 cm | held 1 cm | held 5 cm | collapsed |
+        |---|---|---|---|---|---|
+        | +C r3 (final model) | 44 / 45 / 45 = 44.7 | 49 / 49 / 47 = 48.3 (spread 2) | 41 / 38 / 42 = 40.3 (spread 4) | 50 | 0 / 0 / 0 |
+        | CL r1 | 40 / 37 / 31 = 36.0 | 49 / 49 / 45 = 47.7 | 45 / 42 / 37 = 41.3 | 50 | 0 / 0 / 0 |
+        | CD r2 | 46 / 42 / 40 = 42.7 | 47 / 49 / 49 = 48.3 | 45 / 40 / 38 = 41.0 | 50 | 0 / 2 / 0 |
+
+        **Both tie with +C** (held within 1 cm +1.0 / +0.7, ever -0.6 / 0, all within +C's spreads). Tie-breaker:
+        CL same collapses (0 v 0) -> +C stays; CD more (2 v 0) -> +C stays. **Final model unchanged: +C r3.**
+        Seed 0 flattered both (45 held each, the other seeds 37-42). CL costs a lot of reaching (36.0 v 44.7).
+        By the agreed plan only CL qualified for a combination (CD has collapses), but Matteo leaned to trying the
+        combination anyway, so it runs (decision still by the rule): **CLD** = +C with `--low-extra 100` and
+        `data_low` (`split_dartdagger_bb_plusCLD`, 3 rounds on `bb_r5_s0`, best round's seeds 1-2 + val 50; from
+        11:40, `compare_out/night5/chain7.sh`).
+      - **CLD done (11:40-12:16), val 50:** rounds 1 / 2 / 3 seed 0: reached 39 / 46 / 41, ever 1 cm 43 / 50 / 45,
+        held 1 cm 37 / **44** / 40, 0 collapses -> r2. Seeds:
+
+        | val 50, 3 seeds | reached | ever 1 cm | held 1 cm | held 5 cm | collapsed |
+        |---|---|---|---|---|---|
+        | +C r3 (final model) | 44.7 | 48.3 (spread 2) | 40.3 (spread 4) | 50 | 0 / 0 / 0 |
+        | **CLD r2** | 46 / 44 / 45 = 45.0 | 50 / 48 / 49 = 49.0 | 44 / 41 / 43 = 42.7 | 50 | 0 / 0 / 0 |
+
+        **A tie by the rule** (held +2.4 < 4, ever +0.7 < 2; collapses equal) -> **+C r3 stays the final model.** CLD
+        is ahead on every val mean and has the most even seeds of the day, but within noise.
+      - **Test 150 of all candidates (12:16-12:47, report information, not a decision):**
+
+        | test 150, s0 / s1 / s2 (mean) | reached | ever 1 cm | held 1 cm | held 2 cm | collapsed | joint 1/5 > 0.5 rad | median rotation, low |
+        |---|---|---|---|---|---|---|---|
+        | `bb_r5` | 122 / 120 / 111 (117.7) | 142.7 | 120 / 111 / 106 (112.3) | 146.3 | 1 / 6 / 0 (7) | 8 / 8 / 5 | 0.23-0.27 |
+        | **+C r3 (final model)** | 127 / 132 / 127 (**128.7**) | 140.3 | 110 / 115 / 116 (113.7) | 146.3 | 0 / 2 / 0 (2) | 1 / 5 / 0 | 0.10-0.18 |
+        | CL r1 | 109 / 115 / 75 (99.7) | 133.3 | 107 / 115 / 82 (101.3) | 141.7 | 0 / 0 / 0 (0) | 1 / 1 / 3 | 0.22-0.25 |
+        | CD r2 | 135 / 122 / 115 (124.0) | 141.3 | 128 / 107 / 107 (114.0) | 145.7 | 0 / 4 / 3 (7) | 1 / 1 / 4 | 0.20-0.23 |
+        | CLD r2 | 127 / 124 / 123 (124.7) | 140.7 | 117 / 108 / 112 (112.3) | 144.7 | **0 / 0 / 0 (0)** | 2 / 1 / 0 | 0.13-0.20 |
+
+        (CL s1 and CLD s1 hold within 5 cm in 149 of 150, all others 150.) Reading: +C reaches the most; holding
+        is the same for all but CL (seed 2 weak); **CLD is the only candidate with no collapses on val and test**;
+        CD's extra low data alone brings collapses back (7). The extra low-target runs (CL) remove collapses but
+        cost reaching unless the low expert data is added too (CLD). The test numbers don't change the decision
+        (val only).
+      - **Decision, 4 Nov ~13:10 (Matteo): final model = CLD r2 (`split_dartdagger_bb_plusCLD_r2_s0/1/2`).** Second
+        tie rule, added now: **on a tie with equal collapses, the candidate ahead on the val 3-seed means wins
+        (held within 1 cm, then ever within 1 cm).** CLD v +C on val: held 42.7 v 40.3, ever 49.0 v 48.3, reached
+        45.0 v 44.7, collapses 0 v 0, seeds more even (held 41-44 v 38-42) -> CLD. Chosen on val only; its test 0
+        collapses (v 2) agrees but is not the reason. **Honest note for the report:** like the collapse tie-breaker,
+        this rule was added after the results were seen (val and test), and the margins are within the seed spread.
+        **Final model's test 150:** reached 127 / 124 / 123 = 124.7 (83.1%), ever within 1 cm 140.7 (93.8%), held
+        within 1 cm 117 / 108 / 112 = 112.3 (74.9%), held within 2 cm 144.7, 0 collapses, no spins; joint drift past
+        0.5 rad 2 / 1 / 0 (median rotation on low targets 0.13-0.20 rad, expert 0.28).
+        **How it is made (for the report):** DART model with the bounded base (`split_dart_base_bound_s2`) -> 5 DAgger
+        rounds labelled for 5 s after the latch (`split_dartdagger_bb_r1-r5`) -> 2 more DAgger rounds with posture-free
+        labels over the whole run (`--window 25 --posture-free`), 100 extra runs per round on low training targets
+        (`--low-extra 100`) and 60 extra expert episodes on low targets in the arm's training data (`data_low`).
 
 **D. Extensions:** camera (Kris from 3 Nov once the winner's test 150 is done, finished 5 Nov; Matteo joins after the
 final edit; cut-off Thursday evening, see the week table); parking pose + arm early: future work in the report. Dropped unless time: parked-start arm episodes, randomised arm start
