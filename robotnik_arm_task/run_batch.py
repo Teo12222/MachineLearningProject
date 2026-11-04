@@ -6,6 +6,7 @@ Usage (from the robotnik_arm_task folder, inside your roboenv environment):
     python run_batch.py --n 500 --seed 1 --workers 4 --out-dir data_train
     python run_batch.py --n 50 --start-pose 1.0,-0.5,1.57 --out-dir data_start_test   # base starts elsewhere
     python run_batch.py --n 100 --seed 2 --noise 5 --out-dir dart/noise5   # DART (PLAN.md step 19)
+    python run_batch.py --n 60 --seed 11 --height-range 0.2,0.5 --out-dir data_low  # low targets only (C18e)
 
 Each episode runs in its own process, so one crash or hang cannot kill the batch.
 Each target is determined by --seed and the episode number, so a batch is reproducible, and episodes whose .npz
@@ -34,13 +35,13 @@ SUCCESS_PREFIX = "Target reached"
 INDEX_FIELDS = ["episode", "x", "y", "z", "status", "outcome", "final_error", "sim_time", "wall_time", "file"]
 
 
-def sample_target(seed, idx):
+def sample_target(seed, idx, height_range=HEIGHT_RANGE):
     """Target for episode idx. Seeded per episode, so it never depends on how many episodes are requested."""
     rng = np.random.default_rng([seed, idx])
     angle = rng.uniform(-np.pi, np.pi)
     # sqrt of a uniform r^2 gives targets uniform over the annulus area (plain uniform r crowds the inner edge)
     radius = np.sqrt(rng.uniform(RADIUS_RANGE[0] ** 2, RADIUS_RANGE[1] ** 2))
-    z = rng.uniform(*HEIGHT_RANGE)
+    z = rng.uniform(*height_range)
     return np.array([radius * np.cos(angle), radius * np.sin(angle), z])
 
 
@@ -129,13 +130,17 @@ def main():
                              "(PLAN.md C18d)")
     parser.add_argument("--noise-fade", default="",
                         help="r0,r1 (m): arm noise off within r0 of the target, full beyond r1, linear between (PLAN.md C18c)")
+    parser.add_argument("--height-range", default="",
+                        help="lo,hi (m): target heights for this batch instead of HEIGHT_RANGE, e.g. 0.2,0.5 for extra "
+                             "low targets (PLAN.md C18e, 4 Nov); not for data_main, whose split depends on its episodes")
     args = parser.parse_args()
+    height_range = tuple(float(v) for v in args.height_range.split(",")) if args.height_range else HEIGHT_RANGE
 
     script_dir = str(Path(__file__).resolve().parent)
     Path(args.out_dir).mkdir(parents=True, exist_ok=True)
 
     # Each target depends only on (seed, episode index): extending a dataset with --start never repeats one
-    jobs = [(idx, sample_target(args.seed, idx)) for idx in range(args.start, args.start + args.n)]
+    jobs = [(idx, sample_target(args.seed, idx, height_range)) for idx in range(args.start, args.start + args.n)]
 
     rows = []
     t0 = time.time()
