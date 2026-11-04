@@ -473,6 +473,21 @@ report must already be complete without it; Thursday only swaps in results, nobo
     - The expert reference needs **fresh expert runs under the same noise** (`run_batch.py` with the noisy config
       into its own folder, never `data_main`): `compare.py --test-set` scores the expert from the stored clean
       episodes.
+    - **Code (4 Nov, Kris, branch `test/sensor-noise`):** `ROBOENV_CONFIG` picks the config in both task scripts
+      (default `robotnik_arm.json`); `make_noise_configs.py` writes `configs/robotnik_arm_noise1/5/10.json` (every
+      channel sigma 0.001 / 0.005 / 0.01: rad, rad/s, m, rad). **The referee uses the true state:** the scripts compute
+      `ee_pos` from the measured (noisy) angles, so with noise on the 5 mm stop and every saved hand position would
+      measure the noise (at sigma 5 the noisy hand is 1.1 cm RMS off the true one). With noise on, the policy still gets
+      the noisy hand position as its input, the expert's controller the noisy state, but the stop rule, the log and the
+      saved `ee_pos` use the simulator's true state (`sim.bot[0]`, `true_ee_pos`). Saved `q_mes` / `base_pos` stay what
+      the controller read (noisy). Checked: with noise off both scripts are bit-identical (expert 3 episodes v `dart/a0`,
+      policy val 50 of `split_dart_a60x2_s0` v its Mac val runs, every array equal); at sigma 5 the joint readings jump
+      7.1 mrad per step (sigma x sqrt 2), the saved hand moves at most 1.7 mm per step.
+      **Runs (Mac, fixed before running):** the final model (`split_dartdagger_bb_plusC_r3_s0/1/2`) on val 50 clean
+      (its Mac reference) and at sigma 1 / 5 / 10, plus the expert on the same 50 targets at each sigma. Reported per
+      level: reached, ever / held within 1 cm, held within 5 cm, median final error, collapses, spins / off floor, 3-seed
+      means. The noise isn't seeded, so a rerun gives other numbers. If a drift test replaces the final model, rerun
+      on it.
 13. Efficiency table (Jamie) (24).
 14. Success at 1 cm next to 5 mm: decided 2 Nov ("How we work"); computed once after 7 from the saved runs (Matteo).
 15. **Activation and output function check (added 3 Nov, Matteo; today):** never tested so far (the tuning plan
