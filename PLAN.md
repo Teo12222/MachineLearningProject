@@ -3288,6 +3288,11 @@ lower limit (see "Found on the way" below).
         reached the same. r1 is the fastest (-0.27 s v Route B), r2 the most precise at 5 mm (+4.6 held 5 mm). The
         mean differences are inside Route B's seed spread (11), so they're not "beyond the spread"; the consistency
         is the clearest difference.
+        **Test 150 of drive-phase r2 (PC, Matteo's request):** reached 140 / 146 / 147 = 144.3, ever 1 cm 148.7, held
+        1 cm 142 / 141 / 137 = 140.0, held 5 mm 72 / 98 / 68 = 79.3, held 2 cm 148.7, 0 collapsed, 10.65 s, low targets
+        held 1 cm 51 / 50 / 46 = 49.0 of 58. So on test r2 is level with Route B (held 140.0 v 139.3, low 49 v 49) and
+        below r1 (145.0, low 54.3); its val-150 edge at 5 mm shows on test only in seed 1 (98). **Of the three, r1 is
+        ahead on test held within 1 cm and low targets, and on val 150 level with r2 and more even.**
 
 ### Low priority: other model families (comparison only, unassigned: only if time is left at the end)
 Purpose: show in the report why a neural network is the right choice. One or two of these in the results table is
