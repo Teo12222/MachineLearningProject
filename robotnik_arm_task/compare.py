@@ -9,6 +9,7 @@ Usage (from the robotnik_arm_task folder, inside your roboenv environment):
     python compare.py --test-set --model mlp_worldframe   # the policy loads checkpoints/mlp_worldframe.pt
     python compare.py --test-set --quick          # fixed 50 of the test episodes, for quick checks (no results written)
     python compare.py --val-set --model X         # fixed 50 validation episodes: the check for decisions (no results)
+    python compare.py --val-full --model X        # all 150 validation episodes, into val_set_full (no results)
 
 --target: the expert (robotnik_arm_task.py) runs headless while the policy (robotnik_arm_policy_task.py) runs in the
 PyBullet GUI so you can watch it. Press 'q' in the PyBullet window to end the policy run early.
@@ -164,20 +165,22 @@ def record_sim_results(name, runs, n):
     )
 
 
-def run_test_set(data_dir, out_dir, script_dir, workers, model, quick=False, val=False):
+def run_test_set(data_dir, out_dir, script_dir, workers, model, quick=False, val=False, val_full=False):
     """Run the policy headless on every test episode's target and compare it with the stored expert runs.
 
     quick: only the fixed quick subset, and no results are written. val: the fixed 50 validation episodes instead of
-    test ones (for decisions), no results written either.
+    test ones (for decisions), no results written either. val_full (with val, added 4 Nov): all 150 validation
+    episodes (the fixed 50 among them), for a less noisy comparison of close models; no results written.
     """
     _, val_ids, test_ids = split_episodes(data_dir)
     if val:
-        test_ids = quick_val_ids(val_ids)
+        test_ids = list(val_ids) if val_full else quick_val_ids(val_ids)
     elif quick:
         test_ids = quick_test_ids(test_ids)
     # Separate folders, so a quick or validation run never overwrites a full one
-    name = "val_set" if val else "test_set_quick" if quick else "test_set"
-    subset = " (validation subset)" if val else " (quick subset)" if quick else ""
+    name = ("val_set_full" if val_full else "val_set") if val else "test_set_quick" if quick else "test_set"
+    subset = ((" (all validation)" if val_full else " (validation subset)") if val
+              else " (quick subset)" if quick else "")
     run_dir = out_dir / name
     run_dir.mkdir(parents=True, exist_ok=True)
     # Episode files of an earlier run (possibly another model or split) would otherwise sit next to this run's
@@ -262,6 +265,9 @@ def main():
     mode.add_argument("--test-set", action="store_true", help="run the policy on all test episodes (table + error plot)")
     mode.add_argument("--val-set", action="store_true",
                       help="run the policy on the fixed 50 validation episodes (for decisions), no results written")
+    mode.add_argument("--val-full", action="store_true",
+                      help="run the policy on all 150 validation episodes (the fixed 50 among them; into val_set_full), "
+                           "no results written (added 4 Nov: less noisy than 50 for close models)")
     parser.add_argument("--quick", action="store_true",
                         help="with --test-set: only the fixed quick subset of 50 test episodes, no results written")
     parser.add_argument("--start", help="start pose of the base x,y,yaw (m, m, rad), --target only; "
@@ -272,7 +278,7 @@ def main():
     parser.add_argument("--model", default="mlp_baseline",
                         help="model name: the policy loads checkpoints/<model>.pt, --test-set writes results/<model>.csv")
     args = parser.parse_args()
-    if args.start and (args.test_set or args.val_set or args.episode is not None):
+    if args.start and (args.test_set or args.val_set or args.val_full or args.episode is not None):
         parser.error("--start only works with --target")
     if args.quick and not args.test_set:
         parser.error("--quick only works with --test-set")
@@ -287,8 +293,9 @@ def main():
         parser.error(f"no checkpoint {checkpoint}")
     os.environ["ROBOENV_POLICY"] = str(checkpoint)
 
-    if args.test_set or args.val_set:
-        run_test_set(data_dir, out_dir, script_dir, args.workers, args.model, args.quick, args.val_set)
+    if args.test_set or args.val_set or args.val_full:
+        run_test_set(data_dir, out_dir, script_dir, args.workers, args.model, args.quick,
+                     args.val_set or args.val_full, args.val_full)
         return
 
     if args.episode is not None:

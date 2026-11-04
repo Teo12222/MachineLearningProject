@@ -3271,6 +3271,23 @@ lower limit (see "Found on the way" below).
         ahead on held within 1 cm (+5.7, more than either model's seed spread of 3-4), every low-target seed (53-55 v
         49 of 58) and time (-0.27 s), slightly behind on 5 mm reached (-2.4) and held 5 mm (-2.3). **Decision:
         Matteo's, using val and test (see the decision note above: the report then must say test was used).**
+      - **All 150 val episodes (4 Nov ~19:15, PC, Matteo's request):** val 50 is noisy for models this close, so all
+        150 of `data_main`'s val split (the fixed 50 among them; not independent of the round picks). Run with a
+        scratch driver calling `compare.run_episode` exactly as `--val-set` does, into `compare_out/<model>_val150`;
+        `compare.py --val-full` (added now, into `val_set_full`) does the same from now on. Seeds 1-2 of drive-phase r2
+        trained on the same r1 + r2 data (no new runs) for a 3-seed row.
+
+        | val 150, PC, s0 / s1 / s2 | reached | ever 1 cm | held 1 cm | held 5 mm | held 5 cm | collapsed | time to reach | low targets held 1 cm (of 46) |
+        |---|---|---|---|---|---|---|---|---|
+        | Route B | 148 / 145 / 145 = 146.0 | 150 / 149 / 148 = 149.0 | 148 / 137 / 144 = 143.0 (spread 11) | 93 / 86 / 78 = 85.7 | 150 | 0 | 10.80 / 10.57 / 10.76 = 10.71 s | 44 / 34 / 44 = 40.7 |
+        | drive-phase r1 | 150 / 141 / 147 = 146.0 | **150 / 150 / 150** | 147 / 146 / 146 = **146.3** (spread 1) | 90 / 82 / 83 = 85.0 | 150 | 0 | 10.49 / 10.52 / 10.30 = **10.44 s** | 43 / 44 / 44 = **43.7** |
+        | drive-phase r2 | 146 / 148 / 145 = 146.3 | **150 / 150 / 150** | 144 / 147 / 147 = 146.0 (spread 3) | 90 / 101 / 80 = **90.3** | 150 | 0 | 10.72 / 10.53 / 10.46 = 10.57 s | 43 / 43 / 43 = 43.0 |
+
+        Both drive-phase rounds: ever within 1 cm on every run of every seed, held within 1 cm higher and far more
+        even across seeds than Route B (whose seed 1 drops to 137, mostly low targets 34/46), low targets +2.3 to +3,
+        reached the same. r1 is the fastest (-0.27 s v Route B), r2 the most precise at 5 mm (+4.6 held 5 mm). The
+        mean differences are inside Route B's seed spread (11), so they're not "beyond the spread"; the consistency
+        is the clearest difference.
 
 ### Low priority: other model families (comparison only, unassigned: only if time is left at the end)
 Purpose: show in the report why a neural network is the right choice. One or two of these in the results table is
