@@ -11,7 +11,7 @@ TinyRenderer, see mast_camera.PIXEL_OFFSET_*), its distance from the camera, and
 rule for a clean detection (>= min_pixels red pixels, not touching the robot's own body or the image border), computed
 with the segmentation mask. At run time the network gets only RGB + depth.
 
-Usage (from robotnik_arm_task/): python ../concurrent_arm/cnn_data.py --n 12000 --out data_camera_images
+Usage (from robotnik_arm_task/): python ../concurrent_arm/cnn_data.py --n 12000 --out data_camera_images32
 """
 import argparse
 import os
@@ -130,7 +130,7 @@ def generate(args):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--n", type=int, default=12000)
-    ap.add_argument("--out", default="data_camera_images")
+    ap.add_argument("--out", default="data_camera_images32")
     ap.add_argument("--arm-data", default="data_concurrent")
     ap.add_argument("--workers", type=int, default=10)
     ap.add_argument("--seed", type=int, default=0)

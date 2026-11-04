@@ -40,7 +40,7 @@ def classical_cam(rgb, depth, params):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--model", default="checkpoints/cnn_detector.pt")
-    ap.add_argument("--data", default="data_camera_images")
+    ap.add_argument("--data", default="data_camera_images32")
     ap.add_argument("--shard", type=int, default=9)
     a = ap.parse_args()
     params = MastCameraParams()

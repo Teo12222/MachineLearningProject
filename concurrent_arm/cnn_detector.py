@@ -12,7 +12,7 @@ The network also learns when a detection is usable (target fully visible, not to
 at run time it gets RGB + depth only, no segmentation mask (the classical detector needs the mask as a self-filter).
 
 Training (from robotnik_arm_task/, images from cnn_data.py):
-    python ../concurrent_arm/cnn_detector.py --data data_camera_images --out checkpoints/cnn_detector.pt
+    python ../concurrent_arm/cnn_detector.py --data data_camera_images32 --out checkpoints/cnn_detector.pt
 Shards 0-7 train, 8 validation (early stopping), 9 test (reported only).
 In the experts / policy runs: ROBOENV_DETECTOR=cnn (and ROBOENV_CNN_DETECTOR=<checkpoint>) makes
 camera_expert.py / camera_policy_task.py use CNNDetector.detect instead of mast_camera.detect_target.
@@ -276,7 +276,7 @@ class CNNDetector:
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--data", default="data_camera_images")
+    ap.add_argument("--data", default="data_camera_images32")
     ap.add_argument("--out", default="checkpoints/cnn_detector.pt")
     ap.add_argument("--epochs", type=int, default=40)
     ap.add_argument("--batch", type=int, default=32)
