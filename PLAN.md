@@ -2967,10 +2967,66 @@ lower limit (see "Found on the way" below).
       - Offline error is not closed-loop success (step 27, "offline vs closed-loop gap"); this only rules out "can't
         be learned from these inputs". For scale: DART's noise at scale 1 is 0.011-0.077 N*m per joint (the split
         MLP's error on expert frames).
-    - **Next:** the model: train the split model on `data_concurrent` with the final model's recipe (base copied, DART,
-      then DAgger), see the plausibility notes above. Optional: a goal network (target -> `q_final`; its labels need
-      no simulation), explicit "estimate the final arm pose" for the report. Expect it to be easy: with perfect
-      parking the target is always `standoff(z)` straight ahead at height z, so `q_final` depends on the height alone.
+    - **Done (Kris, 4 Nov, Mac, not pushed): Route B (C19) trained with the final model's recipe (CLD r2's), val 50.**
+      **Data** (all with **early IK off**, `ROBOENV_ARM_EARLY_IK=0`, so the arm switches to the Cartesian correction
+      exactly at `nav_done`, the flag the split arm gets; the offline check above showed early IK makes the 0.35 s
+      before the latch the hardest part): `data_route_b` (1,000 episodes, `--seed 0`: the same targets and ids as
+      `data_main`, so the same split and the same val 50; all 1,000 reached, 10.18 s mean; 0-299 bit for bit
+      `data_concurrent_v1`), DART `dart/b_a60`, `b_a60b` (`--n 150 --noise 60`, `--seed 2` / `3`, the final model's
+      DART targets; reached 111 / 103 of 150 against the sequential expert's 116 / 112), `data_low_b` (`--n 60 --seed
+      11 --height-range 0.2,0.5`, all 60 reached). All git-ignored, never in `data_main`.
+      **Code** (Kris branch, off by default): `train.py` / `dagger.py --data-dir`; `dagger.py --relabel-from-final`:
+      the relabelled expert reach starts from the target's `q_final` instead of the arm's start pose. Checked on 6
+      episodes: from `q_final` the relabel gives back the expert's saved torques to 0.012 N*m (the expert's own
+      reference does the same; with early IK off its reference at the latch is exactly `q_final`), from the start
+      pose 7.9 N*m off (up to 20 N*m: the arm has moved 0.3-0.7 rad by then), from the measured pose 1.1 N*m.
+      `concurrent_arm/route_b_chain1-3.sh` (the commands), `route_b_eval.py` (the counts below).
+      **Recipe, as CLD r2's:** (1) `split_conc_dart_bb_s0`: bounded base copied from `split_dart_base_bound_s2`,
+      gravity-residual arm trained on `data_route_b` + the DART data; (2) 5 DAgger rounds behind it, 5 s window
+      (`split_conc_dartdagger_bb_r1-r5`); (3) on the chosen round, 3 rounds with `--window 25 --posture-free
+      --low-extra 100` and `data_low_b` in the arm's data (`split_conc_dartdagger_bb_plusCLD_r1-r3`); rounds chosen by
+      the rule (held within 1 cm, then ever, then reached, seed 0, val 50); (4) seeds 1-2 of the chosen round.
+      Reference: CLD r2 seeds 0-2 run on the same Mac, the same 50 val targets (`compare_out/route_b/`).
+      Mac, 13:58-15:11 (73 min for all of it).
+
+      | val 50, Mac, seed 0 | reached | ever 1 cm | held 1 cm | held 5 cm | collapsed | time to reach (mean of reached) |
+      |---|---|---|---|---|---|---|
+      | DART model | 41 | 47 | 47 | 50 | 0 | 10.70 s |
+      | DAgger r1 / r2 / r3 / r4 / r5 | 45 / 43 / 46 / 47 / 45 | 49 / 48 / 50 / 49 / 46 | 49 / 47 / **49** / 48 / 45 | 50 / 50 / 50 / 50 / 48 | 0 | 11.44 / 11.62 / 11.59 / 10.57 / 10.20 s |
+      | + CLD rounds on r3: r1 / r2 / **r3** | 50 / 49 / **50** | 50 / 50 / **50** | 47 / 47 / **50** | 50 | 0 | 10.31 / 10.39 / **10.43 s** |
+
+      Labelled frames per round: DAgger 0.77 / 0.68 / 0.73 / 0.73 / 0.69 M (all 200 runs latched), CLD rounds 1.78 /
+      1.20 / 1.18 M (269 / 271 / 279 runs). r3 chosen over r1 on ever within 1 cm (50 v 49). Seeds 1-2 of CLD r3
+      (same 9 data folders and settings as round 3, checked against its results file; base copied from r3):
+
+      | val 50, Mac, 3 seeds | reached | ever 1 cm | held 1 cm | held 5 cm | collapsed | time to reach (mean of reached) |
+      |---|---|---|---|---|---|---|
+      | **CLD r2, the final model** | 44 / 45 / 43 = 44.0 | 48 / 48 / 49 = 48.3 | 40 / 40 / 41 = 40.3 (spread 1) | 50 | 0 / 0 / 0 | 10.99 / 11.69 / 11.07 = 11.25 s |
+      | **Route B, CLD r3** | 50 / 49 / 47 = **48.7** | 50 / 50 / 50 = **50.0** | 50 / 46 / 49 = **48.3** (spread 4) | 50 | 0 / 0 / 0 | 10.43 / 10.15 / 10.08 = **10.22 s** |
+      | expert on these 50 (stored runs): sequential / concurrent | 50 / 50 | | | | | 10.63 / 9.64 s |
+
+      - **Better on every val count and faster.** Held within 1 cm +8.0 (the final model's spread on this Mac is 1,
+        on Matteo's PC 3), ever +1.7 (the ceiling), reached +4.7, no collapses. Time to reach -1.0 s (3-seed means);
+        target by target over the 128 target-seed pairs both reach, -0.70 s median / -1.05 s mean, Route B faster on
+        88. By C19's rule fixed beforehand (success within the final model's seed spread and time to reach clearly
+        lower) it qualifies; **the decision is Matteo's and Kris's.**
+      - **Why it holds better:** the base arrives at the same time as the final model's (7.9 s mean), but the hand is
+        then 7.5 cm from the target (median, DAgger r3) instead of 22.6 cm, and within 1 cm 1.39 s later instead of
+        2.04 s. Less correction after the latch, where the final model's failures happen (hovering 1.5-2 cm off).
+        The arm learned to move while driving: 0.73 rad by the latch (CLD r2: 0.05).
+      - Before the CLD rounds the mean time to reach was not lower (11.6 s v 11.0-11.7): a few runs stayed within
+        1 cm and reached 5 mm only at 20-29 s (median already 0.4 s lower). The CLD rounds removed that tail (slowest
+        reach 18.7 s, seed 0).
+      - **Checked twice:** the counts recomputed from the `.npz` files with a separate implementation (ever / held 1 cm
+        and 5 cm, collapsed: identical), reached by the stop messages ("Target reached") and by compare.py's success
+        lines (identical); the 50 val ids are the same for `data_route_b` and `data_main`; the runs are policy runs
+        (latch from the base network, torques not the expert's).
+      - **Caveats for the report:** (1) the rounds were picked on seed 0's val 50, so the 3-seed mean is slightly
+        optimistic (seeds 1-2: 46 / 49 held, still above the final model's best seed, 41); (2) Route B's expert is
+        itself ~1 s faster (9.64 v 10.63 s here), so part of the time gain is the expert's; (3) early IK off (the
+        expert's 1.09 s lead, not 1.31 s); (4) the drive phase is never DAgger-labelled (the window starts at the
+        latch), only DART covers it; (5) Mac only: CLD r2's Mac val numbers are a little below Matteo's PC ones
+        (held 40-41 v 41-44), so compare on one machine.
 
 ### Low priority: other model families (comparison only, unassigned: only if time is left at the end)
 Purpose: show in the report why a neural network is the right choice. One or two of these in the results table is
