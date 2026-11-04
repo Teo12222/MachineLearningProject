@@ -513,6 +513,21 @@ report must already be complete without it; Thursday only swaps in results, nobo
       - The clean expert rerun isn't bit-identical to `data_main` (~1e-6 rad from the first steps, other machine /
         build), so the noisy experts are compared with this Mac rerun, not with `data_main`. Episode files:
         `compare_out/split_dartdagger_bb_plusC_r3_s*_{mac,noise1,noise5,noise10}_val`, `compare_out/expert_*_val`.
+      **Rerun on the final model CLD r2, seed 0 (4 Nov ~14:30, Kris, Mac; seed 0 only, agreed with Matteo).** Val 50,
+      counted twice; expert rows as above (same targets and noise, the expert runs don't depend on the model):
+
+      | sensor noise sigma | reached (5 mm) | ever 1 cm | held 1 cm | held 5 cm | median final error | collapses / spins / off floor | runs at the 30 s cap |
+      |---|---|---|---|---|---|---|---|
+      | 0 (clean, Mac) | 44 | 48 | 40 | 50 | 0.60 cm | 0 / 0 / 0 | 6 |
+      | 1 | 44 | 48 | 44 | 50 | 0.53 cm | 0 / 0 / 0 | 6 |
+      | 5 | 41 | 46 | 45 | 50 | 0.42 cm | 0 / 0 / 0 | 9 |
+      | 10 | 25 | 39 | 35 | 50 | 1.52 cm | 0 / 0 / 0 | 25 |
+
+      Same picture as +C r3: no change at sigma 1, a few 5 mm reaches lost at 5, half at 10, nothing collapses (the
+      5 mm reach at 10 is 25 v +C's 13 / 22 / 29 for one seed each). The clean Mac run is 44 / 48 / 40 against the
+      PC's 46 / 50 / 44 for seed 0 (machine difference, as for the other models). The noisy readings were checked
+      (joint readings jump 1.4 / 7.1 / 14.1 mrad per step at sigma 1 / 5 / 10, sigma x sqrt 2). Files:
+      `compare_out/split_dartdagger_bb_plusCLD_r2_s0_{mac,noise1,noise5,noise10}_val`.
 13. Efficiency table (Jamie) (24).
 14. Success at 1 cm next to 5 mm: decided 2 Nov ("How we work"); computed once after 7 from the saved runs (Matteo).
 15. **Activation and output function check (added 3 Nov, Matteo; today):** never tested so far (the tuning plan
