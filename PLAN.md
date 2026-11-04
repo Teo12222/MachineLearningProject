@@ -68,6 +68,10 @@ Look there for the current state of each model instead of this file.
 
 ### Plan from 3 Nov (overrides the 2 Nov plan where they differ)
 
+**Superseded again 4 Nov ~10:00 (C18e): final model = `split_dartdagger_bb_plusC_r3_s0/1/2`** (3 extra posture-free
+whole-run DAgger rounds on top of the bounded-base model; ties it on val, wins on the new tie-breaker "fewer
+collapses" (val 0 v 1); test 150 85.8% reached, 75.8% held within 1 cm, 0 / 2 / 0 collapses). Pending the drift
+tests R, CL, CD.
 **Superseded 4 Nov (overnight, C18e): by the rule the final model is now DART + DAgger behind the bounded base
 (`split_dartdagger_bb_r5_s0/1/2`): test 150 78.4% at 5 mm, 95.1% ever / 74.9% held within 1 cm; caveat: 1 / 6 / 0
 collapses; Matteo to confirm.** Was: **The final model is settled:** DART + DAgger r5 (`split_dartdagger_r5_s0/1/2`), one base, reported as the 3-seed
