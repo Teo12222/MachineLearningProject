@@ -862,6 +862,17 @@ report must already be complete without it; Thursday only swaps in results, nobo
         The rule (fixed before) guards held within 5 cm (150/150, unchanged), not collapses. **By the rule the new final
         model is `split_dartdagger_bb_r5_s0/1/2`; Matteo to confirm in the morning** given the collapses, before the
         report uses it.
+      - **What the collapses are (4 Nov, from the saved test runs, no simulation):** all 7 are low targets (0.25-0.32 m),
+        and the base is still (moves < 2 cm after the latch, wheels at 0). No torque at the limit before the collapse.
+        The arm gets within 0.6-2 cm, then slides along the null space: joints 1, 3 and 5 turn together (0 -> 0.5 ->
+        0.9 rad), the hand sinks and swings away over several seconds, and then the arm folds (torques hit 30 N*m; in 2
+        runs, joints wind past a full turn). 2 of the 7 come back to 3-6 cm by 30 s. None reached 5 mm, so they already
+        count as failures in reached. Same targets: the other bounded seeds and all 3 old seeds end within 7 cm (ep 926
+        collapses on seeds 0 and 1). **A wider pattern:** joint 1 or 5 more than 0.5 rad from 0 after the latch, test
+        150: bounded 8 / 8 / 5, old 0 / 1 / 3, expert 2, all on low targets. Up to ~0.3 rad is expert-like (the expert's
+        median on low targets is 0.28; bounded 0.23-0.27; old 0.11-0.15). So the bounded-base arm copies the expert's
+        low-target posture better, and sometimes overshoots it. Seed 1 collapses in 6 of its 8 large drifts; seeds 0
+        and 2 in 1 of 13.
       - **What made it:** only the base changed v the old final model (bounded wheel output, C15; the DAgger arm
         retrained behind it, 5 rounds with the old recipe). Why a better-parking base helps this much isn't measured
         (C15: the bounded base parks 1.4 cm from the expert's spot on every seed; the arm is fitted to its base's
