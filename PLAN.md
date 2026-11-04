@@ -1077,6 +1077,28 @@ report must already be complete without it; Thursday only swaps in results, nobo
         **Final model's test 150:** reached 127 / 124 / 123 = 124.7 (83.1%), ever within 1 cm 140.7 (93.8%), held
         within 1 cm 117 / 108 / 112 = 112.3 (74.9%), held within 2 cm 144.7, 0 collapses, no spins; joint drift past
         0.5 rad 2 / 1 / 0 (median rotation on low targets 0.13-0.20 rad, expert 0.28).
+        **Distances table regenerated (4 Nov):** `results/analysis/final_distances.csv` / `final_bands.csv` were made
+        for the old final model (`split_dartdagger_r5`), so they were remade from CLD r2's saved test runs
+        (`analyse_distances.py`, no simulation; its default models changed to CLD r2, old value kept as a comment).
+        3-seed mean v expert, ever / held 0.5 s: 5 mm 124.7 / 35.7 v 149 / 145; 1 cm 140.7 / 112.3 v 150 / 149;
+        2 cm 148.3 / 144.7 v 150 / 150; 5 cm 150 / 149.7 v 150 / 150; 10 cm 150 / 150 v 150 / 150. Agrees with the
+        numbers above (reached = ever within 5 mm).
+        **Why not 100% (failure analysis, 4 Nov):** from the saved test runs (no simulation). 76 of 450 runs (3 seeds x
+        150; 23 / 26 / 27) not reached; all 76 latched the base, so the failures are in the final arm approach, not
+        navigation. (1) **They don't settle off target, they keep moving:** 75 of 76 still move in the last 5 s
+        (median hand speed 3.4 cm/s, error swings by a median 1.7 cm), i.e. the hand circles 1.5-2 cm around the
+        target. 56-78% of failures per seed (18/23, 15/26, 15/27) get within 1 cm but never within 5 mm, and 71% get
+        each axis within 2.9 mm at some moment but never all three at once (2.9 mm per axis = 5 mm in 3D) — the
+        policy corrects one axis while another drifts. So the miss is precision, not a wrong target. (2) **Mostly low
+        targets:** 76% of failures have the target below 0.5 m v 31% of successes (also the 0.2-0.5 m height band:
+        held within 1 cm 51% v 85-98% elsewhere, `final_bands.csv`); low targets need the most arm bending, where
+        the arm data is thinnest (the reason for CLD's extra low data). (3) **The base parks worse on failures:**
+        median 3.5 cm from the expert's parking spot on failures v 1.4 cm on successes, so the arm starts from a pose
+        the expert never showed for that target. 5 targets fail on all 3 seeds, 14 on 2, 33 on 1, so most failures
+        are seed-specific rather than impossible targets. **Worst test run:** seed 0, episode 876 (target z 0.28 m,
+        closest 1.78 cm, ends 9.6 cm off at the 30 s cap, base 4.7 cm from the expert's spot); plot
+        `results/analysis/final_worst_test_run.png` (hand error v expert, hand offset per axis after the latch, arm
+        joints, base path).
         **How it is made (for the report):** DART model with the bounded base (`split_dart_base_bound_s2`) -> 5 DAgger
         rounds labelled for 5 s after the latch (`split_dartdagger_bb_r1-r5`) -> 2 more DAgger rounds with posture-free
         labels over the whole run (`--window 25 --posture-free`), 100 extra runs per round on low training targets

@@ -1,6 +1,6 @@
 model,episodes,ever_5mm,held_5mm,ever_1cm,held_1cm,ever_2cm,held_2cm,ever_5cm,held_5cm,ever_10cm,held_10cm,ever_1cm_after_latch
-split_dartdagger_r5_s0,150,99,30,121,98,148,144,150,150,150,150,121
-split_dartdagger_r5_s1,150,109,29,141,114,149,148,150,150,150,150,141
-split_dartdagger_r5_s2,150,103,30,136,103,148,145,150,150,150,150,136
-mean of seeds,150,103.7,29.7,132.7,105.0,148.3,145.7,150.0,150.0,150.0,150.0,132.7
+split_dartdagger_bb_plusCLD_r2_s0,150,127,38,145,117,150,146,150,150,150,150,145
+split_dartdagger_bb_plusCLD_r2_s1,150,124,33,139,108,147,145,150,149,150,150,139
+split_dartdagger_bb_plusCLD_r2_s2,150,123,36,138,112,148,143,150,150,150,150,138
+mean of seeds,150,124.7,35.7,140.7,112.3,148.3,144.7,150.0,149.7,150.0,150.0,140.7
 expert,150,149,145,150,149,150,150,150,150,150,150,150
