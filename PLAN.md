@@ -71,6 +71,13 @@ Look there for the current state of each model instead of this file.
 **FINAL MODEL, 4 Nov ~13:10 (C18e, Matteo): `split_dartdagger_bb_plusCLD_r2_s0/1/2`** (+C plus extra low-target
 DAgger runs and 60 extra low-target expert episodes; ties +C on val, ahead on every val mean, tie rule "higher val
 means" added after the results; test 150: 83.1% reached, 74.9% held within 1 cm, 0 collapses).
+**Submitted / demo checkpoint (4 Nov, Matteo): seed 0, `checkpoints/split_dartdagger_bb_plusCLD_r2_s0.pt`.** Results
+stay the 3-seed mean; the demo needs one file. Picked on val only: seed 0 is best of the three on every val measure
+(reached 46 v 45 / 44, ever within 1 cm 50 v 49 / 48, held within 1 cm 44 v 43 / 41), so no tie rule was needed. Its
+test 150 is also the best (127 reached, 117 held), but that is report information, not the reason. To run it:
+`ROBOENV_POLICY=checkpoints/split_dartdagger_bb_plusCLD_r2_s0.pt pixi run python robotnik_arm_policy_task.py` (PowerShell:
+`$env:ROBOENV_POLICY = "..."` first). **Catch:** without `ROBOENV_POLICY` the script loads `checkpoints/mlp_baseline.pt`
+(the first baseline), not the final model. The README is not changed (course file).
 **Superseded 4 Nov ~13:10. Was, from ~10:00 (C18e): final model = `split_dartdagger_bb_plusC_r3_s0/1/2`** (3 extra posture-free
 whole-run DAgger rounds on top of the bounded-base model; ties it on val, wins on the new tie-breaker "fewer
 collapses" (val 0 v 1); test 150 85.8% reached, 75.8% held within 1 cm, 0 / 2 / 0 collapses). Pending the drift
@@ -460,6 +467,54 @@ report must already be complete without it; Thursday only swaps in results, nobo
     robotnik_arm_policy_task.py --start-pose x,y,yaw --n 50 --out-dir starts/<model>_<pose>` with `ROBOENV_POLICY` set,
     and the same without `--script` for the expert as the reference; ~3 poses (offset, rotated, both). The world-frame
     baseline can no longer run (its inputs were removed in step 6), so its expected failure stays as words.
+    **Done (4 Nov, Matteo, PC): seed-0 checkpoint of the final model (`split_dartdagger_bb_plusCLD_r2_s0`) and the
+    expert, 50 targets per pose, all 1-3 m (horizontal) from the start pose, heights 0.2-1.1 m** (`run_batch.py --seed
+    21`, unchanged). `run_batch.py` draws targets around the origin, not the start, so for offset / both episodes
+    0-154 / 0-130 were run and those outside 1-3 m of the start deleted (rule on the targets only, never the outcomes):
+    out-of-range targets are their own test (C11, below), with the base at the default start, so each test changes one
+    thing. Folders `starts/<model|expert>_<pose>` (not committed). Expert in brackets:
+
+    | start pose (x, y, yaw) | reached | ever within 1 cm | held within 1 cm | held within 5 cm | collapses |
+    |---|---|---|---|---|---|
+    | default 0, 0, 0 | 46 (50) | 49 (50) | 39 (50) | 50 (50) | 0 |
+    | offset 2.0, 1.5, 0 | 46 (50) | 48 (50) | 39 (49) | 50 (50) | 0 |
+    | rotated 0, 0, 3.0 | 41 (50) | 45 (50) | 37 (50) | 50 (50) | 0 |
+    | both -1.5, 2.0, -2.0 | 42 (48) | 46 (49) | 37 (49) | 50 (49) | 0 |
+
+    **The model works from any start pose** (robot-frame inputs, step 6): offset = default; the two rotated poses are
+    3-5 lower on reached / ever within 1 cm and 2 on held, every run ends within 5 cm, no collapses: one seed, 50 runs,
+    about the run-to-run noise. Yaw 3.0 rad was picked near pi to test angle wrapping. The expert's one failure (both)
+    stalled ("Target not reachable"), not a collapse.
+
+    **C11 out-of-range targets (done 4 Nov, Matteo):** base at the default start, targets near (0.6-1.0 m, 50) and far
+    (3.0-5.0 m, 200: 50 first, extended because 8-9 runs per 0.5 m band said little), heights 0.2-1.1 m so only the
+    distance changes, seed 31, uniform over the annulus area like `run_batch.py`. Under 0.6 m the target can sit over
+    the base, so not tested. `run_batch.py` can't draw other radii, so a scratch driver called its `run_episode`
+    unchanged (same subprocess, files and index). Folders `oor/<model|expert>_<near|far>` (not committed). Model, expert
+    in brackets:
+
+    | target distance | n | reached | ever within 1 cm | held within 1 cm | held within 5 cm | arrival by 25 s timeout |
+    |---|---|---|---|---|---|---|
+    | 0.6-0.8 m | 24 | 10 (24) | 21 (24) | 12 (24) | 23 (24) | 0 |
+    | 0.8-1.0 m | 26 | 21 (26) | 26 (26) | 20 (26) | 26 (26) | 0 |
+    | 1-3 m (start-pose default row) | 50 | 46 (50) | 49 (50) | 39 (50) | 50 (50) | 0 |
+    | 3.0-3.5 m | 35 | 31 (35) | 33 (35) | 29 (35) | 35 (35) | 0 |
+    | 3.5-4.0 m | 53 | 41 (53) | 49 (53) | 39 (53) | 53 (53) | 0 |
+    | 4.0-4.5 m | 56 | 34 (55) | 37 (56) | 32 (56) | 43 (56) | 10 |
+    | 4.5-5.0 m | 56 | 11 (55) | 13 (56) | 10 (56) | 16 (56) | 24 |
+
+    - Near: the arm still gets within 1 cm (47 / 50) but holds it less; below 0.8 m it reaches 5 mm in 10 / 24.
+    - Far: up to 4 m it is close to the training range (every run within 5 cm, ever within 1 cm 82 / 88); beyond 4 m
+      the **base** fails.
+    - **Is it the time cap (model 30 s, expert 40 s)? Mostly not.** In 34 runs the arrival flag was set by the 25 s
+      timeout: in 33 of them p(arrived) never rose above 0.00, and the base wanders rather than closing in (e.g. 0.36 m
+      from the expert's parking spot at 20 s, then driving off at 1.4 m/s; the expert arrives at 16-20 s on the same
+      targets): the base network is lost outside its training distances, so more time would not help. Of the 34
+      network-latched runs never within 1 cm, 18 end 0.5-9 m away (parked in the wrong place) and 16 end 2-9 cm away,
+      latched late (many after 19 s; held runs latch at median 14.6 s), 12 of them still closing in at the time cap:
+      **at most ~12-16 of 200 far runs could be lost to the 30 s cap.** Not rerun with 40 s (not needed for the claim).
+    - Report: the model holds the training range (1-3 m), degrades gradually just outside it and fails beyond ~4 m,
+      where the base never recognises arrival; the expert (a hand-built controller) has no such limit.
 12. **Robustness: sensor noise only** (Kris; **runs on Wed 4 Nov in the background while we write the report**, on the final model, with 11;
     the noise-config change is done and smoke-tested on Tuesday; decided 2 Nov:
     friction and shoves dropped, the start-pose test (11) is the other robustness result). Uses the simulator's own
@@ -476,6 +531,58 @@ report must already be complete without it; Thursday only swaps in results, nobo
     - The expert reference needs **fresh expert runs under the same noise** (`run_batch.py` with the noisy config
       into its own folder, never `data_main`): `compare.py --test-set` scores the expert from the stored clean
       episodes.
+    - **Code (4 Nov, Kris, branch `test/sensor-noise`):** `ROBOENV_CONFIG` picks the config in both task scripts
+      (default `robotnik_arm.json`); `make_noise_configs.py` writes `configs/robotnik_arm_noise1/5/10.json` (every
+      channel sigma 0.001 / 0.005 / 0.01: rad, rad/s, m, rad). **The referee uses the true state:** the scripts compute
+      `ee_pos` from the measured (noisy) angles, so with noise on the 5 mm stop and every saved hand position would
+      measure the noise (at sigma 5 the noisy hand is 1.1 cm RMS off the true one). With noise on, the policy still gets
+      the noisy hand position as its input, the expert's controller the noisy state, but the stop rule, the log and the
+      saved `ee_pos` use the simulator's true state (`sim.bot[0]`, `true_ee_pos`). Saved `q_mes` / `base_pos` stay what
+      the controller read (noisy). Checked: with noise off both scripts are bit-identical (expert 3 episodes v `dart/a0`,
+      policy val 50 of `split_dart_a60x2_s0` v its Mac val runs, every array equal); at sigma 5 the joint readings jump
+      7.1 mrad per step (sigma x sqrt 2), the saved hand moves at most 1.7 mm per step.
+      **Runs (Mac, fixed before running):** the final model (`split_dartdagger_bb_plusC_r3_s0/1/2`) on val 50 clean
+      (its Mac reference) and at sigma 1 / 5 / 10, plus the expert on the same 50 targets at each sigma. Reported per
+      level: reached, ever / held within 1 cm, held within 5 cm, median final error, collapses, spins / off floor, 3-seed
+      means. The noise isn't seeded, so a rerun gives other numbers. If a drift test replaces the final model, rerun
+      on it.
+      **Done (4 Nov, Kris, Mac, ~13:00):** val 50, per seed 0 / 1 / 2 (3-seed mean), counted twice from the episode
+      files with two separate scripts; expert on the same 50 targets (one run per level):
+
+      | sensor noise sigma | reached (5 mm) | ever 1 cm | held 1 cm | held 5 cm | median final error | collapses / spins / off floor | runs at the 30 s cap | expert reached / held 1 cm |
+      |---|---|---|---|---|---|---|---|---|
+      | 0 (clean, Mac) | 43 / 47 / 48 (46.0) | 48 / 49 / 48 (48.3) | 38 / 39 / 41 (39.3) | 50 / 50 / 50 | 0.79 / 0.61 / 0.69 cm | 0 / 0 / 0 | 12 / 150 | 50 / 50 |
+      | 1 mm, mrad | 45 / 47 / 44 (45.3) | 47 / 48 / 47 (47.3) | 40 / 44 / 41 (41.7) | 50 / 50 / 50 | 0.58 / 0.51 / 0.47 cm | 0 / 0 / 0 | | 50 / 49 |
+      | 5 | 39 / 42 / 39 (40.0) | 49 / 46 / 47 (47.3) | 47 / 42 / 45 (44.7) | 50 / 50 / 50 | 0.47 / 0.49 / 0.48 cm | 0 / 0 / 0 | 30 / 150 | 50 / 50 |
+      | 10 | 13 / 22 / 29 (21.3) | 44 / 43 / 42 (43.0) | 29 / 32 / 40 (33.7) | 50 / 50 / 50 | 3.20 / 2.73 / 0.94 cm | 0 / 0 / 0 | 86 / 150 | 50 / 50 |
+
+      - **Robust to small noise, not to large:** at sigma 1 nothing changes beyond seed spread; at 5 the 5 mm reach
+        drops by 6 (46 -> 40) but every run still gets within 5 cm and almost all within 1 cm; at 10 (1 cm on the base
+        position, 10 mrad on every joint) the 5 mm reach halves (21.3) and the final error grows to 1-3 cm, while
+        nothing collapses, spins or leaves the floor. The expert, with the same noisy readings, reaches all 50 at every
+        level: likely because its integrated reference smooths the noise while the policy reacts to every noisy frame
+        (not tested).
+      - **Read "held 1 cm" with care across levels:** fewer runs stop at the 5 mm rule under noise, so more run to the
+        30 s cap (12 -> 30 -> 86 of 150) and have more time to be held within 1 cm; its rise at sigma 5 is that, not
+        better holding. Reached (5 mm, on the true hand) and the median final error are the comparable columns.
+      - The clean expert rerun isn't bit-identical to `data_main` (~1e-6 rad from the first steps, other machine /
+        build), so the noisy experts are compared with this Mac rerun, not with `data_main`. Episode files:
+        `compare_out/split_dartdagger_bb_plusC_r3_s*_{mac,noise1,noise5,noise10}_val`, `compare_out/expert_*_val`.
+      **Rerun on the final model CLD r2, seed 0 (4 Nov ~14:30, Kris, Mac; seed 0 only, agreed with Matteo).** Val 50,
+      counted twice; expert rows as above (same targets and noise, the expert runs don't depend on the model):
+
+      | sensor noise sigma | reached (5 mm) | ever 1 cm | held 1 cm | held 5 cm | median final error | collapses / spins / off floor | runs at the 30 s cap |
+      |---|---|---|---|---|---|---|---|
+      | 0 (clean, Mac) | 44 | 48 | 40 | 50 | 0.60 cm | 0 / 0 / 0 | 6 |
+      | 1 | 44 | 48 | 44 | 50 | 0.53 cm | 0 / 0 / 0 | 6 |
+      | 5 | 41 | 46 | 45 | 50 | 0.42 cm | 0 / 0 / 0 | 9 |
+      | 10 | 25 | 39 | 35 | 50 | 1.52 cm | 0 / 0 / 0 | 25 |
+
+      Same picture as +C r3: no change at sigma 1, a few 5 mm reaches lost at 5, half at 10, nothing collapses (the
+      5 mm reach at 10 is 25 v +C's 13 / 22 / 29 for one seed each). The clean Mac run is 44 / 48 / 40 against the
+      PC's 46 / 50 / 44 for seed 0 (machine difference, as for the other models). The noisy readings were checked
+      (joint readings jump 1.4 / 7.1 / 14.1 mrad per step at sigma 1 / 5 / 10, sigma x sqrt 2). Files:
+      `compare_out/split_dartdagger_bb_plusCLD_r2_s0_{mac,noise1,noise5,noise10}_val`.
 13. Efficiency table (Jamie) (24).
 14. Success at 1 cm next to 5 mm: decided 2 Nov ("How we work"); computed once after 7 from the saved runs (Matteo).
 15. **Activation and output function check (added 3 Nov, Matteo; today):** never tested so far (the tuning plan
@@ -1022,6 +1129,28 @@ report must already be complete without it; Thursday only swaps in results, nobo
         **Final model's test 150:** reached 127 / 124 / 123 = 124.7 (83.1%), ever within 1 cm 140.7 (93.8%), held
         within 1 cm 117 / 108 / 112 = 112.3 (74.9%), held within 2 cm 144.7, 0 collapses, no spins; joint drift past
         0.5 rad 2 / 1 / 0 (median rotation on low targets 0.13-0.20 rad, expert 0.28).
+        **Distances table regenerated (4 Nov):** `results/analysis/final_distances.csv` / `final_bands.csv` were made
+        for the old final model (`split_dartdagger_r5`), so they were remade from CLD r2's saved test runs
+        (`analyse_distances.py`, no simulation; its default models changed to CLD r2, old value kept as a comment).
+        3-seed mean v expert, ever / held 0.5 s: 5 mm 124.7 / 35.7 v 149 / 145; 1 cm 140.7 / 112.3 v 150 / 149;
+        2 cm 148.3 / 144.7 v 150 / 150; 5 cm 150 / 149.7 v 150 / 150; 10 cm 150 / 150 v 150 / 150. Agrees with the
+        numbers above (reached = ever within 5 mm).
+        **Why not 100% (failure analysis, 4 Nov):** from the saved test runs (no simulation). 76 of 450 runs (3 seeds x
+        150; 23 / 26 / 27) not reached; all 76 latched the base, so the failures are in the final arm approach, not
+        navigation. (1) **They don't settle off target, they keep moving:** 75 of 76 still move in the last 5 s
+        (median hand speed 3.4 cm/s, error swings by a median 1.7 cm), i.e. the hand circles 1.5-2 cm around the
+        target. 56-78% of failures per seed (18/23, 15/26, 15/27) get within 1 cm but never within 5 mm, and 71% get
+        each axis within 2.9 mm at some moment but never all three at once (2.9 mm per axis = 5 mm in 3D) — the
+        policy corrects one axis while another drifts. So the miss is precision, not a wrong target. (2) **Mostly low
+        targets:** 76% of failures have the target below 0.5 m v 31% of successes (also the 0.2-0.5 m height band:
+        held within 1 cm 51% v 85-98% elsewhere, `final_bands.csv`); low targets need the most arm bending, where
+        the arm data is thinnest (the reason for CLD's extra low data). (3) **The base parks worse on failures:**
+        median 3.5 cm from the expert's parking spot on failures v 1.4 cm on successes, so the arm starts from a pose
+        the expert never showed for that target. 5 targets fail on all 3 seeds, 14 on 2, 33 on 1, so most failures
+        are seed-specific rather than impossible targets. **Worst test run:** seed 0, episode 876 (target z 0.28 m,
+        closest 1.78 cm, ends 9.6 cm off at the 30 s cap, base 4.7 cm from the expert's spot); plot
+        `results/analysis/final_worst_test_run.png` (hand error v expert, hand offset per axis after the latch, arm
+        joints, base path).
         **How it is made (for the report):** DART model with the bounded base (`split_dart_base_bound_s2`) -> 5 DAgger
         rounds labelled for 5 s after the latch (`split_dartdagger_bb_r1-r5`) -> 2 more DAgger rounds with posture-free
         labels over the whole run (`--window 25 --posture-free`), 100 extra runs per round on low training targets

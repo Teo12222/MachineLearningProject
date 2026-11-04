@@ -47,11 +47,22 @@ REACH_TOLERANCE = 0.005
 # ==============================================================================
 
 
+
+def true_ee_pos(sim, dyn_model, ee_frame_id):
+    """End-effector position from the simulator's true state, without the config's sensor noise (PLAN.md step 12).
+    Overwrites the forward kinematics in dyn_model.pin_data."""
+    bot = sim.bot[0]
+    q_pin = dyn_model.ReoderJoints2PinVec(np.concatenate((bot.base_position, bot.base_orientation, bot.motor_angles)), "pos")
+    pin.forwardKinematics(dyn_model.pin_model, dyn_model.pin_data, q_pin)
+    pin.updateFramePlacements(dyn_model.pin_model, dyn_model.pin_data)
+    return dyn_model.pin_data.oMf[ee_frame_id].translation.copy()
+
 def main():
     # --------------------------------------------------------------------------
     # Configuration and Simulation Setup
     # --------------------------------------------------------------------------
-    conf_file_name = "robotnik_arm.json"
+    # ROBOENV_CONFIG picks another config in configs/, e.g. one with sensor noise on (PLAN.md step 12); default as before
+    conf_file_name = os.environ.get("ROBOENV_CONFIG", "robotnik_arm.json")
     cur_dir = os.path.dirname(os.path.abspath(__file__))
     sim = pb.SimInterface(conf_file_name, conf_file_path_ext=cur_dir, use_gui=not headless)
 
@@ -189,11 +200,18 @@ def main():
         ee_pos = dyn_model.pin_data.oMf[ee_frame_id].translation.copy()
         ee_error = TARGET_EE_POS - ee_pos
         ee_dist_error = np.linalg.norm(ee_error)
+        # With sensor noise on (PLAN.md step 12) the policy gets the noisy hand position, but the stop rule, the log
+        # and the saved ee_pos use the true one: the noise is on the robot's sensors, not on the referee
+        ee_seen = ee_pos
+        if sim.bot[0].noise_flag:
+            ee_pos = true_ee_pos(sim, dyn_model, ee_frame_id)
+            ee_error = TARGET_EE_POS - ee_pos
+            ee_dist_error = np.linalg.norm(ee_error)
 
         # ----------------------------------------------------------------------
         # 1 + 2. Learned policy: wheel velocities and arm torques from the measurements and the target
         # ----------------------------------------------------------------------
-        x = make_features(base_pos, base_bearing, q_mes[4:11], qd_mes[4:11], TARGET_EE_POS, ee_pos)
+        x = make_features(base_pos, base_bearing, q_mes[4:11], qd_mes[4:11], TARGET_EE_POS, ee_seen)
         if split:
             # Base network: wheels + p(arrived). Once the flag is latched the base stops and the arm network,
             # which gets the flag as an input, reaches (before it holds), like the expert

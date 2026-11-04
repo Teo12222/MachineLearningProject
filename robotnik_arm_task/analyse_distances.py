@@ -10,7 +10,7 @@ error 5 s earlier, medians of 0.5 s windows; rule fixed before looking, 3 Nov) a
 Ever / held within 1 cm per band of target distance (horizontal, from the start pose) and target height.
 
 Usage (from the robotnik_arm_task folder):
-    pixi run python analyse_distances.py                 # the final model (split_dartdagger_r5_s0/1/2) on test 150
+    pixi run python analyse_distances.py                 # the final model (split_dartdagger_bb_plusCLD_r2_s0/1/2) on test 150
     pixi run python analyse_distances.py --models a_s0 b_s0 --run-suffix _test
 Writes results/analysis/<name>_distances.csv and <name>_bands.csv (results.py doesn't read that folder).
 """
@@ -87,7 +87,10 @@ def in_band(v, band, last):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--models", nargs="+", default=[f"split_dartdagger_r5_s{s}" for s in range(3)],
+    # Default = the final model chosen 4 Nov (CLD r2). Was split_dartdagger_r5_s{s}, the previous final model;
+    # changed so a plain run regenerates the report's table for the model the report describes.
+    # parser.add_argument("--models", nargs="+", default=[f"split_dartdagger_r5_s{s}" for s in range(3)],
+    parser.add_argument("--models", nargs="+", default=[f"split_dartdagger_bb_plusCLD_r2_s{s}" for s in range(3)],
                         help="model names; runs read from compare_out/<model><suffix>/test_set")
     parser.add_argument("--run-suffix", default="_test")
     parser.add_argument("--name", default="final", help="prefix of the output files")
