@@ -164,6 +164,28 @@ Route A in detail:
   - Smoke runs (before any Route A round): the high target reached at 10.5 s v the expert's 13.4 s; the base still
     latches like the expert (6.08 v 5.92 s, 9.67 v 9.98 s, 4.54 v 4.63 s); the two low targets miss 5 mm at the
     30 s cap (closest 0.56 and 1.18 cm), as CLD often does on low targets.
+  **Pre-shaping labels (4 Nov, Matteo's idea, replaces the Cartesian labels while driving):** reaching for the
+  target from a moving base stretches the arm toward a point beyond its 0.85 m reach; instead the arm should aim at
+  where the target WILL be once the base has parked. That is Kris's Route B expert (`concurrent_arm/
+  concurrent_control.py`), so `expert_relabel.relabel_arm_preshape` reuses it unchanged: the arm's final pose for
+  the expert's planned parking spot (`solve_final_arm_pose`, once per run; the spot by `robotnik_arm_task`'s standoff
+  rule, `parking_spot`), followed along a minimum-jerk path (`arm_path_reference`, `arm_path_controller`); once the
+  base is within 8 cm of the spot or has latched, the sequential expert's Cartesian reach (Kris's early switch).
+  `dagger.py` uses it for every run whose arm started before the latch. Two differences from Kris's expert, both
+  because these are DAgger labels on the policy's states:
+  - **Progress from the current distance only:** 0 at `d_start` (1.5 m), 1 at the standoff, so the label depends
+    only on what the arm network sees (Kris's 1 - d / d at the drive's start needs a distance it can't know; two
+    arms in the same state would get different labels and the MLP would average them).
+  - **The sequential expert's 0.15 rad lead limit** on the joint reference (inactive on Kris's own runs, where the
+    arm follows its path).
+  Posture-free cleaning only from the Cartesian switch (on the path the whole pose is the label).
+  **Saturated path labels are kept (decided 4 Nov, option 1):** on CLD's runs (round 1) the arm is 0.4-0.9 rad off
+  the path, moving at up to 1.3 rad/s, so the expert's pull back (lead 0.15 rad x kp 100, damping, ~15 N*m gravity on
+  J2) sits at 30 N*m in 69-74% of the driving frames even with the lead limit. They are its real, bounded command
+  toward the path; dropping them (option 2) would leave the driving phase almost unlabelled. Rejected: training on
+  Kris's `data_concurrent` first (on his Mac, and its progress definition doesn't match these labels). **Check:** the
+  share at the limit should fall clearly in round 2; if not, stop the series. Smoke test after the change: all 3
+  targets labelled from the trigger to the end, every driving frame labelled, no nan.
 - **Risks to watch:** a stretched arm on a driving / turning base (base off the floor, torques at the limit, arm
   spins), and the arm re-aiming as the base keeps moving and parks slightly off.
 - **Measure:** reached / ever / held within 1 cm and **time to reach** (mean over reached runs; now ~11-15 s incl. the

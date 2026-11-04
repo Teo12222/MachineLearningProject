@@ -80,15 +80,26 @@ def label_run(raw_path, out_path, window, posture_free=False, posture_kp=0.0):
     if flag.any():   # a run that never latched has no arm phase to label
         k = int(np.argmax(flag))
         stop = min(n, k + round(window * 1000))
-        # The expert holds the arm's start pose until it arrives, so that is its joint reference when the reach starts
-        labels = relabel_arm(d, k, stop, d["q_mes"][0, 4:11])
-        if posture_free:
+        # C19 Route A (4 Nov): an arm that started before the latch is labelled by the pre-shaping expert
+        # (expert_relabel.relabel_arm_preshape: aim at the pose for the planned parking spot while driving, then the
+        # Cartesian reach), not by the Cartesian reach toward the target from a moving base (which stretches the arm)
+        kc = k   # first Cartesian-reach frame: posture-free cleaning starts there (the path's whole pose is its label)
+        early = float(d.get("arm_start", 0.0)) > 0 and (not d["nav_done"].any() or k < int(np.argmax(d["nav_done"])))
+        if early:
+            from expert_relabel import relabel_arm_preshape
+            labels, modes = relabel_arm_preshape(d, k, stop, float(d["arm_start"]))
+            kc = k + (int(np.argmax(modes == 2)) if (modes == 2).any() else len(modes))
+        else:
+            # The expert holds the arm's start pose until it arrives, so that is its joint reference when the reach
+            # starts
+            labels = relabel_arm(d, k, stop, d["q_mes"][0, 4:11])
+        if posture_free and kc < stop:
             from relabel_posture import remove_posture
             # torque_arm holds the policy's torques here: put the expert's labels in first (only up to stop, so
             # remove_posture doesn't process the frames after it)
             t = d["torque_arm"][:stop].astype(float).copy()
             t[k:stop] = labels
-            labels = remove_posture({**d, "torque_arm": t}, k, posture_kp)[k:stop]
+            labels = remove_posture({**d, "torque_arm": t}, kc, posture_kp)[k:stop]
         saturated = (np.abs(labels) >= TORQUE_LIMIT - 0.01).any(axis=1)
         runs = np.convolve(saturated, np.ones(SATURATED_RUN), "valid") == SATURATED_RUN   # run starting at each frame
         # C19 Route A: while the base still drives (trigger to latch) the expert itself hits its torque limit in short
@@ -108,8 +119,12 @@ def label_run(raw_path, out_path, window, posture_free=False, posture_kp=0.0):
             stop = k + int(np.argmax(runs))
         torque[k:stop] = labels[:stop - k]
         mask[k:stop] = True
-        drive = max(0, min(stop - k, kl))                  # labelled frames before the base's latch
-        mask[k:k + drive] &= ~saturated[:drive]            # no labels where the expert is at its limit while driving
+        # No labels where the Cartesian expert is at its limit before the latch. The pre-shaping path's frames
+        # (k..kc) keep theirs (decided 4 Nov, option 1): in round 1 the policy's arm is 0.4-0.9 rad off the path and
+        # 70-88% of those labels sit at the limit; they are the expert's real, bounded pull back toward the path, and
+        # dropping them would leave the driving phase almost unlabelled. Check: saturation should fall in round 2.
+        c0, drive = kc - k, max(0, min(stop - k, kl))
+        mask[kc:k + drive] &= ~saturated[c0:drive]
         torque[~mask] = np.nan
     save_episode(out_path, d, torque, mask, flag)
     raw_path.unlink()
