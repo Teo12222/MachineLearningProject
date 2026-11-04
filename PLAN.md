@@ -897,6 +897,26 @@ report must already be complete without it; Thursday only swaps in results, nobo
         trade as before (r3 reaches 46, holds 34). C costs less holding but gains nothing. Collapses can't be judged on
         val (0 everywhere, the final model's too); not tested on test 150, since neither is a candidate.
         **Planned follow-up dropped:** B and C on the old final model (ReLU base) were to run only if this helped.
+        **Test 150 of the best rounds' seed 0 (Matteo asked, 05:40; report information only, not a decision):**
+        `compare_out/split_dartdagger_bb_plus{B_r1,C_r3}_s0_test`
+
+        | test 150 | reached | ever 1 cm | held 1 cm | held 2 cm | held 5 cm | collapsed | spins | joint 1/5 > 0.5 rad (low targets) | median rotation, low targets |
+        |---|---|---|---|---|---|---|---|---|---|
+        | final model `bb_r5` s0 / s1 / s2 | 122 / 120 / 111 | 144 / 144 / 140 | 120 / 111 / 106 | 148 / 146 / 145 | 150 | 1 / 6 / 0 | 0 | 8 / 8 / 5 | 0.23-0.27 |
+        | +B r1 s0 | 121 | 141 | 106 | 142 | 150 | 1 | 0 | 10 | 0.32 |
+        | **+C r3 s0** | **127** | 141 | 110 | 144 | 150 | **0** | 0 | **1** | **0.10** |
+        | expert | 149 | 150 | 149 | 150 | 150 | | | 2 | 0.28 |
+
+        - **C's posture-free rounds remove the null-space drift:** 1 run past 0.5 rad (final model 5-8), median 0.10 rad
+          (like the old ReLU-base model, 0.11-0.15), no collapses, no spins, and the most reached (127). It holds
+          10 fewer within 1 cm than the same seed of the final model (110 v 120; mean of the final model 112.3).
+          This fits C18e: the posture part of the labels is what makes the arm follow the expert's posture, overshoot
+          included; without it the arm stays near its start posture.
+        - B adds drift (10 runs, median 0.32) and holds less: whole-run labels with posture make it worse.
+        - **Not a change of final model:** by the rule (val only) C r3 doesn't win, and choosing it because of test
+          collapses would use test data for a choice. Option if wanted: seeds 1-2 of C r3 on val 50; a tie there keeps
+          the final model by the rule, but the report can state the collapse/holding trade-off with C r3 as the
+          evidence.
 
 **D. Extensions:** camera (Kris from 3 Nov once the winner's test 150 is done, finished 5 Nov; Matteo joins after the
 final edit; cut-off Thursday evening, see the week table); parking pose + arm early: future work in the report. Dropped unless time: parked-start arm episodes, randomised arm start
