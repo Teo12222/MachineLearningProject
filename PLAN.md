@@ -186,6 +186,14 @@ Route A in detail:
   Kris's `data_concurrent` first (on his Mac, and its progress definition doesn't match these labels). **Check:** the
   share at the limit should fall clearly in round 2; if not, stop the series. Smoke test after the change: all 3
   targets labelled from the trigger to the end, every driving frame labelled, no nan.
+  **`d_start` = 2.0 m first, not 1.5 (4 Nov, Matteo, before any Route A result):** 1.5 m was chosen to limit the
+  time the arm stretches toward an unreachable target; with pre-shaping it moves toward its (reachable) parked pose
+  instead, so a longer trigger only spreads the same move over more distance (1.2-1.65 m to the standoff v
+  0.7-1.15 m: slower joints, gentler labels), closer to Kris's expert (path over the whole drive, 1.1 s faster per
+  target). ~37% of targets start within 2.0 m (v ~16% at 1.5 m); the drive gate still waits for the base's first
+  turn. Little extra speed expected (at 1.5 m the hand was already 1.2-5.4 cm off when the base parked); watch base
+  parking and base off the floor on val (arm out longer while the base steers). 1.5 m is the fallback if 2.0 m
+  disturbs the base. Series `split_armstart20`, `--arm-start 2.0`, otherwise the command above.
 - **Risks to watch:** a stretched arm on a driving / turning base (base off the floor, torques at the limit, arm
   spins), and the arm re-aiming as the base keeps moving and parks slightly off.
 - **Measure:** reached / ever / held within 1 cm and **time to reach** (mean over reached runs; now ~11-15 s incl. the
