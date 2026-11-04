@@ -52,6 +52,7 @@ class ArmControllerParams:
     limit_margin: float = 0.05           # rad, the joint reference is kept this far inside the limits
     limit_band: float = 0.05             # rad, over this band above the margin a joint is slowed smoothly to a stop
     limit_push_eps: float = 0.01         # rad/s, motion into a limit counts fully from this speed on
+    posture_gain: float = 0.0            # 1/s, null-space pull of the arm toward its hold pose while reaching (PLAN.md C18f); 0 = off
 
 
 def arm_controller(dyn_model, q_pin, q_arm, qd_arm, q_des_arm, q_hold_arm, target_pos, ee_pos,
@@ -109,6 +110,14 @@ def arm_controller(dyn_model, q_pin, q_arm, qd_arm, q_des_arm, q_hold_arm, targe
         weight = np.clip(weight, 0.0, 1.0)
         regularized = (J_arm * weight) @ J_arm.T + damping**2 * np.eye(3)
         qd_des_arm = weight * (J_arm.T @ np.linalg.solve(regularized, v_cartesian))
+        if params.posture_gain > 0:
+            # Redundancy: 7 joints for a 3D position task leave 4 directions that only change the posture. Pull those
+            # toward the hold pose (fixed, the same every episode), so the posture the expert steers to depends on the
+            # measured angles, not on where its integrated reference drifted (PLAN.md C18e/f)
+            if q_hold_arm is None:
+                raise ValueError("posture_gain > 0 needs q_hold_arm, the pose the posture is pulled toward")
+            null = np.eye(7) - np.linalg.pinv(J_arm) @ J_arm
+            qd_des_arm = qd_des_arm + null @ (params.posture_gain * (q_hold_arm - q_arm))
         max_joint_speed = np.max(np.abs(qd_des_arm))
         if max_joint_speed > params.max_joint_vel:
             qd_des_arm *= params.max_joint_vel / max_joint_speed

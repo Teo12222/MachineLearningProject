@@ -45,6 +45,8 @@ NOISE_FADE = tuple(float(v) for v in _fade.split(",")) if _fade else None
 # Cartesian DART (PLAN.md C18d): std (N) of a random force on the end effector, applied as J^T F on the arm torques
 # instead of the per-joint torque noise; same correlation time and seed. Default 0 = off
 CART_NOISE = float(os.environ.get("ROBOENV_CART_NOISE", "0"))
+# Expert posture pull in the arm's null space (1/s, PLAN.md C18f); 0 = the expert as before
+POSTURE_GAIN = float(os.environ.get("ROBOENV_POSTURE_GAIN", "0"))
 
 # Fixed gripper finger configuration (angles in radians, held fixed during simulation):
 # [finger_1, finger_tip_1, finger_2, finger_tip_2, finger_3, finger_tip_3]
@@ -178,7 +180,7 @@ def main():
     base_params = BaseControllerParams(nav_timeout=BASE_NAV_TIMEOUT)
 
     # Arm controller (differential IK + joint PD), see ArmControllerParams
-    arm_params = ArmControllerParams(reach_limit=ARM_REACH_LIMIT)
+    arm_params = ArmControllerParams(reach_limit=ARM_REACH_LIMIT, posture_gain=POSTURE_GAIN)
     q_init_arm = init_joint_angles[4:11].copy()
     q_des_arm = q_init_arm.copy()
     qd_des_arm = np.zeros(7)

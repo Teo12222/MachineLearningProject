@@ -84,6 +84,8 @@ def run_episode(idx, target, args, script_dir):
         env["ROBOENV_CART_NOISE"] = str(args.cart_noise)
     if args.noise_fade:
         env["ROBOENV_NOISE_FADE"] = args.noise_fade
+    if args.posture_gain:
+        env["ROBOENV_POSTURE_GAIN"] = str(args.posture_gain)
     start = time.time()
     try:
         proc = subprocess.run(
@@ -127,6 +129,8 @@ def main():
     parser.add_argument("--cart-noise", type=float, default=0.0,
                         help="std (N) of a random force on the end effector, applied as J^T F instead of --noise "
                              "(PLAN.md C18d)")
+    parser.add_argument("--posture-gain", type=float, default=0.0,
+                        help="expert pulls the arm's null space toward its hold pose at this gain (1/s, PLAN.md C18f); 0 = off")
     parser.add_argument("--noise-fade", default="",
                         help="r0,r1 (m): arm noise off within r0 of the target, full beyond r1, linear between (PLAN.md C18c)")
     args = parser.parse_args()

@@ -526,6 +526,26 @@ report must already be complete without it; Thursday only swaps in results, nobo
         warning that C may hold worse too.
       - Not tested: an expert whose posture term depends only on what the policy sees (a pull toward a fixed pose in
         the null space) instead of no posture term at all; that needs an expert-side change (the posture-term pilot).
+    - **(f) Expert with a posture pull in the null space** (4 Nov, Kris; Matteo's expert-side follow-up to (e)). While
+      reaching, the IK adds `(I - J+ J) k (q_hold - q)` to the joint velocity reference: the 4 posture-only
+      directions are pulled toward the arm's hold pose (the same in every episode), so the posture the expert steers to
+      is a function of the measured angles instead of its integrated reference's history. Hand motion is unchanged
+      (the term is in J's null space). `run_batch.py --posture-gain k` / `ROBOENV_POSTURE_GAIN`, off by default; with it
+      off the expert is bit-identical (3 clean episodes rerun against `dart/a0`, every array equal).
+      **Pilot, fixed before running it:** k = 0.5, 1, 2 /s on the first 16 targets of `--seed 2`, clean and with
+      torque noise 60, against the current expert on the same episodes (`dart/a0`, `dart/a60`, episodes 0-15).
+      Gate per k: clean reached at least the current expert's, clean median time to reach at most 10% longer, under
+      noise 60 reached at least the current expert's minus 1, no arm spins and nothing off the floor. Reported, not
+      gated: posture distance from the hold pose at the end, label posture part within 2 cm under noise. The largest
+      k that passes goes on; none passing ends (f) there.
+      **If one passes (overnight, same chain):** `data_main` recollected with that k (`--n 1000 --seed 0`, into
+      `data_main_pk<k>`), DART-300 with it (`--noise 60 --seed 2 / 3`, `dart/pk<k>`, `pk<k>b`), the arm trained on both
+      exactly as `split_dart_a60x2_s*` (gravity residual, base copied from `split_arrived_s0`; the base phase is
+      unchanged since the term only acts while reaching), 3 seeds, val 50 on the same targets. The arm learns from
+      `data_main`'s clean runs too, so both have to come from the same expert. `train.py` reads `data_main` from its
+      own folder, so it runs from a copy in a separate workspace with `data_main` pointing at the new data.
+      **Rule, fixed before the results:** the same as (c) against `split_dart_a60x2_s*`, also reported under the team
+      rule of 4 Nov; plus held 1 cm below 0.4 m.
 
 **D. Extensions:** camera (Kris from 3 Nov once the winner's test 150 is done, finished 5 Nov; Matteo joins after the
 final edit; cut-off Thursday evening, see the week table); parking pose + arm early: future work in the report. Dropped unless time: parked-start arm episodes, randomised arm start
