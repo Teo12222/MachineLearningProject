@@ -1,0 +1,17 @@
+pybullet build time: Oct 20 2025 09:40:06
+test shard 9: 1200 images, 472 with a usable target (checkpoint epoch 38)
+CNN detection: found 464/472 (98.3%), missed 8, false detections 8 on 728 images without a usable target
+  false detections by placement (in view / at the gripper / out of view): [3, 5, 0]
+
+3D error on 464 usable targets (mm): mean / median / 95th pct / max
+  CNN        27.84 /  16.24 /  98.39 /  206.04
+  classical   1.37 /   1.11 /   2.89 /    4.82
+  by distance (m): n, CNN mean / median, classical mean / median
+    0.4-1.0:  137  CNN   9.95 /   9.12   classical   0.83 /   0.83
+    1.0-1.5:  105  CNN  18.50 /  15.68   classical   1.04 /   1.01
+    1.5-2.0:   78  CNN  27.99 /  21.48   classical   1.35 /   1.27
+    2.0-2.5:   58  CNN  41.13 /  27.51   classical   1.73 /   1.72
+    2.5-3.0:   43  CNN  59.14 /  51.88   classical   2.10 /   1.97
+    3.0-3.7:   43  CNN  58.17 /  49.92   classical   2.68 /   2.63
+
+CPU inference, 1 thread: 16.8 ms per image

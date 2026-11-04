@@ -42,7 +42,7 @@ from robotnik_arm_control import (
     arm_controller, base_controller, check_stop, configure_gripper_fingers, parse_start_pose, quaternion2bearing,
     set_start_pose,
 )
-from mast_camera import MastCameraParams, TargetEstimator, detect_target, parse_mount
+from mast_camera import MastCameraParams, TargetEstimator, make_detector, parse_mount
 
 
 # ==============================================================================
@@ -152,6 +152,7 @@ def main():
         cam_params.mount_xyz, cam_params.pitch = parse_mount(os.environ["ROBOENV_CAMERA_MOUNT"])
     cam_every = max(1, int(round(cam_params.period / time_step)))
     estimator = TargetEstimator(refine=CAMERA_REFINE)
+    DETECTOR_NAME, detector = make_detector()   # ROBOENV_DETECTOR: classical (default) or cnn
     searching = True
     search_turned, last_bearing = 0.0, init_bearing
     t_found, approach_from = None, None
@@ -226,7 +227,7 @@ def main():
         # 0. Perception: camera -> estimate -> parking spot (and q_final while the arm is still on its path)
         # ----------------------------------------------------------------------
         if step % cam_every == 0:
-            det = detect_target(client, base_pos, base_ori, cam_params, rid)
+            det = detector(client, base_pos, base_ori, cam_params, rid)
             changed = estimator.update(det, current_time)
             cam_time.append(current_time)
             cam_status.append(0 if det is None else 1 if det.clean else 2 if det.occluded else 3)
@@ -423,6 +424,7 @@ def main():
         n_detections_used=estimator.n_used,
         n_q_final_solves=n_solves,
         camera_refine=CAMERA_REFINE,
+        detector=DETECTOR_NAME,
         camera_mount=np.array(list(cam_params.mount_xyz) + [cam_params.pitch]),
         cam_time=np.array(cam_time, dtype=np.float32),
         cam_status=np.array(cam_status, dtype=np.int8),

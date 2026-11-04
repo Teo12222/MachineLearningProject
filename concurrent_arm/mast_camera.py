@@ -175,3 +175,20 @@ class TargetEstimator:
     @property
     def estimate(self):
         return self.weighted_sum / self.weight_sum if self.found else None
+
+
+def make_detector():
+    """The detector the experts and policy runs use: ROBOENV_DETECTOR=classical (default, detect_target) or cnn
+    (cnn_detector.CNNDetector, checkpoint ROBOENV_CNN_DETECTOR, default ../robotnik_arm_task/checkpoints/cnn_detector.pt).
+    Returns (name, function(client, base_pos, base_ori, params, robot_id) -> Detection or None)."""
+    import os
+    name = os.environ.get("ROBOENV_DETECTOR", "classical").strip().lower()
+    if name == "classical":
+        return name, detect_target
+    if name == "cnn":
+        from cnn_detector import CNNDetector
+        here = os.path.dirname(os.path.abspath(__file__))
+        ckpt = os.environ.get("ROBOENV_CNN_DETECTOR",
+                              os.path.join(here, "..", "robotnik_arm_task", "checkpoints", "cnn_detector.pt"))
+        return name, CNNDetector(ckpt).detect
+    raise ValueError(f"ROBOENV_DETECTOR={name}: use classical or cnn")

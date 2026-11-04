@@ -45,7 +45,7 @@ from bc_data import make_features, decode_outputs, arm_gravity, FrameHistory
 from bc_split import ArrivedLatch, SplitPolicy, load_policy
 from robotnik_arm_control import ArmControllerParams
 from concurrent_control import arm_path_controller
-from mast_camera import MastCameraParams, TargetEstimator, detect_target, parse_mount
+from mast_camera import MastCameraParams, TargetEstimator, make_detector, parse_mount
 from camera_expert import SEARCH_MAX_TURN, SEARCH_YAW_RATE, search_wheels, wrap
 from robotnik_arm_control import BaseControllerParams
 
@@ -223,6 +223,7 @@ def main():
         cam_params.mount_xyz, cam_params.pitch = parse_mount(os.environ["ROBOENV_CAMERA_MOUNT"])
     cam_every = max(1, int(round(cam_params.period / time_step)))
     estimator = TargetEstimator(refine=CAMERA_REFINE)
+    DETECTOR_NAME, detector = make_detector()   # ROBOENV_DETECTOR: classical (default) or cnn
     searching = CAMERA
     t_found = None if CAMERA else 0.0
     search_turned, last_bearing = 0.0, init_bearing
@@ -269,7 +270,7 @@ def main():
         # ----------------------------------------------------------------------
         if CAMERA:
             if step % cam_every == 0:
-                det = detect_target(client, base_pos, base_ori, cam_params, rid)
+                det = detector(client, base_pos, base_ori, cam_params, rid)
                 estimator.update(det, current_time)
                 cam_time.append(current_time)
                 cam_status.append(0 if det is None else 1 if det.clean else 2 if det.occluded else 3)
@@ -423,6 +424,7 @@ def main():
             search_turned=search_turned,
             n_detections_used=estimator.n_used,
             camera_refine=CAMERA_REFINE,
+            detector=DETECTOR_NAME,
             camera_mount=np.array(list(cam_params.mount_xyz) + [cam_params.pitch]),
             cam_time=np.array(cam_time, dtype=np.float32),
             cam_status=np.array(cam_status, dtype=np.int8),

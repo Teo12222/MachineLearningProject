@@ -3413,6 +3413,68 @@ lower limit (see "Found on the way" below).
       - **For the report:** perception error (static 1.6 mm mean, 0.8 mm at the end of a run) and closed-loop success
         with v without the camera on the same policy and targets: the gap is within the seed spread, so the camera
         replaces the given target without costing success; the cost is time, on targets the search finds last.
+    - **Done (Kris, 4 Nov, not pushed): learned target detector (CNN) in place of the classical one.** The ML part of
+      the camera extension: the same camera, a network instead of the hand-written red-pixel rule.
+      - **Files:** `concurrent_arm/cnn_data.py` (rendered training images), `concurrent_arm/cnn_detector.py` (network,
+        training, `CNNDetector` for the runs), `concurrent_arm/cnn_eval.py` (learned v classical on held-out images);
+        `ROBOENV_DETECTOR=cnn` switches `camera_expert.py` and `camera_policy_task.py` to it (default classical:
+        checked bit for bit on a stored camera-expert and camera-policy episode). Checkpoints
+        `checkpoints/cnn_detector.pt` (final) and `cnn_detector_rangehead.pt` (first version), with their training
+        logs and test outputs (`*_train.log`, `*_eval.txt`).
+      - **Data (no expert runs):** 12,000 rendered mast-camera RGB-D images (320 x 240), each a scene set up directly:
+        random base pose (any yaw, ~0.7 deg chassis tilt), an arm configuration from real `data_concurrent` frames
+        (23,152 to draw from: start pose, mid-drive, reaching), the target 55% anywhere in or just outside the view
+        (0.4-3.6 m), 25% within 15 cm of the gripper (the hidden-by-the-arm cases), 20% out of view. Labels from the
+        simulator (training only): exact image position of the centre, distance, and "usable" = the classical
+        detector's clean rule (computed with the segmentation mask). 39% have a usable target. Shards 0-7 train
+        (9,600), 8 validation (early stopping), 9 test. 17 s to render on 10 cores (`data_camera_images32/`, 6 GB,
+        git-ignored).
+      - **Network:** CenterNet-style encoder-decoder (308k parameters), RGB-D in, at half resolution out: heatmap of
+        the centre (focal loss), sub-pixel offset, and a distance channel; pixel + distance -> 3D with the camera
+        intrinsics. Usable / not usable is learned from the image alone: no segmentation mask at run time (the
+        classical detector needs it as a self-filter). AdamW, one-cycle lr 2e-3, batch 32, 40 epochs, MPS, ~30 s per
+        epoch (20 min).
+      - **First version, direct distance regression (`cnn_detector_rangehead.pt`):** found 98.3% of the usable test
+        targets, but 3D error 16.2 mm median (classical 1.1 mm). Split: pixel error 0.07 px median (better than the
+        classical centroid, ~0.2 px), distance error 16 mm median (40 mm beyond 2 m): regressing an absolute 0.4-3.6 m
+        distance gives ~1% relative precision. **Fix (`cnn_detector.pt`, `--range-mode residual`):** the distance is
+        the depth image read at the predicted pixel (the sphere's near surface on the ray through its centre) plus the
+        learned correction to the centre (28.4 mm median target, ~ the radius). Also stored the depth as float32
+        (float16 quantises ~4 mm beyond 2 m, too coarse for a one-pixel reading).
+      - **Held-out test images (shard 9, 1,200 images, 472 usable; `cnn_eval.py`):**
+
+        | test shard | found (of 472 usable) | false detections (728 images without) | 3D error mean / median / 95th / max | 0.4-1 m median | 3-3.7 m median | CPU time per image |
+        |---|---|---|---|---|---|---|
+        | classical (red pixels + depth) | (needs the mask) | (needs the mask) | 1.36 / 1.11 / 2.93 / 4.73 mm | 0.83 mm | 2.66 mm | ~9 ms incl. render |
+        | CNN, direct distance | 464 (98.3%) | 8 | 27.8 / 16.2 / 98.4 / 206 mm | 9.1 mm | 49.9 mm | 17 ms |
+        | **CNN, residual distance** | **467 (98.9%)** | 10 (6 touching the gripper) | **0.98 / 0.76 / 2.59 / 5.36 mm** | **0.50 mm** | **1.99 mm** | 16 ms |
+
+        The learned detector is more precise than the classical one at every distance (errors on the same 467 images).
+      - **Closed loop with the CNN** (`ROBOENV_DETECTOR=cnn`; camera expert on the same 300 targets into
+        `data_camera_cnn/`, 327 s; Route B val 50 x 3 seeds into `compare_out/split_conc_dartdagger_bb_plusCLD_r3_s*_cnn_val`):
+
+        | | reached | held within 1 cm | estimate error at the end, median / max | time to reach |
+        |---|---|---|---|---|
+        | camera expert, classical (300) | 298 | 298 | 0.8 / 1.2 mm | 11.23 s (+1.15 v concurrent) |
+        | **camera expert, CNN (300)** | **298** | **298** | **0.3 / 0.9 mm** | 11.23 s (+1.15) |
+        | Route B, true target (val 50 x 3) | 50 / 49 / 47 (48.7) | 50 / 46 / 49 (48.3) | (0) | 10.22 s |
+        | Route B, classical camera | 49 / 49 / 48 (48.7) | 47 / 48 / 48 (47.7) | 0.83 / 1.29 mm | 10.85 s |
+        | **Route B, CNN camera** | 49 / 49 / 47 (**48.3**) | 48 / 45 / 48 (**47.0**) | **0.24 / 0.90 mm** | 11.06 s |
+
+        - Camera expert: same 2 failures (157, 180: the base circling quirk, estimate 0.1 / 0.3 mm), true final error of
+          the reached runs 1.19 mm median (classical 1.15, true target 1.12); first-sighting estimate 1.2 mm median,
+          max 6.0 mm (classical 1.5 / 4.0), refined to 0.3 mm. No false detection pulled an estimate off (max 0.9 mm).
+        - Route B: all three conditions within the seed spread (held within 1 cm spread 4 with the true target). The
+          CNN's 3.5x better estimate does not show in the policy: **perception is no longer the limit, the policy's
+          own precision is** (the runs that miss hover 1-2 cm off, as with the true target). Time: the search, on
+          targets to the right.
+        - **Checked twice:** `analyse_camera.py` / `route_b_eval.py` and a separate recount from the episode files
+          (same per-seed counts; 450 files all record `detector=cnn`).
+      - **For the report:** a learned detector trained on 12k rendered images (no expert data) beats the hand-written
+        one on precision (0.76 v 1.11 mm) and learns the occlusion check from the image, with no segmentation mask;
+        the design point that mattered: learn where in the image, read how far from the depth sensor (direct distance
+        regression: 16 mm). In closed loop both detectors are good enough that the policy, not perception, limits
+        success.
 
 ### Low priority: other model families (comparison only, unassigned: only if time is left at the end)
 Purpose: show in the report why a neural network is the right choice. One or two of these in the results table is
