@@ -68,7 +68,24 @@ Look there for the current state of each model instead of this file.
 
 ### Plan from 3 Nov (overrides the 2 Nov plan where they differ)
 
-**FINAL MODEL, 4 Nov ~13:10 (C18e, Matteo): `split_dartdagger_bb_plusCLD_r2_s0/1/2`** (+C plus extra low-target
+**FINAL MODEL, 4 Nov ~19:45 (Matteo): drive-phase r1 on Route B, `split_conc_drive_r1_s0/1/2`; demo / submitted
+checkpoint seed 0, `checkpoints/split_conc_drive_r1_s0.pt`** (step 28 / C19). Route B (Kris's concurrent expert + the
+CLD recipe) plus one DAgger round that also labels the driving phase (`dagger.py --label-drive`). PC, 3 seeds:
+val 150 held within 1 cm 146.3 (spread 1) v Route B 143.0 (spread 11), ever within 1 cm 150/150 on every seed, time to
+reach 10.44 v 10.71 s, low targets 43.7 v 40.7 of 46; test 150 (report information) reached 144.3 (96.2%), ever within
+1 cm 149.7 (99.8%), held within 1 cm 145.0 (96.7%), held within 5 mm 73.0, 0 collapses, 10.61 s, low targets 54.3/58.
+**How it was chosen (say so in the report):** the rule fixed beforehand on val 50 was missed by a hair (time to reach
+-0.29 s, needed -0.3 s; held within 1 cm passed), and val 50 can't separate models this close; **the choice was then
+made on all 150 val episodes** (held within 1 cm, consistency across seeds, low targets, time), which include the 50
+used for picking rounds. Test 150 agrees (held 145.0 v 139.3) and was looked at, but the val-150 evidence alone gives
+the same choice. Cost: slightly fewer exact 5 mm reaches than Route B on test (144.3 v 146.7). Demo seed 0 picked on
+val like CLD's (best of the three on val 50 and val 150: reached 50 / 150, held within 1 cm 49 / 147, held within 5 mm
+90 on val 150); on test it is the lowest of the three on held within 1 cm (143 v 145 / 147), seed noise. Run:
+`ROBOENV_POLICY=checkpoints/split_conc_drive_r1_s0.pt pixi run python robotnik_arm_policy_task.py`. Provisional until
+Matteo checks with everyone; Kris's sequential pre-shaping model (5 Nov) may become the main one with this as the
+extension (decision note in step 28). The start-pose, out-of-range and distances-table results below are still CLD
+r2's: rerun on this model.
+**Superseded 4 Nov ~19:45. Was, from ~13:10 (C18e, Matteo): `split_dartdagger_bb_plusCLD_r2_s0/1/2`** (+C plus extra low-target
 DAgger runs and 60 extra low-target expert episodes; ties +C on val, ahead on every val mean, tie rule "higher val
 means" added after the results; test 150: 83.1% reached, 74.9% held within 1 cm, 0 collapses).
 **Submitted / demo checkpoint (4 Nov, Matteo): seed 0, `checkpoints/split_dartdagger_bb_plusCLD_r2_s0.pt`.** Results
