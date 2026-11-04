@@ -194,6 +194,27 @@ Route A in detail:
   turn. Little extra speed expected (at 1.5 m the hand was already 1.2-5.4 cm off when the base parked); watch base
   parking and base off the floor on val (arm out longer while the base steers). 1.5 m is the fallback if 2.0 m
   disturbs the base. Series `split_armstart20`, `--arm-start 2.0`, otherwise the command above.
+  **Result, series `split_armstart20` (4 Nov evening, PC, val 50, seed 0):**
+
+  | Model | reached | ever 1 cm | held 1 cm | held 5 cm | collapses | time to reach | hand off target at parking (median / 90%) | driving labels at the limit |
+  |---|---|---|---|---|---|---|---|---|
+  | CLD r2 s0 (final) | 46 | 50 | 44 | 50 | 0 | 11.34 s | 22.6 / 37.0 cm | - |
+  | Route A r1 | 35 | 47 | 32 | 48 | 2 | 10.38 s | 3.1 / 7.6 cm | 82.9% (its round's runs) |
+  | Route A r2 | 26 | 40 | 28 | 50 | 0 | 11.56 s | 4.0 / 14.9 cm | 60.9% |
+  | Route A r3 | 28 | 33 | 20 | 42 | 8 | 14.99 s | - | 36.2% |
+
+  (Time to reach = mean episode end - 1 s settle over reached runs; collapses = error back above 20 cm after the
+  closest approach; the last column is the share of the driving-phase labels at 30 N*m in the runs that round's
+  data was collected with, i.e. of the previous model.) Base unaffected throughout: parks 1.3-1.4 cm from the
+  expert's spot, at the same time (median 8.2 s), never off the floor; the arm starts at a median 2.4 s.
+  **Best round by the rule (held, ever, reached on seed-0 val): r1. By the rule fixed beforehand Route A does not
+  replace the final model** (held 32 v 44, far outside CLD's seed spread 41-44): an **extension result**. What it
+  shows: pre-shaping works (the hand is 3 cm from the target when the base parks v 23 cm), round 1 is ~1 s faster,
+  and the arm follows the path better each round (saturation 83 -> 61 -> 36%), **but the final precise reach gets
+  worse each round** (failures hover ~3 cm off, error swinging ~1.9 cm; r3 collapses). Hypothesis (untested): the
+  arm network can't tell "follow the path" from "precise reach": one flag (1 in both), the switch depends on the
+  base's distance to its parking spot (not an input), and ~1.4 M strong driving labels per round swamp the
+  precision behaviour. Next: a second arm input "base parked" (below).
 - **Risks to watch:** a stretched arm on a driving / turning base (base off the floor, torques at the limit, arm
   spins), and the arm re-aiming as the base keeps moving and parks slightly off.
 - **Measure:** reached / ever / held within 1 cm and **time to reach** (mean over reached runs; now ~11-15 s incl. the
