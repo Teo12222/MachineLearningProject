@@ -51,7 +51,7 @@ SATURATION_GRACE = 500  # frames: ... but not in the first 0.5 s after the latch
                         # with a short kick at the limit (J6 starts below its joint limit, PLAN.md step 21)
 
 
-def label_run(raw_path, out_path, window):
+def label_run(raw_path, out_path, window, posture_free=False):
     """Label one policy run's arm phase with the expert and save it as a DAgger episode. Returns the labelled frames.
 
     Labelled from the latch until window seconds later, or until the expert's label stays at its torque limit for
@@ -60,6 +60,9 @@ def label_run(raw_path, out_path, window):
     outside the expert's data, would dominate the training loss. Checked on 3 runs: before that point the labels are
     the size of the expert's own (|z| median 1-3), after it ~6-8 with 60-100% of frames at the limit.
     Runs in a worker process (expert_relabel builds its own robot model when imported).
+    posture_free (PLAN.md C18e): each label's posture-only part (the arm's null space, which depends on the expert's
+    hidden q_des) is replaced by the expert's damping on the measured joint velocity (relabel_posture.remove_posture),
+    BEFORE the saturation check, so the stop judges the cleaned labels. The expert's q_des still integrates as before.
     """
     from expert_relabel import relabel_arm
     d = load_npz(raw_path)
@@ -71,6 +74,13 @@ def label_run(raw_path, out_path, window):
         stop = min(n, k + round(window * 1000))
         # The expert holds the arm's start pose until it arrives, so that is its joint reference when the reach starts
         labels = relabel_arm(d, k, stop, d["q_mes"][0, 4:11])
+        if posture_free:
+            from relabel_posture import remove_posture
+            # torque_arm holds the policy's torques here: put the expert's labels in first (only up to stop, so
+            # remove_posture doesn't process the frames after it)
+            t = d["torque_arm"][:stop].astype(float).copy()
+            t[k:stop] = labels
+            labels = remove_posture({**d, "torque_arm": t}, k)[k:stop]
         saturated = (np.abs(labels) >= TORQUE_LIMIT - 0.01).any(axis=1)
         runs = np.convolve(saturated, np.ones(SATURATED_RUN), "valid") == SATURATED_RUN   # run starting at each frame
         runs[:SATURATION_GRACE] = False
@@ -100,7 +110,7 @@ def save_episode(path, d, torque, mask):
     )
 
 
-def collect(model, ids, out_dir, workers, window):
+def collect(model, ids, out_dir, workers, window, posture_free=False):
     """Run model on the training episodes ids and save their labelled DAgger episodes in out_dir."""
     out_dir.mkdir(parents=True, exist_ok=True)
     os.environ["ROBOENV_POLICY"] = str(SCRIPT_DIR / "checkpoints" / f"{model}.pt")   # passed on to the policy runs
@@ -113,7 +123,8 @@ def collect(model, ids, out_dir, workers, window):
     print(f"  {len(done)} runs finished; labelling their arm phase with the expert ...", flush=True)
     with ProcessPoolExecutor(max_workers=workers) as pool:
         frames = list(pool.map(label_run, [out_dir / f"raw_{i:04d}.npz" for i in done],
-                               [out_dir / f"ep_{i:04d}.npz" for i in done], [window] * len(done)))
+                               [out_dir / f"ep_{i:04d}.npz" for i in done], [window] * len(done),
+                               [posture_free] * len(done)))
     print(f"  labelled {sum(frames)} frames ({sum(f > 0 for f in frames)} of {len(done)} runs latched)", flush=True)
 
 
@@ -125,6 +136,8 @@ def main():
     parser.add_argument("--name", default="split_dagger", help="models <name>_r<k>_s<seed>, data dagger/<name>_r<k>")
     parser.add_argument("--seed", type=int, default=0, help="training seed of the round models")
     parser.add_argument("--window", type=float, default=5.0, help="seconds of the arm phase labelled after the latch")
+    parser.add_argument("--posture-free", action="store_true",
+                        help="labels without their posture-only part (relabel_posture.remove_posture, PLAN.md C18e)")
     parser.add_argument("--workers", type=int, default=16, help="policy runs / labelling processes in parallel")
     parser.add_argument("--val-set", action="store_true", help="compare.py --val-set after each round")
     parser.add_argument("--extra-data", nargs="+", default=[], metavar="FOLDER",
@@ -140,7 +153,7 @@ def main():
             parser.error(f"--extra-data {folder}: no ep_*.npz episodes there")
     # A --name already used by another run: its "done" steps would be skipped, i.e. its data and models reused
     info_file = DAGGER_DIR / f"{args.name}_r1" / "dagger_info.json"
-    info = dict(start=args.start, extra_data=extra)
+    info = dict(start=args.start, extra_data=extra, **({"posture_free": True} if args.posture_free else {}))
     if info_file.exists():
         if json.loads(info_file.read_text()) != info:
             parser.error(f"--name {args.name} belongs to another run ({info_file}: {info_file.read_text().strip()}); "
@@ -190,7 +203,7 @@ def main():
             if k == 1:
                 folder.mkdir(parents=True, exist_ok=True)
                 info_file.write_text(json.dumps(info))
-            collect(model, ids, folder, args.workers, args.window)
+            collect(model, ids, folder, args.workers, args.window, args.posture_free)
         folders.append(str(folder))
         if (SCRIPT_DIR / "checkpoints" / f"{new_model}.pt").exists():
             print(f"  {new_model} already trained, skipping the training")
