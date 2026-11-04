@@ -3251,6 +3251,26 @@ lower limit (see "Found on the way" below).
         pre-shaping model tomorrow in the background while writing.
         Series: `split_conc_drive`, 3 rounds on `split_conc_dartdagger_bb_plusCLD_r3_s0`, PC; then Route B's test 150
         on the PC (3 seeds; his test 150 is from the Mac, CLD's from the PC).
+      - **Result (4 Nov ~18:35, PC).** Rounds, seed 0, val 50: r1 50 / 50 / 49 / 50 (reached / ever 1 cm / held 1 cm /
+        held 5 cm), 10.14 s; r2 48 / 50 / 48 / 50, 10.26 s; r3 48 / 50 / 49 / 50, 10.96 s (Route B s0: 49 / 50 / 50 /
+        50, 10.59 s). Driving labels at the limit 4.6% (r1's runs, i.e. Route B's) -> 2.0% (r2's). **Best round by
+        the rule: r1** (held ties r3, ever ties, reached 50 v 48); more rounds don't help. Seeds 1-2 of r1: same
+        round-1 data (no new runs), `dagger.py --rounds 1 --seed 1/2`.
+
+        | 3 seeds, PC | reached | ever 1 cm | held 1 cm | held 5 mm | held 5 cm | collapsed | time to reach (mean of reached, no settle) | low targets (z < 0.5) held 1 cm |
+        |---|---|---|---|---|---|---|---|---|
+        | val 50: Route B | 48.3 | 49.7 | 48.0 (50 / 46 / 48) | | 50 | 0 | 10.43 s | 35/39 |
+        | val 50: drive-phase r1 | 48.7 | **50.0** | **48.7** (49 / 49 / 48) | | 50 | 0 | **10.14 s** | 36/39 |
+        | test 150: CLD r2 (final) | 124.7 | 140.7 | 112.3 (117 / 108 / 112) | 35.7 | | 0 | 11.79 s | 29.3/58 |
+        | test 150: Route B | **146.7** (149 / 145 / 146) | 148.7 | 139.3 (138 / 141 / 139) | **75.3** | | 0 | 10.88 s | 49.0/58 |
+        | test 150: drive-phase r1 | 144.3 (144 / 143 / 146) | **149.7** | **145.0** (143 / 145 / 147) | 73.0 | | 0 | **10.61 s** | **54.3/58** |
+
+        (Test runs `compare_out/<model>_test`, Route B's `..._pc_test`; Kris's results files and `results/expert.csv`
+        restored after each `--test-set`.) **By the rule fixed before running (val): not a replacement** — held 48.7
+        >= 44 passes, but time -0.29 s (needed 0.3) and low targets 36 v 35 / 39 (not clearly up). On test it is
+        ahead on held within 1 cm (+5.7, more than either model's seed spread of 3-4), every low-target seed (53-55 v
+        49 of 58) and time (-0.27 s), slightly behind on 5 mm reached (-2.4) and held 5 mm (-2.3). **Decision:
+        Matteo's, using val and test (see the decision note above: the report then must say test was used).**
 
 ### Low priority: other model families (comparison only, unassigned: only if time is left at the end)
 Purpose: show in the report why a neural network is the right choice. One or two of these in the results table is
