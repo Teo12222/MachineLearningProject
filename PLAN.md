@@ -3041,6 +3041,11 @@ lower limit (see "Found on the way" below).
         (mean of reached), medians 10.19-10.49 s. Checked twice: reached by the `.npz` (within 5 mm after the latch),
         by the stop messages and by compare.py's success lines (146 / 145 / 145 each); ever / held from
         `analyse_distances.run_stats`; the test ids are the same for `data_route_b` and `data_main`.
+        The experts on test 150 (compare.py's expert row): sequential 99.3% reached, 12.16 s; concurrent (early IK off)
+        100%, 11.00 s. So the model is 0.76 s behind its expert (CLD r2: ~0.6 s behind its own).
+        **Catch:** `compare.py --test-set` rewrites `results/expert.csv` from the `--data-dir` folder's stored runs, so
+        with `--data-dir data_route_b` it put the concurrent expert into Matteo's expert row. Restored from git, not
+        committed; run Route B tests with that in mind (or give compare.py its own expert file for other folders).
 
 ### Low priority: other model families (comparison only, unassigned: only if time is left at the end)
 Purpose: show in the report why a neural network is the right choice. One or two of these in the results table is
