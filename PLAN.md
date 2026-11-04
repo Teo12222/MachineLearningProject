@@ -631,6 +631,48 @@ report must already be complete without it; Thursday only swaps in results, nobo
       **Rule, fixed before the results:** the same as (c) against `split_dart_a60x2_s*`. Also reported: held 1 cm for
       targets below 0.4 m. Only 3.5 N*m of the DART posture label is the hidden part, so a small effect is the likely
       outcome; the DAgger side (9 N*m) is test 2 if this isn't worse.
+      **Overnight 3 -> 4 Nov (Matteo's PC, branch `Matteo`; agreed with Kris before any result): one change per step,
+      ending in a final-model decision.** All from the current DART model `split_dart_a60x2_s0` (base copied from
+      `split_arrived_s0`), DART data `dart/a60` + `a60b` in every round, 5 rounds, val 50 per round; logs
+      `compare_out/night4/`.
+      1. **B, the whole run labelled** (Matteo's idea, 3 Nov: the end of the task is never labelled now):
+         `dagger.py --window 25 --name split_dartdagger_w25`, labels as now. Against the current final model: the
+         window only. Why: DAgger labels only the first 5 s after the latch (`--window 5`); in the final model's round
+         1 only 32% of the time within 2 cm after the latch got a label, and the runs that miss 1 cm reach ~1.2 cm at
+         12-15 s and then drift out (distances analysis), all unlabelled.
+      2. **C, the same with posture-free labels** (`--posture-free`, `--name split_dartdagger_w25np`). Against B: the
+         posture fix only. In `dagger.py`'s `label_run`: the expert's relabelled torques are put into `torque_arm`
+         first (in a DAgger run it holds the policy's torques), then `relabel_posture.remove_posture`, then the
+         saturation check, so the stop judges the cleaned labels; the expert's `q_des` still integrates as before
+         (Kris: projecting it inside the integrator leaves an offset that never unwinds).
+      3. Seeds 1 and 2 of B's and C's chosen rounds (same data and settings), val 50.
+      4. **D, posture-free DART** (`relabel_posture.py dart/a60 dart/a60b`, recipe as `split_dart_a60x2`, 3 seeds),
+         against `split_dart_a60x2` on this PC. Kris runs the same on the Mac as a replication under his registered
+         rule (no seed overlap); reported under both rules.
+      5. **DAgger behind D's best seed unless D is clearly worse** (worse with no seed overlap; on a tie it still runs,
+         Matteo: DART's effect may only show after DAgger), with the better of B / C's labelling, then its seeds.
+      6. **Decision** among B, C and 5 against the current final model; test 150 x 3 seeds + distances table for the
+         winner. Candidates close to it but not winning also get seeds and test 150 if the night allows, as report
+         information only: **the final model is chosen on validation only** (no test data in any choice, step 27).
+      **Rules (fixed before the results):** rounds chosen by held within 1 cm, then ever within 1 cm, then reached (on
+      seed 0's val 50). A model replaces its reference only if its 3-seed mean beats the reference's on held or ever
+      within 1 cm by more than the reference's seed spread (= max - min of its 3 seeds), without the held-within-5-cm
+      mean dropping by more than 1 run. If several win: the higher held-within-1-cm mean, then ever within 1 cm.
+      **Caveat (Kris):** the round is picked on seed 0's val 50 and the 3-seed mean includes that seed, so B and C get
+      a slight optimistic bias; the test 150 of a winner is the unbiased number.
+      **Checks of the posture-free relabel before C (passed, 23:55; `check_pf.py` in Matteo's scratchpad):**
+      - Clean expert runs (8 val episodes, within 2 cm after the latch): hand part unchanged (2.291 -> 2.291 N*m),
+        posture part 0.034 -> 0.203 N*m (Kris expected ~0.03 -> ~0.3: it becomes the damping term).
+      - The DAgger labelling path, window 25 s, on 12 val runs of `split_dartdagger_r5_s0`: within 2 cm the posture
+        part 2.92 -> 0.65 N*m, the hand part unchanged (5.07 -> 5.05).
+      - **Labelled frames 132 k -> 176 k, for targets below 0.5 m 14 k -> 58 k:** without the fix the saturation stop
+        cuts most low-target runs short (their posture torque sits near the 30 N*m limit), so B's longer window
+        mostly does NOT reach the low targets, the weak spot, while C does. Part of what B v C measures; both counts
+        reported with the results.
+      - 33% of the labelled frames change by more than 10 N*m with the fix, median 2 cm from the target and 14 s after
+        the latch, concentrated in a few runs (median 428 frames per run, up to 15 k): the intended effect, in the last
+        2 cm late in the run. On clean expert runs the largest change (40 N*m) is instead the J6 jolt at the start of
+        the reach (the damping term on ~8 rad/s, clipped), a few frames per run, not near the target.
 
 **D. Extensions:** camera (Kris from 3 Nov once the winner's test 150 is done, finished 5 Nov; Matteo joins after the
 final edit; cut-off Thursday evening, see the week table); parking pose + arm early: future work in the report. Dropped unless time: parked-start arm episodes, randomised arm start
