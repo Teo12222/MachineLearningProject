@@ -120,7 +120,10 @@ mean on test 150: **88.4% ever within 1 cm**, 70.0% held within 1 cm, 69.1% at 5
 Everything tried on 3 Nov came out "no gain" or a finding, not a better model: near-target loss weighting (C16), seed
 ensemble (C17), torque smoothing (C18a); the base's share (C18b) showed the arm is fitted to its base's hand-over.
 **Model work is closed except one experiment the lecturer asked for (3 Nov): the arm reaches while the base is still
-driving (C19 below)**; everything else left is tests on the final model and the report. Not done, on purpose:
+driving (C19 below)**; everything else left is tests on the final model and the report. **(Status 4 Nov ~23:00: C19
+done, both routes; the final model is drive-phase r1 on Route B, see FINAL MODEL at the top. Model work is closed;
+left: Kris's sequential pre-shaping check, sensor noise and payload on it / the final model (5 Nov), the camera, the
+report and the repo README.)** Not done, on purpose:
 retraining behind a new base or DAgger behind several bases (future work), a latch-timing check (it would only explain
 C18b), joint-target outputs (future work).
 
@@ -153,6 +156,103 @@ Route A in detail:
   needs the labelled window to start at the trigger instead of the latch. Start from the final model
   (`split_dartdagger_r5_s0`), keep the DART data and the earlier rounds (`--extra-data`), ~5 rounds (~8 min each on
   the PC).
+  **(Text brought over from branch `c19-route-a` on 4 Nov evening, Matteo: only this PLAN.md text is on master; the
+  Route A code (`ROBOENV_ARM_START`, `dagger.py --arm-start`, `relabel_arm_preshape`), its checkpoints
+  `split_armstart20_r1-r3_s0` and results files stay on that branch. Route A is the contrast in the report: see the
+  result table below; the final model is drive-phase r1 on Route B, see FINAL MODEL at the top.)**
+  **Updated 4 Nov (Matteo), coded on branch `c19-route-a`:** the final model is now CLD r2, so start from
+  `split_dartdagger_bb_plusCLD_r2_s0` (was `split_dartdagger_r5_s0`), base copied unchanged. Keep CLD's settings
+  (`--window 25 --posture-free --low-extra 100`) and all its data as `--extra-data` (dart/a60, a60b, bb_r1-r5,
+  data_low, bb_plusCLD_r1-r2), so the rounds differ from CLD only in the early start. 3 rounds, not 5 (CLD needed 2
+  on top of r5; time before the deadline), `d_start` = 1.5 m first, 2.0 m only if it works.
+  Code: `ROBOENV_ARM_START=<d_start>` in `robotnik_arm_policy_task.py` gives the arm network its own flag (on at the
+  latch or once the target is within `d_start`, latched); the base and its latch are unchanged, and with the
+  variable unset the run is exactly as before. Saved as `arm_on` / `arm_start` in the policy file (`nav_done` stays
+  the base's latch, so existing analyses read it as before). `dagger.py --arm-start` sets the variable for the
+  policy and val runs and labels from the arm's flag; in the DAgger files `nav_done` = the arm's flag (training
+  feeds `nav_done` to the arm as its "reach" input), the base's latch kept as `base_nav_done`. Older runs (no
+  `arm_on`) are labelled from the latch as before. The expert's labels on a moving base are right:
+  `relabel_arm` replays its Cartesian controller with each frame's base position and yaw. Only the DAgger files
+  carry the early flag; the expert data (data_main, data_low, DART) keep the expert's flag (on at parking).
+  Command: `dagger.py --start split_dartdagger_bb_plusCLD_r2_s0 --name split_armstart15 --arm-start 1.5 --rounds 3
+  --val-set --window 25 --posture-free --low-extra 100 --extra-data <the CLD list above>`. Time to reach (mean
+  episode time over reached val runs, minus the 1 s settle) and the trigger time come from a scratch summary of the
+  val runs, against CLD r2 s0's val on the same PC.
+  **Smoke test (4 Nov, CLD r2 s0 + `ROBOENV_ARM_START=1.5`, 3 training targets) -> two changes before the series:**
+  - **Saturation stop:** `label_run` ends the labels once the expert's label sits at its 30 N*m limit for 50 ms
+    (after a 0.5 s grace), assuming only an off-course policy drives the expert there. While the base still drives,
+    the expert itself hits the limit in bursts (J2 / J4 / J6, 24-97% of frames in some 0.25-0.5 s windows) because
+    it reaches from a moving base with the target beyond its 0.85 m reach; so labels stopped 0.5-2.2 s after the
+    trigger, before the latch, and **the final reach was never labelled**. Fix: from the trigger to the latch + 0.5 s
+    the saturated frames are dropped (no label) instead of stopping; after that the old rule. Without the trigger
+    the latch is the first labelled frame, so nothing changes for earlier runs. A guard "stop if more than half of
+    1 s saturated while driving" was tried and **removed**: it fired on a run that was on course (hand closing in
+    from 67 to 4 cm, the policy's torques off the limit) because the expert's labels were at the limit 89-97% for
+    0.5 s; an off-course policy while driving mostly gives labels at the limit, which are dropped anyway.
+    After the fix: labels from the trigger to the end on all 3 targets, 76-92% of the driving frames kept (the rest
+    at the limit), 834-21350 frames after the latch. Report note: the expert's Cartesian controller is not built
+    for reaching while driving, so the arm learns the driving phase from fewer frames (Route B's expert has the
+    same limit in its own data).
+  - **Arm waits for the base's first turn (Matteo):** the trigger alone could fire at t = 0 for targets already
+    within 1.5 m (~16% of a uniform 1-3 m annulus), swinging the arm out while the base turns in place. Now the arm
+    may start only once the base has started driving: forward speed of its wheel commands above 0.05 m/s (expert:
+    exactly 0 while turning, >= 0.084 m/s at the 1st percentile while driving; policy ~0.000 v ~0.24). Checked: a
+    target 1.34 m away at the start, base drives at 0.88 s, arm starts at 0.89 s. The final small turn at parking
+    is not gated (the arm flag is latched by then).
+  - Smoke runs (before any Route A round): the high target reached at 10.5 s v the expert's 13.4 s; the base still
+    latches like the expert (6.08 v 5.92 s, 9.67 v 9.98 s, 4.54 v 4.63 s); the two low targets miss 5 mm at the
+    30 s cap (closest 0.56 and 1.18 cm), as CLD often does on low targets.
+  **Pre-shaping labels (4 Nov, Matteo's idea, replaces the Cartesian labels while driving):** reaching for the
+  target from a moving base stretches the arm toward a point beyond its 0.85 m reach; instead the arm should aim at
+  where the target WILL be once the base has parked. That is Kris's Route B expert (`concurrent_arm/
+  concurrent_control.py`), so `expert_relabel.relabel_arm_preshape` reuses it unchanged: the arm's final pose for
+  the expert's planned parking spot (`solve_final_arm_pose`, once per run; the spot by `robotnik_arm_task`'s standoff
+  rule, `parking_spot`), followed along a minimum-jerk path (`arm_path_reference`, `arm_path_controller`); once the
+  base is within 8 cm of the spot or has latched, the sequential expert's Cartesian reach (Kris's early switch).
+  `dagger.py` uses it for every run whose arm started before the latch. Two differences from Kris's expert, both
+  because these are DAgger labels on the policy's states:
+  - **Progress from the current distance only:** 0 at `d_start` (1.5 m), 1 at the standoff, so the label depends
+    only on what the arm network sees (Kris's 1 - d / d at the drive's start needs a distance it can't know; two
+    arms in the same state would get different labels and the MLP would average them).
+  - **The sequential expert's 0.15 rad lead limit** on the joint reference (inactive on Kris's own runs, where the
+    arm follows its path).
+  Posture-free cleaning only from the Cartesian switch (on the path the whole pose is the label).
+  **Saturated path labels are kept (decided 4 Nov, option 1):** on CLD's runs (round 1) the arm is 0.4-0.9 rad off
+  the path, moving at up to 1.3 rad/s, so the expert's pull back (lead 0.15 rad x kp 100, damping, ~15 N*m gravity on
+  J2) sits at 30 N*m in 69-74% of the driving frames even with the lead limit. They are its real, bounded command
+  toward the path; dropping them (option 2) would leave the driving phase almost unlabelled. Rejected: training on
+  Kris's `data_concurrent` first (on his Mac, and its progress definition doesn't match these labels). **Check:** the
+  share at the limit should fall clearly in round 2; if not, stop the series. Smoke test after the change: all 3
+  targets labelled from the trigger to the end, every driving frame labelled, no nan.
+  **`d_start` = 2.0 m first, not 1.5 (4 Nov, Matteo, before any Route A result):** 1.5 m was chosen to limit the
+  time the arm stretches toward an unreachable target; with pre-shaping it moves toward its (reachable) parked pose
+  instead, so a longer trigger only spreads the same move over more distance (1.2-1.65 m to the standoff v
+  0.7-1.15 m: slower joints, gentler labels), closer to Kris's expert (path over the whole drive, 1.1 s faster per
+  target). ~37% of targets start within 2.0 m (v ~16% at 1.5 m); the drive gate still waits for the base's first
+  turn. Little extra speed expected (at 1.5 m the hand was already 1.2-5.4 cm off when the base parked); watch base
+  parking and base off the floor on val (arm out longer while the base steers). 1.5 m is the fallback if 2.0 m
+  disturbs the base. Series `split_armstart20`, `--arm-start 2.0`, otherwise the command above.
+  **Result, series `split_armstart20` (4 Nov evening, PC, val 50, seed 0):**
+
+  | Model | reached | ever 1 cm | held 1 cm | held 5 cm | collapses | time to reach | hand off target at parking (median / 90%) | driving labels at the limit |
+  |---|---|---|---|---|---|---|---|---|
+  | CLD r2 s0 (final) | 46 | 50 | 44 | 50 | 0 | 11.34 s | 22.6 / 37.0 cm | - |
+  | Route A r1 | 35 | 47 | 32 | 48 | 2 | 10.38 s | 3.1 / 7.6 cm | 82.9% (its round's runs) |
+  | Route A r2 | 26 | 40 | 28 | 50 | 0 | 11.56 s | 4.0 / 14.9 cm | 60.9% |
+  | Route A r3 | 28 | 33 | 20 | 42 | 8 | 14.99 s | - | 36.2% |
+
+  (Time to reach = mean episode end - 1 s settle over reached runs; collapses = error back above 20 cm after the
+  closest approach; the last column is the share of the driving-phase labels at 30 N*m in the runs that round's
+  data was collected with, i.e. of the previous model.) Base unaffected throughout: parks 1.3-1.4 cm from the
+  expert's spot, at the same time (median 8.2 s), never off the floor; the arm starts at a median 2.4 s.
+  **Best round by the rule (held, ever, reached on seed-0 val): r1. By the rule fixed beforehand Route A does not
+  replace the final model** (held 32 v 44, far outside CLD's seed spread 41-44): an **extension result**. What it
+  shows: pre-shaping works (the hand is 3 cm from the target when the base parks v 23 cm), round 1 is ~1 s faster,
+  and the arm follows the path better each round (saturation 83 -> 61 -> 36%), **but the final precise reach gets
+  worse each round** (failures hover ~3 cm off, error swinging ~1.9 cm; r3 collapses). Hypothesis (untested): the
+  arm network can't tell "follow the path" from "precise reach": one flag (1 in both), the switch depends on the
+  base's distance to its parking spot (not an input), and ~1.4 M strong driving labels per round swamp the
+  precision behaviour. Next: a second arm input "base parked" (below).
 - **Risks to watch:** a stretched arm on a driving / turning base (base off the floor, torques at the limit, arm
   spins), and the arm re-aiming as the base keeps moving and parks slightly off.
 - **Measure:** reached / ever / held within 1 cm and **time to reach** (mean over reached runs; now ~11-15 s incl. the
@@ -207,6 +307,12 @@ Route A in detail:
 | **Wed 4 Nov** | **Full report draft** in the new structure (best model first, decision table, distances table; **the camera section written as future work / in progress**, so Thursday only swaps in results if it works); C19's val runs and the start-pose test (11) in the background | **Full report draft**; sensor-noise runs (12) and C19 Route B (training + val runs) in the background; **starts the camera** | Own sections, results table with the final model; **out-of-range targets (C11), Kris or Matteo** in the background (not Jamie): targets outside 1-3 m / 0.2-1.1 m, including closer than 1 m, the final model and the expert on each (the report's target-range limitation); if neither has time, it goes in the report as "not tested" |
 | **Thu 5 Nov** | Final edit + README; camera once the edit is done | **Finishes the camera** (started Wednesday; cut-off Thursday evening) | Conclusion, contribution statement, results table final |
 | **Fri 6 Nov** | Buffer + submission | Buffer | Buffer |
+
+**README (decided 4 Nov evening, Matteo; to write on Thu 5 Nov afternoon):** a NEW `README.md` at the repo root next
+to PLAN.md, for the professors: how to set up the environment, get / regenerate the data (expert datasets, DART,
+low-target data, Route B's concurrent-expert data), regenerate the models (the final model's chain: commands in step 28
+and C18e), and how the tests are run (`compare.py --val-set / --val-full / --test-set`, start pose, out-of-range,
+payload, sensor noise, `analyse_distances.py`). The course's `robotnik_arm_task/README.md` stays unchanged.
 
 **Report points from 3 Nov:** the base's share (seed spread is the arm's only; base and DAgger arm are one pair);
 C16-C18 none better, so the limit is the learned arm-base pair; offline v closed loop once more (near-weight: val loss
@@ -492,7 +598,11 @@ report must already be complete without it; Thursday only swaps in results, nobo
    2 -> 3 Nov**, at the chosen DART amount, once 4 is done; DART data is labelled by the expert on its own runs, so it
    fits any retrained model, and these runs don't wait for the final model). They measure each component in the DART
    model, not in DART + DAgger: say so next to the numbers. Evidence table from existing comparisons (Jamie).
-10. Learning curve (17), base half (Kris): **only after the report drafts, if time is left** (moved 2 Nov). Why: the
+   **Final model (4 Nov evening, Matteo): no removal runs on it.** The report says in words that the component
+   removals (gravity residual, DART, DAgger, ...) were measured on the DART model; for the final model the decision
+   chain CLD r2 -> Route B -> drive-phase r1 (test 150 rows in step 28) shows what each later step adds.
+10. ~~Learning curve (17), base half (Kris)~~ **Dropped 4 Nov (Matteo): not needed; the arm half (4), the important
+    one, was done. Not mentioned in the report.** Was: only after the report drafts, if time is left (moved 2 Nov). Why: the
     base already parks like the expert, so it can't change the final model; the arm half is 4.
 11. **Start-pose test** (Matteo; **runs on Wed 4 Nov in the background while we write the report**, on the final model, with 12) and out-of-range targets (Jamie) (24). No new code: `run_batch.py --script
     robotnik_arm_policy_task.py --start-pose x,y,yaw --n 50 --out-dir starts/<model>_<pose>` with `ROBOENV_POLICY` set,
@@ -2937,7 +3047,9 @@ of these get a run; the rest get one sentence each):
   full test (150/150 latched by the network). No run.
 - **Safety clips** (wheels +-3 rad/s, torques +-30 N*m): words: the expert's own ranges. Evidence (old data,
   `mlp_robotframe`, quick 50): final error mean 222 m without the wheel clip, 5.1 m with. No run.
-- **Learning curve (17), start pose, out-of-range targets, robustness (24):** planned (C), not done.
+- ~~**Learning curve (17), start pose, out-of-range targets, robustness (24):** planned (C), not done.~~ **Done 4 Nov
+  (step 11 on the final model: start pose, out-of-range targets, payload; sensor noise step 12, rerun on the final
+  model by Kris 5 Nov); learning curve dropped (step 10).**
 
 **Big table for Jamie (22): every test not shown in a two-row table above but worth showing** (appendix or one large
 results table; one row per model; take the numbers from `results/` where `sim_*` exists, otherwise from the step
@@ -2954,7 +3066,11 @@ named; mark the set, the machine and the number of seeds in every row):
 | Split variants | `split_arrived_s0`, `_nograv_s0`, `_armuniform_s0`, `split_mlpbase_gruarm_s0`, `split_grubase_gruarm_s0`, `split_grubase_r5arm_s0` | val 50 | step 15 |
 | DAgger rounds | `split_dagger_r1` ... `r5_s0`, `split_dagger_vw_s0` | val 50, r5 also test 150 | step 21 |
 | DART | `split_dart_a0/a20/a60/a100_s0`, `split_dart_a60_s1`, `split_dart_a60x2_s0/_s1` | val 50, a60x2_s0 also test 150 | step 19 |
-| Final model | the winner of B, 3 seeds + removal runs (23) | test 150 | to come |
+| Bounded base, CLD-style rounds | `split_dartdagger_bb_r1-r5_s0`, `..._plusB/C/R/CL/CD/CLD_r1-r3`, CLD r2 seeds 0-2 (the final model until 4 Nov 19:45) | val 50, CLD r2 also test 150 | C18e |
+| C19 Route A (contrast) | `split_armstart20_r1-r3_s0` (branch `c19-route-a`) | val 50 | C19 |
+| Route B (Kris) | `split_conc_dart_bb_s0`, `split_conc_dartdagger_bb_r1-r5_s0`, `..._plusCLD_r1-r3_s0`, CLD r3 seeds 0-2 | val 50 (Mac and PC), val 150 and test 150 (PC; test also Mac) | step 28 |
+| Drive-phase DAgger on Route B | `split_conc_drive_r1-r3_s0`, r1 and r2 seeds 0-2 | val 50, val 150, test 150 (PC) | step 28 |
+| **Final model** | **`split_conc_drive_r1_s0/1/2`** (drive-phase r1 on Route B; removal runs: see step 9, measured on the DART model) | val 150, test 150 (PC) | FINAL MODEL at the top, step 28 |
 | Expert | `expert` | test 150 | `results/expert.csv` |
 
 24. **Experiments:**
@@ -3367,7 +3483,9 @@ lower limit (see "Found on the way" below).
         Mac (+5.3 v +8.0) because CLD is higher on the PC (42.7 v 40.3); Route B is the same (48.0 v 48.3). Base
         unchanged: parks 1.3-1.5 cm from the sequential expert's spot, latches at a median 8.1 s, never off the floor.
         **Final-model decision: Matteo and Kris** (pending a drive-phase DAgger attempt on top of Route B, see C19).
-      - **Drive-phase DAgger on top of Route B (coded 4 Nov, Matteo, branch `routeb-drive-dagger`, not run yet).**
+        **(Settled 4 Nov ~19:45: the final model is drive-phase r1 on Route B, below and at the top.)**
+      - **Drive-phase DAgger on top of Route B (coded 4 Nov, Matteo; run the same evening, results below; merged into
+        master, branch `routeb-drive-dagger` deleted).**
         Why: Route B's DAgger window starts at the latch (caveat 4), so its arm's driving phase is only covered by
         the expert's demonstrations and DART; C19 Route A's labeller labels exactly that phase from the policy's
         states. `dagger.py --label-drive` (needs `--relabel-from-final` and `--data-dir data_route_b`): the frames
