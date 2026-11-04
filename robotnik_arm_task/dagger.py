@@ -49,7 +49,8 @@ TORQUE_LIMIT = 30.0     # N*m, the expert's torque clip
 SATURATED_RUN = 50      # frames (ms): the expert's label at its limit this long ends the labelled part ...
 SATURATION_GRACE = 500  # frames: ... but not in the first 0.5 s after the latch, where the expert's own reach starts
                         # with a short kick at the limit (J6 starts below its joint limit, PLAN.md step 21)
-LOW_Z = 0.5             # m: targets below this are "low" (--low-extra; all collapses were below it, PLAN.md C18e)
+# DRIVE_GUARD = 1000    # frames: C19 Route A "off course while driving" stop; removed 4 Nov, see label_run
+LOW_Z = 0.5            # m: targets below this are "low" (--low-extra; all collapses were below it, PLAN.md C18e)
 
 
 def label_run(raw_path, out_path, window, posture_free=False, posture_kp=0.0, q_des0=None):
@@ -76,42 +77,77 @@ def label_run(raw_path, out_path, window, posture_free=False, posture_kp=0.0, q_
     n = len(d["time"])
     mask = np.zeros(n, dtype=bool)
     torque = np.full((n, 7), np.nan, dtype=np.float32)   # nan where there is no label, so misuse can't go unnoticed
-    if d["nav_done"].any():   # a run that never latched has no arm phase to label
-        k = int(np.argmax(d["nav_done"]))
+    # C19 Route A: label from the arm's own flag (its trigger) instead of the base's latch, and save that flag as
+    # nav_done, because training feeds nav_done to the arm network as its "reach" input. Runs without arm_on (older
+    # policy files) or with the trigger off: the latch, exactly as before
+    flag = d["arm_on"] if "arm_on" in d else d["nav_done"]
+    if flag.any():   # a run that never latched has no arm phase to label
+        k = int(np.argmax(flag))
         stop = min(n, k + round(window * 1000))
-        # The expert holds the arm's start pose until it arrives, so that is its joint reference when the reach starts
-        # (the concurrent expert's is its q_final: q_des0)
-        labels = relabel_arm(d, k, stop, d["q_mes"][0, 4:11] if q_des0 is None else q_des0)
-        if posture_free:
+        # C19 Route A (4 Nov): an arm that started before the latch is labelled by the pre-shaping expert
+        # (expert_relabel.relabel_arm_preshape: aim at the pose for the planned parking spot while driving, then the
+        # Cartesian reach), not by the Cartesian reach toward the target from a moving base (which stretches the arm)
+        kc = k   # first Cartesian-reach frame: posture-free cleaning starts there (the path's whole pose is its label)
+        early = float(d.get("arm_start", 0.0)) > 0 and (not d["nav_done"].any() or k < int(np.argmax(d["nav_done"])))
+        if early:
+            from expert_relabel import relabel_arm_preshape
+            labels, modes = relabel_arm_preshape(d, k, stop, float(d["arm_start"]))
+            kc = k + (int(np.argmax(modes == 2)) if (modes == 2).any() else len(modes))
+        else:
+            # The expert holds the arm's start pose until it arrives, so that is its joint reference when the reach
+            # starts (the concurrent expert's is its q_final: q_des0, PLAN.md step 28)
+            labels = relabel_arm(d, k, stop, d["q_mes"][0, 4:11] if q_des0 is None else q_des0)
+        if posture_free and kc < stop:
             from relabel_posture import remove_posture
             # torque_arm holds the policy's torques here: put the expert's labels in first (only up to stop, so
             # remove_posture doesn't process the frames after it)
             t = d["torque_arm"][:stop].astype(float).copy()
             t[k:stop] = labels
-            labels = remove_posture({**d, "torque_arm": t}, k, posture_kp)[k:stop]
+            labels = remove_posture({**d, "torque_arm": t}, kc, posture_kp)[k:stop]
         saturated = (np.abs(labels) >= TORQUE_LIMIT - 0.01).any(axis=1)
         runs = np.convolve(saturated, np.ones(SATURATED_RUN), "valid") == SATURATED_RUN   # run starting at each frame
-        runs[:SATURATION_GRACE] = False
+        # C19 Route A: while the base still drives (trigger to latch) the expert itself hits its torque limit in short
+        # bursts (J4 / J6 reaching from a moving base, smoke test 4 Nov), so the stop would end the labels before the
+        # latch and the final reach would never be labelled. Until latch + grace the saturated frames are dropped
+        # instead of stopping; after it, the rule as before. Without the trigger the latch is frame k (kl = 0), so
+        # this is exactly the old rule.
+        kl = (int(np.argmax(d["nav_done"])) if d["nav_done"].any() else n) - k   # base's latch, frames after k
+        runs[:kl + SATURATION_GRACE] = False
+        # No extra stop while driving: a guard "more than half of 1 s saturated" fired on a run that was on course (the
+        # expert's labels at the limit 89-97% for 0.5 s while the hand closed in from 67 to 4 cm, smoke test 4 Nov):
+        # heavy saturation while driving is the expert reaching from a moving base, not the policy off course. An
+        # off-course policy while driving mostly gives labels at the limit, which are dropped anyway.
+        # stops = [int(np.argmax(runs))] if runs.any() else []
+        # if min(kl, len(saturated)) > DRIVE_GUARD: ... frac > 0.5 over DRIVE_GUARD frames -> stop   (removed 4 Nov)
         if runs.any():
             stop = k + int(np.argmax(runs))
         torque[k:stop] = labels[:stop - k]
         mask[k:stop] = True
-    save_episode(out_path, d, torque, mask)
+        # No labels where the Cartesian expert is at its limit before the latch. The pre-shaping path's frames
+        # (k..kc) keep theirs (decided 4 Nov, option 1): in round 1 the policy's arm is 0.4-0.9 rad off the path and
+        # 70-88% of those labels sit at the limit; they are the expert's real, bounded pull back toward the path, and
+        # dropping them would leave the driving phase almost unlabelled. Check: saturation should fall in round 2.
+        c0, drive = kc - k, max(0, min(stop - k, kl))
+        mask[kc:k + drive] &= ~saturated[c0:drive]
+        torque[~mask] = np.nan
+    save_episode(out_path, d, torque, mask, flag)
     raw_path.unlink()
     return int(mask.sum())
 
 
-def save_episode(path, d, torque, mask):
+def save_episode(path, d, torque, mask, flag):
     """A DAgger episode in data_main's format, without the expert-only fields (nav_phase, q_des_arm, base_goal).
 
     torque_arm holds the expert's labels where arm_label_mask is True (nan elsewhere); nav_done is the policy's
     latched flag. What the policy itself commanded is kept as policy_wheel_cmds / policy_torque_arm. No wheel labels
     yet (base DAgger comes later).
+    C19 Route A: nav_done is the arm's flag (flag, on from the trigger), the base's latch is kept as base_nav_done;
+    without the trigger the two are the same.
     """
     np.savez(
         path,
         time=d["time"], base_pos=d["base_pos"], base_bearing=d["base_bearing"], q_mes=d["q_mes"], qd_mes=d["qd_mes"],
-        ee_pos=d["ee_pos"], target=d["target"], start_pose=d["start_pose"], nav_done=d["nav_done"],
+        ee_pos=d["ee_pos"], target=d["target"], start_pose=d["start_pose"], nav_done=flag, base_nav_done=d["nav_done"],
         torque_arm=torque, arm_label_mask=mask,
         policy_wheel_cmds=d["wheel_cmds"], policy_torque_arm=d["torque_arm"],
         final_error=d["final_error"], stop_message=d["stop_message"],
@@ -153,6 +189,10 @@ def main():
     parser.add_argument("--low-extra", type=int, default=0,
                         help="extra runs per round on low training targets (z < LOW_Z), on top of --n, from their own "
                              "fixed order (PLAN.md C18e, 4 Nov: the arm drifts only on low targets)")
+    parser.add_argument("--arm-start", type=float, default=0.0,
+                        help="C19 Route A: the policy's arm starts reaching once the target is within this distance (m) "
+                             "of the base (ROBOENV_ARM_START, passed on to the policy runs and the val runs); the "
+                             "rounds are labelled from that trigger. 0 = off")
     parser.add_argument("--workers", type=int, default=16, help="policy runs / labelling processes in parallel")
     parser.add_argument("--val-set", action="store_true", help="compare.py --val-set after each round")
     parser.add_argument("--extra-data", nargs="+", default=[], metavar="FOLDER",
@@ -182,7 +222,10 @@ def main():
                 **({"posture_kp": args.posture_kp} if args.posture_kp else {}),
                 **({"low_extra": args.low_extra} if args.low_extra else {}),
                 **({"data_dir": args.data_dir} if args.data_dir != "data_main" else {}),
-                **({"relabel_from_final": True} if args.relabel_from_final else {}))
+                **({"relabel_from_final": True} if args.relabel_from_final else {}),
+                **({"arm_start": args.arm_start} if args.arm_start else {}))
+    if args.arm_start:
+        os.environ["ROBOENV_ARM_START"] = str(args.arm_start)   # inherited by every policy run and compare.py
     if info_file.exists():
         if json.loads(info_file.read_text()) != info:
             parser.error(f"--name {args.name} belongs to another run ({info_file}: {info_file.read_text().strip()}); "

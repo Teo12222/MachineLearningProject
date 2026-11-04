@@ -122,6 +122,99 @@ Route A in detail:
   needs the labelled window to start at the trigger instead of the latch. Start from the final model
   (`split_dartdagger_r5_s0`), keep the DART data and the earlier rounds (`--extra-data`), ~5 rounds (~8 min each on
   the PC).
+  **Updated 4 Nov (Matteo), coded on branch `c19-route-a`:** the final model is now CLD r2, so start from
+  `split_dartdagger_bb_plusCLD_r2_s0` (was `split_dartdagger_r5_s0`), base copied unchanged. Keep CLD's settings
+  (`--window 25 --posture-free --low-extra 100`) and all its data as `--extra-data` (dart/a60, a60b, bb_r1-r5,
+  data_low, bb_plusCLD_r1-r2), so the rounds differ from CLD only in the early start. 3 rounds, not 5 (CLD needed 2
+  on top of r5; time before the deadline), `d_start` = 1.5 m first, 2.0 m only if it works.
+  Code: `ROBOENV_ARM_START=<d_start>` in `robotnik_arm_policy_task.py` gives the arm network its own flag (on at the
+  latch or once the target is within `d_start`, latched); the base and its latch are unchanged, and with the
+  variable unset the run is exactly as before. Saved as `arm_on` / `arm_start` in the policy file (`nav_done` stays
+  the base's latch, so existing analyses read it as before). `dagger.py --arm-start` sets the variable for the
+  policy and val runs and labels from the arm's flag; in the DAgger files `nav_done` = the arm's flag (training
+  feeds `nav_done` to the arm as its "reach" input), the base's latch kept as `base_nav_done`. Older runs (no
+  `arm_on`) are labelled from the latch as before. The expert's labels on a moving base are right:
+  `relabel_arm` replays its Cartesian controller with each frame's base position and yaw. Only the DAgger files
+  carry the early flag; the expert data (data_main, data_low, DART) keep the expert's flag (on at parking).
+  Command: `dagger.py --start split_dartdagger_bb_plusCLD_r2_s0 --name split_armstart15 --arm-start 1.5 --rounds 3
+  --val-set --window 25 --posture-free --low-extra 100 --extra-data <the CLD list above>`. Time to reach (mean
+  episode time over reached val runs, minus the 1 s settle) and the trigger time come from a scratch summary of the
+  val runs, against CLD r2 s0's val on the same PC.
+  **Smoke test (4 Nov, CLD r2 s0 + `ROBOENV_ARM_START=1.5`, 3 training targets) -> two changes before the series:**
+  - **Saturation stop:** `label_run` ends the labels once the expert's label sits at its 30 N*m limit for 50 ms
+    (after a 0.5 s grace), assuming only an off-course policy drives the expert there. While the base still drives,
+    the expert itself hits the limit in bursts (J2 / J4 / J6, 24-97% of frames in some 0.25-0.5 s windows) because
+    it reaches from a moving base with the target beyond its 0.85 m reach; so labels stopped 0.5-2.2 s after the
+    trigger, before the latch, and **the final reach was never labelled**. Fix: from the trigger to the latch + 0.5 s
+    the saturated frames are dropped (no label) instead of stopping; after that the old rule. Without the trigger
+    the latch is the first labelled frame, so nothing changes for earlier runs. A guard "stop if more than half of
+    1 s saturated while driving" was tried and **removed**: it fired on a run that was on course (hand closing in
+    from 67 to 4 cm, the policy's torques off the limit) because the expert's labels were at the limit 89-97% for
+    0.5 s; an off-course policy while driving mostly gives labels at the limit, which are dropped anyway.
+    After the fix: labels from the trigger to the end on all 3 targets, 76-92% of the driving frames kept (the rest
+    at the limit), 834-21350 frames after the latch. Report note: the expert's Cartesian controller is not built
+    for reaching while driving, so the arm learns the driving phase from fewer frames (Route B's expert has the
+    same limit in its own data).
+  - **Arm waits for the base's first turn (Matteo):** the trigger alone could fire at t = 0 for targets already
+    within 1.5 m (~16% of a uniform 1-3 m annulus), swinging the arm out while the base turns in place. Now the arm
+    may start only once the base has started driving: forward speed of its wheel commands above 0.05 m/s (expert:
+    exactly 0 while turning, >= 0.084 m/s at the 1st percentile while driving; policy ~0.000 v ~0.24). Checked: a
+    target 1.34 m away at the start, base drives at 0.88 s, arm starts at 0.89 s. The final small turn at parking
+    is not gated (the arm flag is latched by then).
+  - Smoke runs (before any Route A round): the high target reached at 10.5 s v the expert's 13.4 s; the base still
+    latches like the expert (6.08 v 5.92 s, 9.67 v 9.98 s, 4.54 v 4.63 s); the two low targets miss 5 mm at the
+    30 s cap (closest 0.56 and 1.18 cm), as CLD often does on low targets.
+  **Pre-shaping labels (4 Nov, Matteo's idea, replaces the Cartesian labels while driving):** reaching for the
+  target from a moving base stretches the arm toward a point beyond its 0.85 m reach; instead the arm should aim at
+  where the target WILL be once the base has parked. That is Kris's Route B expert (`concurrent_arm/
+  concurrent_control.py`), so `expert_relabel.relabel_arm_preshape` reuses it unchanged: the arm's final pose for
+  the expert's planned parking spot (`solve_final_arm_pose`, once per run; the spot by `robotnik_arm_task`'s standoff
+  rule, `parking_spot`), followed along a minimum-jerk path (`arm_path_reference`, `arm_path_controller`); once the
+  base is within 8 cm of the spot or has latched, the sequential expert's Cartesian reach (Kris's early switch).
+  `dagger.py` uses it for every run whose arm started before the latch. Two differences from Kris's expert, both
+  because these are DAgger labels on the policy's states:
+  - **Progress from the current distance only:** 0 at `d_start` (1.5 m), 1 at the standoff, so the label depends
+    only on what the arm network sees (Kris's 1 - d / d at the drive's start needs a distance it can't know; two
+    arms in the same state would get different labels and the MLP would average them).
+  - **The sequential expert's 0.15 rad lead limit** on the joint reference (inactive on Kris's own runs, where the
+    arm follows its path).
+  Posture-free cleaning only from the Cartesian switch (on the path the whole pose is the label).
+  **Saturated path labels are kept (decided 4 Nov, option 1):** on CLD's runs (round 1) the arm is 0.4-0.9 rad off
+  the path, moving at up to 1.3 rad/s, so the expert's pull back (lead 0.15 rad x kp 100, damping, ~15 N*m gravity on
+  J2) sits at 30 N*m in 69-74% of the driving frames even with the lead limit. They are its real, bounded command
+  toward the path; dropping them (option 2) would leave the driving phase almost unlabelled. Rejected: training on
+  Kris's `data_concurrent` first (on his Mac, and its progress definition doesn't match these labels). **Check:** the
+  share at the limit should fall clearly in round 2; if not, stop the series. Smoke test after the change: all 3
+  targets labelled from the trigger to the end, every driving frame labelled, no nan.
+  **`d_start` = 2.0 m first, not 1.5 (4 Nov, Matteo, before any Route A result):** 1.5 m was chosen to limit the
+  time the arm stretches toward an unreachable target; with pre-shaping it moves toward its (reachable) parked pose
+  instead, so a longer trigger only spreads the same move over more distance (1.2-1.65 m to the standoff v
+  0.7-1.15 m: slower joints, gentler labels), closer to Kris's expert (path over the whole drive, 1.1 s faster per
+  target). ~37% of targets start within 2.0 m (v ~16% at 1.5 m); the drive gate still waits for the base's first
+  turn. Little extra speed expected (at 1.5 m the hand was already 1.2-5.4 cm off when the base parked); watch base
+  parking and base off the floor on val (arm out longer while the base steers). 1.5 m is the fallback if 2.0 m
+  disturbs the base. Series `split_armstart20`, `--arm-start 2.0`, otherwise the command above.
+  **Result, series `split_armstart20` (4 Nov evening, PC, val 50, seed 0):**
+
+  | Model | reached | ever 1 cm | held 1 cm | held 5 cm | collapses | time to reach | hand off target at parking (median / 90%) | driving labels at the limit |
+  |---|---|---|---|---|---|---|---|---|
+  | CLD r2 s0 (final) | 46 | 50 | 44 | 50 | 0 | 11.34 s | 22.6 / 37.0 cm | - |
+  | Route A r1 | 35 | 47 | 32 | 48 | 2 | 10.38 s | 3.1 / 7.6 cm | 82.9% (its round's runs) |
+  | Route A r2 | 26 | 40 | 28 | 50 | 0 | 11.56 s | 4.0 / 14.9 cm | 60.9% |
+  | Route A r3 | 28 | 33 | 20 | 42 | 8 | 14.99 s | - | 36.2% |
+
+  (Time to reach = mean episode end - 1 s settle over reached runs; collapses = error back above 20 cm after the
+  closest approach; the last column is the share of the driving-phase labels at 30 N*m in the runs that round's
+  data was collected with, i.e. of the previous model.) Base unaffected throughout: parks 1.3-1.4 cm from the
+  expert's spot, at the same time (median 8.2 s), never off the floor; the arm starts at a median 2.4 s.
+  **Best round by the rule (held, ever, reached on seed-0 val): r1. By the rule fixed beforehand Route A does not
+  replace the final model** (held 32 v 44, far outside CLD's seed spread 41-44): an **extension result**. What it
+  shows: pre-shaping works (the hand is 3 cm from the target when the base parks v 23 cm), round 1 is ~1 s faster,
+  and the arm follows the path better each round (saturation 83 -> 61 -> 36%), **but the final precise reach gets
+  worse each round** (failures hover ~3 cm off, error swinging ~1.9 cm; r3 collapses). Hypothesis (untested): the
+  arm network can't tell "follow the path" from "precise reach": one flag (1 in both), the switch depends on the
+  base's distance to its parking spot (not an input), and ~1.4 M strong driving labels per round swamp the
+  precision behaviour. Next: a second arm input "base parked" (below).
 - **Risks to watch:** a stretched arm on a driving / turning base (base off the floor, torques at the limit, arm
   spins), and the arm re-aiming as the base keeps moving and parks slightly off.
 - **Measure:** reached / ever / held within 1 cm and **time to reach** (mean over reached runs; now ~11-15 s incl. the
