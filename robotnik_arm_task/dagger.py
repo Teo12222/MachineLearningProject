@@ -49,7 +49,8 @@ TORQUE_LIMIT = 30.0     # N*m, the expert's torque clip
 SATURATED_RUN = 50      # frames (ms): the expert's label at its limit this long ends the labelled part ...
 SATURATION_GRACE = 500  # frames: ... but not in the first 0.5 s after the latch, where the expert's own reach starts
                         # with a short kick at the limit (J6 starts below its joint limit, PLAN.md step 21)
-LOW_Z = 0.5             # m: targets below this are "low" (--low-extra; all collapses were below it, PLAN.md C18e)
+# DRIVE_GUARD = 1000    # frames: C19 Route A "off course while driving" stop; removed 4 Nov, see label_run
+LOW_Z = 0.5            # m: targets below this are "low" (--low-extra; all collapses were below it, PLAN.md C18e)
 
 
 def label_run(raw_path, out_path, window, posture_free=False, posture_kp=0.0):
@@ -90,11 +91,26 @@ def label_run(raw_path, out_path, window, posture_free=False, posture_kp=0.0):
             labels = remove_posture({**d, "torque_arm": t}, k, posture_kp)[k:stop]
         saturated = (np.abs(labels) >= TORQUE_LIMIT - 0.01).any(axis=1)
         runs = np.convolve(saturated, np.ones(SATURATED_RUN), "valid") == SATURATED_RUN   # run starting at each frame
-        runs[:SATURATION_GRACE] = False
+        # C19 Route A: while the base still drives (trigger to latch) the expert itself hits its torque limit in short
+        # bursts (J4 / J6 reaching from a moving base, smoke test 4 Nov), so the stop would end the labels before the
+        # latch and the final reach would never be labelled. Until latch + grace the saturated frames are dropped
+        # instead of stopping; after it, the rule as before. Without the trigger the latch is frame k (kl = 0), so
+        # this is exactly the old rule.
+        kl = (int(np.argmax(d["nav_done"])) if d["nav_done"].any() else n) - k   # base's latch, frames after k
+        runs[:kl + SATURATION_GRACE] = False
+        # No extra stop while driving: a guard "more than half of 1 s saturated" fired on a run that was on course (the
+        # expert's labels at the limit 89-97% for 0.5 s while the hand closed in from 67 to 4 cm, smoke test 4 Nov):
+        # heavy saturation while driving is the expert reaching from a moving base, not the policy off course. An
+        # off-course policy while driving mostly gives labels at the limit, which are dropped anyway.
+        # stops = [int(np.argmax(runs))] if runs.any() else []
+        # if min(kl, len(saturated)) > DRIVE_GUARD: ... frac > 0.5 over DRIVE_GUARD frames -> stop   (removed 4 Nov)
         if runs.any():
             stop = k + int(np.argmax(runs))
         torque[k:stop] = labels[:stop - k]
         mask[k:stop] = True
+        drive = max(0, min(stop - k, kl))                  # labelled frames before the base's latch
+        mask[k:k + drive] &= ~saturated[:drive]            # no labels where the expert is at its limit while driving
+        torque[~mask] = np.nan
     save_episode(out_path, d, torque, mask, flag)
     raw_path.unlink()
     return int(mask.sum())

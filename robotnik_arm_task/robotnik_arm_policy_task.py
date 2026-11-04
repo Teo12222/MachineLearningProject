@@ -47,6 +47,11 @@ REACH_TOLERANCE = 0.005
 # C19 Route A (PLAN.md C19): the arm starts reaching once the target is within this horizontal distance (m) of the
 # base, while the base keeps driving until its own latch. 0 = off (default), so every other run is unchanged.
 ARM_START = float(os.environ.get("ROBOENV_ARM_START", "0"))
+# ... and only once the base has finished its first turn in place and started driving (forward speed of its own wheel
+# commands above this, m/s), so the arm never swings out while the base spins. The expert: exactly 0 while turning,
+# >= 0.084 m/s (1st percentile) while driving; the policy ~0.000 v ~0.24 (smoke test 4 Nov).
+ARM_START_DRIVE_SPEED = 0.05
+WHEEL_RADIUS = 0.11   # m, BaseControllerParams.wheel_radius
 # ==============================================================================
 
 
@@ -181,6 +186,7 @@ def main():
     p_arrived_all = []
     nav_done_all = []
     arm_on, arm_on_all = False, []   # C19 Route A: the arm network's own flag (= nav_done when ARM_START is 0)
+    driving = False                  # C19 Route A: the base has started driving forward (its first turn is over)
 
     # --------------------------------------------------------------------------
     # Main Simulation Loop
@@ -228,9 +234,11 @@ def main():
                     print(f"Arrived flag latched at t={current_time:.2f}s ({latch.source})")
             # C19 Route A: the arm's flag goes on at the base's latch or once the target (x[0], x[1]: forward / left
             # of the base) is within ARM_START, and stays on like the latch; with ARM_START = 0 it is the latch itself
-            if not arm_on and ARM_START > 0 and float(np.hypot(x[0], x[1])) < ARM_START:
-                print(f"Arm started at t={current_time:.2f}s (target within {ARM_START} m)")
-            arm_on = arrived or arm_on or (ARM_START > 0 and float(np.hypot(x[0], x[1])) < ARM_START)
+            # and only once the base drives (not while it turns in place at the start)
+            early = ARM_START > 0 and driving and float(np.hypot(x[0], x[1])) < ARM_START
+            if early and not arm_on and not arrived:
+                print(f"Arm started at t={current_time:.2f}s (target within {ARM_START} m, base driving)")
+            arm_on = arrived or arm_on or early
             y = np.concatenate([wheels, model.step_arm(x, float(arm_on))])
         else:
             y = model.step(x) if stateful else model.predict(history.add(x))
@@ -239,6 +247,8 @@ def main():
         wheel_cmds, torque_arm = decode_outputs(y, tau_g, model.config.get("vw_outputs", False))
         # Safety clips to the expert's own ranges (PLAN.md, "Parked"), so one extreme output can't fling the robot away
         wheel_cmds = np.clip(wheel_cmds, -3.0, 3.0)  # rad/s, the expert's largest command (turning in place at 1 rad/s)
+        # C19 Route A: forward speed of the commands (mean of the 4 wheels); used from the next step on
+        driving = driving or WHEEL_RADIUS * float(np.mean(wheel_cmds)) > ARM_START_DRIVE_SPEED
         torque_arm = np.clip(torque_arm, -30.0, 30.0)  # same torque limit the expert uses
         # ----------------------------------------------------------------------
         # 3. Gripper / Finger Control (Fingers locked at fixed configuration)

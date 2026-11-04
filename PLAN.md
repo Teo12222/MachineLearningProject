@@ -140,6 +140,30 @@ Route A in detail:
   --val-set --window 25 --posture-free --low-extra 100 --extra-data <the CLD list above>`. Time to reach (mean
   episode time over reached val runs, minus the 1 s settle) and the trigger time come from a scratch summary of the
   val runs, against CLD r2 s0's val on the same PC.
+  **Smoke test (4 Nov, CLD r2 s0 + `ROBOENV_ARM_START=1.5`, 3 training targets) -> two changes before the series:**
+  - **Saturation stop:** `label_run` ends the labels once the expert's label sits at its 30 N*m limit for 50 ms
+    (after a 0.5 s grace), assuming only an off-course policy drives the expert there. While the base still drives,
+    the expert itself hits the limit in bursts (J2 / J4 / J6, 24-97% of frames in some 0.25-0.5 s windows) because
+    it reaches from a moving base with the target beyond its 0.85 m reach; so labels stopped 0.5-2.2 s after the
+    trigger, before the latch, and **the final reach was never labelled**. Fix: from the trigger to the latch + 0.5 s
+    the saturated frames are dropped (no label) instead of stopping; after that the old rule. Without the trigger
+    the latch is the first labelled frame, so nothing changes for earlier runs. A guard "stop if more than half of
+    1 s saturated while driving" was tried and **removed**: it fired on a run that was on course (hand closing in
+    from 67 to 4 cm, the policy's torques off the limit) because the expert's labels were at the limit 89-97% for
+    0.5 s; an off-course policy while driving mostly gives labels at the limit, which are dropped anyway.
+    After the fix: labels from the trigger to the end on all 3 targets, 76-92% of the driving frames kept (the rest
+    at the limit), 834-21350 frames after the latch. Report note: the expert's Cartesian controller is not built
+    for reaching while driving, so the arm learns the driving phase from fewer frames (Route B's expert has the
+    same limit in its own data).
+  - **Arm waits for the base's first turn (Matteo):** the trigger alone could fire at t = 0 for targets already
+    within 1.5 m (~16% of a uniform 1-3 m annulus), swinging the arm out while the base turns in place. Now the arm
+    may start only once the base has started driving: forward speed of its wheel commands above 0.05 m/s (expert:
+    exactly 0 while turning, >= 0.084 m/s at the 1st percentile while driving; policy ~0.000 v ~0.24). Checked: a
+    target 1.34 m away at the start, base drives at 0.88 s, arm starts at 0.89 s. The final small turn at parking
+    is not gated (the arm flag is latched by then).
+  - Smoke runs (before any Route A round): the high target reached at 10.5 s v the expert's 13.4 s; the base still
+    latches like the expert (6.08 v 5.92 s, 9.67 v 9.98 s, 4.54 v 4.63 s); the two low targets miss 5 mm at the
+    30 s cap (closest 0.56 and 1.18 cm), as CLD often does on low targets.
 - **Risks to watch:** a stretched arm on a driving / turning base (base off the floor, torques at the limit, arm
   spins), and the arm re-aiming as the base keeps moving and parks slightly off.
 - **Measure:** reached / ever / held within 1 cm and **time to reach** (mean over reached runs; now ~11-15 s incl. the
