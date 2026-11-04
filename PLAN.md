@@ -122,6 +122,24 @@ Route A in detail:
   needs the labelled window to start at the trigger instead of the latch. Start from the final model
   (`split_dartdagger_r5_s0`), keep the DART data and the earlier rounds (`--extra-data`), ~5 rounds (~8 min each on
   the PC).
+  **Updated 4 Nov (Matteo), coded on branch `c19-route-a`:** the final model is now CLD r2, so start from
+  `split_dartdagger_bb_plusCLD_r2_s0` (was `split_dartdagger_r5_s0`), base copied unchanged. Keep CLD's settings
+  (`--window 25 --posture-free --low-extra 100`) and all its data as `--extra-data` (dart/a60, a60b, bb_r1-r5,
+  data_low, bb_plusCLD_r1-r2), so the rounds differ from CLD only in the early start. 3 rounds, not 5 (CLD needed 2
+  on top of r5; time before the deadline), `d_start` = 1.5 m first, 2.0 m only if it works.
+  Code: `ROBOENV_ARM_START=<d_start>` in `robotnik_arm_policy_task.py` gives the arm network its own flag (on at the
+  latch or once the target is within `d_start`, latched); the base and its latch are unchanged, and with the
+  variable unset the run is exactly as before. Saved as `arm_on` / `arm_start` in the policy file (`nav_done` stays
+  the base's latch, so existing analyses read it as before). `dagger.py --arm-start` sets the variable for the
+  policy and val runs and labels from the arm's flag; in the DAgger files `nav_done` = the arm's flag (training
+  feeds `nav_done` to the arm as its "reach" input), the base's latch kept as `base_nav_done`. Older runs (no
+  `arm_on`) are labelled from the latch as before. The expert's labels on a moving base are right:
+  `relabel_arm` replays its Cartesian controller with each frame's base position and yaw. Only the DAgger files
+  carry the early flag; the expert data (data_main, data_low, DART) keep the expert's flag (on at parking).
+  Command: `dagger.py --start split_dartdagger_bb_plusCLD_r2_s0 --name split_armstart15 --arm-start 1.5 --rounds 3
+  --val-set --window 25 --posture-free --low-extra 100 --extra-data <the CLD list above>`. Time to reach (mean
+  episode time over reached val runs, minus the 1 s settle) and the trigger time come from a scratch summary of the
+  val runs, against CLD r2 s0's val on the same PC.
 - **Risks to watch:** a stretched arm on a driving / turning base (base off the floor, torques at the limit, arm
   spins), and the arm re-aiming as the base keeps moving and parks slightly off.
 - **Measure:** reached / ever / held within 1 cm and **time to reach** (mean over reached runs; now ~11-15 s incl. the

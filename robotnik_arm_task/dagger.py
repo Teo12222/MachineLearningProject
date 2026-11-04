@@ -72,8 +72,12 @@ def label_run(raw_path, out_path, window, posture_free=False, posture_kp=0.0):
     n = len(d["time"])
     mask = np.zeros(n, dtype=bool)
     torque = np.full((n, 7), np.nan, dtype=np.float32)   # nan where there is no label, so misuse can't go unnoticed
-    if d["nav_done"].any():   # a run that never latched has no arm phase to label
-        k = int(np.argmax(d["nav_done"]))
+    # C19 Route A: label from the arm's own flag (its trigger) instead of the base's latch, and save that flag as
+    # nav_done, because training feeds nav_done to the arm network as its "reach" input. Runs without arm_on (older
+    # policy files) or with the trigger off: the latch, exactly as before
+    flag = d["arm_on"] if "arm_on" in d else d["nav_done"]
+    if flag.any():   # a run that never latched has no arm phase to label
+        k = int(np.argmax(flag))
         stop = min(n, k + round(window * 1000))
         # The expert holds the arm's start pose until it arrives, so that is its joint reference when the reach starts
         labels = relabel_arm(d, k, stop, d["q_mes"][0, 4:11])
@@ -91,22 +95,24 @@ def label_run(raw_path, out_path, window, posture_free=False, posture_kp=0.0):
             stop = k + int(np.argmax(runs))
         torque[k:stop] = labels[:stop - k]
         mask[k:stop] = True
-    save_episode(out_path, d, torque, mask)
+    save_episode(out_path, d, torque, mask, flag)
     raw_path.unlink()
     return int(mask.sum())
 
 
-def save_episode(path, d, torque, mask):
+def save_episode(path, d, torque, mask, flag):
     """A DAgger episode in data_main's format, without the expert-only fields (nav_phase, q_des_arm, base_goal).
 
     torque_arm holds the expert's labels where arm_label_mask is True (nan elsewhere); nav_done is the policy's
     latched flag. What the policy itself commanded is kept as policy_wheel_cmds / policy_torque_arm. No wheel labels
     yet (base DAgger comes later).
+    C19 Route A: nav_done is the arm's flag (flag, on from the trigger), the base's latch is kept as base_nav_done;
+    without the trigger the two are the same.
     """
     np.savez(
         path,
         time=d["time"], base_pos=d["base_pos"], base_bearing=d["base_bearing"], q_mes=d["q_mes"], qd_mes=d["qd_mes"],
-        ee_pos=d["ee_pos"], target=d["target"], start_pose=d["start_pose"], nav_done=d["nav_done"],
+        ee_pos=d["ee_pos"], target=d["target"], start_pose=d["start_pose"], nav_done=flag, base_nav_done=d["nav_done"],
         torque_arm=torque, arm_label_mask=mask,
         policy_wheel_cmds=d["wheel_cmds"], policy_torque_arm=d["torque_arm"],
         final_error=d["final_error"], stop_message=d["stop_message"],
@@ -147,6 +153,10 @@ def main():
     parser.add_argument("--low-extra", type=int, default=0,
                         help="extra runs per round on low training targets (z < LOW_Z), on top of --n, from their own "
                              "fixed order (PLAN.md C18e, 4 Nov: the arm drifts only on low targets)")
+    parser.add_argument("--arm-start", type=float, default=0.0,
+                        help="C19 Route A: the policy's arm starts reaching once the target is within this distance (m) "
+                             "of the base (ROBOENV_ARM_START, passed on to the policy runs and the val runs); the "
+                             "rounds are labelled from that trigger. 0 = off")
     parser.add_argument("--workers", type=int, default=16, help="policy runs / labelling processes in parallel")
     parser.add_argument("--val-set", action="store_true", help="compare.py --val-set after each round")
     parser.add_argument("--extra-data", nargs="+", default=[], metavar="FOLDER",
@@ -166,7 +176,10 @@ def main():
         parser.error("--posture-kp needs --posture-free (the spring replaces the expert's posture part)")
     info = dict(start=args.start, extra_data=extra, **({"posture_free": True} if args.posture_free else {}),
                 **({"posture_kp": args.posture_kp} if args.posture_kp else {}),
-                **({"low_extra": args.low_extra} if args.low_extra else {}))
+                **({"low_extra": args.low_extra} if args.low_extra else {}),
+                **({"arm_start": args.arm_start} if args.arm_start else {}))
+    if args.arm_start:
+        os.environ["ROBOENV_ARM_START"] = str(args.arm_start)   # inherited by every policy run and compare.py
     if info_file.exists():
         if json.loads(info_file.read_text()) != info:
             parser.error(f"--name {args.name} belongs to another run ({info_file}: {info_file.read_text().strip()}); "
