@@ -1,8 +1,9 @@
-"""Run a trained policy with the mast camera on the 50 validation targets (PLAN.md step 29).
+"""Run a trained policy with the mast camera on the 50 validation targets or the 150 test targets (PLAN.md step 29).
 
 Same targets and start poses as `compare.py --val-set` (bc_data.quick_val_ids of the folder's split, targets from the
 stored expert episodes), same 30 s cap, but the policy script is camera_policy_task.py (camera estimate instead of the
 true target). Episode files go to <out-dir>/val_set/ep_XXXX.npz, so route_b_eval.py reads them like compare.py's.
+--set test: every test episode of the split (compare.py --test-set's targets), into <out-dir>/test_set/.
 
 Usage (from robotnik_arm_task/):
     python ../concurrent_arm/camera_policy_eval.py --model split_conc_dartdagger_bb_plusCLD_r3_s0 \
@@ -46,17 +47,19 @@ def main():
     ap.add_argument("--data-dir", default="data_route_b")
     ap.add_argument("--out-dir", required=True)
     ap.add_argument("--workers", type=int, default=10)
+    ap.add_argument("--set", choices=("val", "test"), default="val")
     a = ap.parse_args()
     root = HERE.parent / "robotnik_arm_task"
     data_dir = root / a.data_dir
     checkpoint = root / "checkpoints" / f"{a.model}.pt"
     assert checkpoint.exists(), checkpoint
-    ids = quick_val_ids(split_episodes(data_dir)[1])
-    run_dir = Path(a.out_dir).resolve() / "val_set"
+    _, val_ids, test_ids = split_episodes(data_dir)
+    ids = quick_val_ids(val_ids) if a.set == "val" else list(test_ids)
+    run_dir = Path(a.out_dir).resolve() / f"{a.set}_set"
     run_dir.mkdir(parents=True, exist_ok=True)
     for old in run_dir.glob("ep_*.npz"):
         old.unlink()
-    print(f"{a.model}: {len(ids)} validation targets with the camera, {a.workers} at a time", flush=True)
+    print(f"{a.model}: {len(ids)} {a.set} targets with the camera, {a.workers} at a time", flush=True)
     with ThreadPoolExecutor(max_workers=a.workers) as pool:
         jobs = [pool.submit(run, i, data_dir / f"ep_{i:04d}.npz", run_dir / f"ep_{i:04d}.npz", checkpoint) for i in ids]
         for n, job in enumerate(jobs, start=1):

@@ -3491,6 +3491,53 @@ lower limit (see "Found on the way" below).
         - Optional, only if time is left: a ResNet-18 encoder (pretrained, extra depth input channel) with our same
           heads and training, scored with `cnn_eval.py` on the same test shard, would turn this into a measured
           comparison.
+    - **Done (Kris, 4 Nov late, not pushed): the final model (drive-phase r1) with the camera, test 150, and a CNN
+      trained on the policy's arm poses.**
+      - **Model:** `split_conc_drive_r1_s0/1/2` (Matteo's final model). Its checkpoints and results files copied
+        unchanged from master into Kris (`git checkout origin/master -- ...`), not merged: merging master into Kris
+        conflicts in Matteo's `dagger.py` and `expert_relabel.py` (his Route A branch, already in Kris, against his
+        drive-phase DAgger on master); **left for Matteo to resolve**. The policy script on master differs from Kris's
+        only by the Route A switch (off by default), so `camera_policy_task.py` runs the model unchanged.
+      - **Scripts:** `camera_policy_eval.py --set test` (every test episode of the split, into `test_set/`) and
+        `route_b_eval.py --set test`; checked on the stored Route B test runs (146 / 145 / 145 reached, 141 / 141 / 144
+        held, as above). `cnn_data.py --arm-data <folders> --arm-episodes 0`: arm poses from policy runs (default
+        unchanged: `data_concurrent`, 80 episodes, same pool).
+      - **Policy-pose CNN (`checkpoints/cnn_detector_policy.pt`):** 12,000 images rendered as before but with the
+        arm poses (47,766) of drive-phase r1's own camera runs on val 50 x 3 seeds (search phase included; no test
+        target used), `data_camera_images_policy/` (git-ignored); same recipe, epoch 39. Held-out images
+        (`cnn_detector_policy_eval.txt`):
+
+        | shard 9 | original CNN: found, median error | policy-pose CNN: found, median error |
+        |---|---|---|
+        | expert-pose images | 98.9%, 0.76 mm | 98.3%, 0.70 mm |
+        | policy-pose images | 99.2%, 0.75 mm | 98.1%, 0.69 mm |
+
+        No distribution gap: the original CNN is as accurate on policy poses as on its own.
+      - **Val 50 x 3, original CNN (Mac, `compare_out/split_conc_drive_r1_s*_cnn_mac_val`):** reached 48 / 46 / 50
+        (48.0), held within 1 cm 49 / 47 / 49 (48.3); true target (PC, above) 48.7 / 48.7.
+      - **Test 150 x 3, Mac (`compare_out/split_conc_drive_r1_s*_{true,cnn,cnnpolicy}_mac_test`):**
+
+        | drive-phase r1, test 150 | reached (5 mm) | ever 1 cm | held 1 cm | held 5 cm | collapsed | time to reach (no settle) | estimate error at the end, median / max |
+        |---|---|---|---|---|---|---|---|
+        | true target (camera off, same script) | 146 / 144 / 149 (**146.3**) | 150 / 150 / 150 | 146 / 143 / 145 (**144.7**) | 450 | 0 | 10.42 s | (0) |
+        | camera, original CNN | 142 / 136 / 148 (**142.0**) | 149 / 148 / 150 | 146 / 139 / 146 (**143.7**) | 450 | 0 | 11.73 s | 0.29 / 0.71 mm |
+        | camera, policy-pose CNN | 147 / 130 / 148 (**141.7**) | 149 / 150 / 150 | 147 / 141 / 145 (**144.3**) | 450 | 0 | 11.73 s | 0.25 / 0.88 mm |
+
+        - **Held within 1 cm (the model's main measure): the camera costs 0.4-1.0 of 150**, within the seed spread
+          (3). Reached within 5 mm: -4.3 / -4.7, mostly seed 1 (-8 / -14; seeds 0 and 2 between -4 and +1).
+        - **The policy-pose CNN changes nothing beyond noise:** same reached, +0.6 held; per seed it swings -6 to +5
+          against the original CNN although the two estimates differ by fractions of a mm: the policy's sensitivity
+          to its start, not the detector.
+        - **Not perception:** the estimate ends within 0.9 mm on every run. Original CNN, targets reached with the
+          true target but not with the camera: 18, the other way 5; all 18 hover 5-10 mm off until the 30 s cap with
+          a fixed estimate, and they had longer searches (median turn 179 deg, first seen 3.6 s, v 102 deg / 2.1 s
+          for targets both reach). Likely cause (not tested): after a long spin the policy starts from base
+          headings and a later start time its training data rarely had.
+        - **Checked twice:** `route_b_eval.py --set test` and a separate recount from the episode files (same reached
+          per seed for all three conditions; every camera file records `detector=cnn`).
+      - **For the report:** the final model runs from the camera with no retraining at a cost within the seed spread
+        on held within 1 cm (144.7 -> 143.7 / 144.3) and ~1.3 s of search; training the detector on the policy's own
+        arm poses instead of the expert's gives the same, as the detector already generalises to them.
 
 ### Low priority: other model families (comparison only, unassigned: only if time is left at the end)
 Purpose: show in the report why a neural network is the right choice. One or two of these in the results table is

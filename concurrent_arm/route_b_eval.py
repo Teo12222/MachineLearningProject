@@ -37,13 +37,16 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("runs", nargs="+", help="compare.py --out-dir folders (their val_set/ is read)")
     p.add_argument("--data-dir", default="data_route_b")
+    p.add_argument("--set", choices=("val", "test"), default="val",
+                   help="test: every test episode, from the folders' test_set/")
     a = p.parse_args()
     root = Path(__file__).resolve().parent.parent / "robotnik_arm_task"
-    ids = quick_val_ids(split_episodes(root / a.data_dir)[1])
+    _, val_ids, test_ids = split_episodes(root / a.data_dir)
+    ids = quick_val_ids(val_ids) if a.set == "val" else list(test_ids)
     cols = ("reached", "ever_1cm", "held_1cm", "held_5cm", "collapsed")
     print(f"{'runs':48s} {'n':>3s} " + " ".join(f"{c:>9s}" for c in cols) + "  t_reach (reached)")
     for run in a.runs:
-        files = [Path(run) / "val_set" / f"ep_{i:04d}.npz" for i in ids]
+        files = [Path(run) / f"{a.set}_set" / f"ep_{i:04d}.npz" for i in ids]
         rows = [stats(f) for f in files if f.exists()]
         t = [r["t_reach"] for r in rows if r["reached"]]
         print(f"{Path(run).name:48s} {len(rows):3d} " + " ".join(f"{sum(r[c] for r in rows):9d}" for c in cols)

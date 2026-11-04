@@ -12,6 +12,7 @@ rule for a clean detection (>= min_pixels red pixels, not touching the robot's o
 with the segmentation mask. At run time the network gets only RGB + depth.
 
 Usage (from robotnik_arm_task/): python ../concurrent_arm/cnn_data.py --n 12000 --out data_camera_images32
+Policy arm poses instead of the expert's: --arm-data compare_out/<run>/val_set ... --arm-episodes 0
 """
 import argparse
 import os
@@ -28,10 +29,13 @@ EE_LINK = 16                          # robot_j2s7s300_end_effector
 FINGER_ANGLE = 0.1
 
 
-def arm_pool(data_dir, n_episodes=80, every=40, seed=0):
-    """Arm configurations from concurrent-expert episodes: every `every`-th frame of n_episodes random episodes."""
+def arm_pool(data_dirs, n_episodes=80, every=40, seed=0):
+    """Arm configurations from stored episodes: every `every`-th frame of n_episodes random episodes (0: all) found
+    under the folders data_dirs (expert data folders, or policy-run folders such as compare_out/<run>/val_set)."""
     rng = np.random.default_rng(seed)
-    files = sorted(Path(data_dir).glob("ep_*.npz"))
+    files = sorted(f for d in data_dirs for f in Path(d).rglob("ep_*.npz"))
+    if n_episodes <= 0:
+        n_episodes = len(files)
     qs = []
     for f in rng.choice(files, size=min(n_episodes, len(files)), replace=False):
         with np.load(f) as d:
@@ -131,13 +135,15 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--n", type=int, default=12000)
     ap.add_argument("--out", default="data_camera_images32")
-    ap.add_argument("--arm-data", default="data_concurrent")
+    ap.add_argument("--arm-data", nargs="+", default=["data_concurrent"],
+                    help="folders of episodes to take arm configurations from (expert or policy runs)")
+    ap.add_argument("--arm-episodes", type=int, default=80, help="episodes drawn from them (0: all)")
     ap.add_argument("--workers", type=int, default=10)
     ap.add_argument("--seed", type=int, default=0)
     a = ap.parse_args()
     out = Path(a.out).resolve()
     out.mkdir(parents=True, exist_ok=True)
-    arm_qs = arm_pool(a.arm_data, seed=a.seed)
+    arm_qs = arm_pool(a.arm_data, n_episodes=a.arm_episodes, seed=a.seed)
     print(f"{len(arm_qs)} arm configurations from {a.arm_data}", flush=True)
     per = int(np.ceil(a.n / a.workers))
     jobs = [(w, per, a.seed * 1000 + w + 1, arm_qs, str(out / f"shard_{w:02d}.npz")) for w in range(a.workers)]
