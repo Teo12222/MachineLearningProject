@@ -83,8 +83,12 @@ val like CLD's (best of the three on val 50 and val 150: reached 50 / 150, held 
 90 on val 150); on test it is the lowest of the three on held within 1 cm (143 v 145 / 147), seed noise. Run:
 `ROBOENV_POLICY=checkpoints/split_conc_drive_r1_s0.pt pixi run python robotnik_arm_policy_task.py`. Provisional until
 Matteo checks with everyone; Kris's sequential pre-shaping model (5 Nov) may become the main one with this as the
-extension (decision note in step 28). The start-pose, out-of-range and distances-table results below are still CLD
-r2's: rerun on this model.
+extension (decision note in step 28). **Rerun on this model (4 Nov ~20:15):** start pose and out-of-range (step 11,
+under CLD r2's tables, with a correction to CLD's far-target explanation), distances table
+(`results/analysis/final_distances.csv` / `final_bands.csv` are now this model's, `analyse_distances.py`'s default;
+CLD r2's kept as `cld_r2_distances.csv` / `cld_r2_bands.csv`): 3-seed mean, ever / held within 0.5 s, of 150:
+5 mm 144.3 / 73.0, 1 cm 149.7 / 145.0, 2 cm 149.7 / 149.7, 5 cm and 10 cm 150 / 150 (expert: 149 / 145, 150 / 149,
+150 / 150); held within 1 cm 96-97% in every distance band, 94% on targets below 0.5 m (CLD r2: 51%).
 **Superseded 4 Nov ~19:45. Was, from ~13:10 (C18e, Matteo): `split_dartdagger_bb_plusCLD_r2_s0/1/2`** (+C plus extra low-target
 DAgger runs and 60 extra low-target expert episodes; ties +C on val, ahead on every val mean, tie rule "higher val
 means" added after the results; test 150: 83.1% reached, 74.9% held within 1 cm, 0 collapses).
@@ -532,6 +536,47 @@ report must already be complete without it; Thursday only swaps in results, nobo
       **at most ~12-16 of 200 far runs could be lost to the 30 s cap.** Not rerun with 40 s (not needed for the claim).
     - Report: the model holds the training range (1-3 m), degrades gradually just outside it and fails beyond ~4 m,
       where the base never recognises arrival; the expert (a hand-built controller) has no such limit.
+    - **CORRECTION (4 Nov ~20:15, Matteo's session): the far-target failure is the ARM, not the base network.** The
+      final model below has the *identical* base network (all 13 base tensors equal: both copied from
+      `split_dart_base_bound_s2`), yet 0 timeout latches on the same 200 far targets. In all 34 of CLD r2's timeout
+      runs its arm **spins while the base drives** (joint 1 up to 100 rad/s, above 5 rad/s in 58% of the drive, ~74 rad
+      = ~12 turns; latched-by-network runs: max 0.1 rad/s median): on drives longer than its training data the
+      flag-0 "hold the start pose" arm goes unstable, the spinning arm drags the base off its path, and the base never
+      reaches a state it recognises as arrived. "The base network is lost outside its training distances" above is
+      wrong; read it as "CLD's arm becomes unstable on long drives and takes the base with it".
+
+    **Rerun on the new final model (drive-phase r1 on Route B, `split_conc_drive_r1_s0`, 4 Nov ~20:15, PC),** same
+    targets and pruning as above (seed 21 start poses, 1-3 m from the start; seed 31 out-of-range bands, default
+    start); expert rows reused (`starts/expert_*`, `oor/expert_*`: the sequential expert, the same reference as for
+    CLD r2). Folders `starts/split_conc_drive_r1_s0_<pose>`, `oor/split_conc_drive_r1_s0_<near|far>` (not committed).
+    Model (expert), reached / ever 1 cm / held 1 cm / held 5 cm:
+
+    | start pose | final model | expert | CLD r2 (for comparison) |
+    |---|---|---|---|
+    | default 0, 0, 0 | 50 / 50 / 48 / 50 | 50 / 50 / 50 / 50 | 46 / 49 / 39 / 50 |
+    | offset 2.0, 1.5, 0 | 48 / 50 / 47 / 50 (1 collapse) | 50 / 50 / 49 / 50 | 46 / 48 / 39 / 50 |
+    | rotated 0, 0, 3.0 | 49 / 50 / 49 / 50 | 50 / 50 / 50 / 50 | 41 / 45 / 37 / 50 |
+    | both -1.5, 2.0, -2.0 | 49 / 50 / 49 / 50 | 48 / 49 / 49 / 49 | 42 / 46 / 37 / 50 |
+
+    | target distance (default start) | n | final model | expert | CLD r2 |
+    |---|---|---|---|---|
+    | 0.6-0.8 m | 24 | 20 / 22 / 17 / 23 | 24 / 24 / 24 / 24 | 10 / 21 / 12 / 23 |
+    | 0.8-1.0 m | 26 | 25 / 26 / 24 / 26 | 26 / 26 / 26 / 26 | 21 / 26 / 20 / 26 |
+    | 3.0-3.5 m | 35 | 34 / 35 / 33 / 35 | 35 / 35 / 35 / 35 | 31 / 33 / 29 / 35 |
+    | 3.5-4.0 m | 53 | 49 / 52 / 49 / 53 | 53 / 53 / 53 / 53 | 41 / 49 / 39 / 53 |
+    | 4.0-4.5 m | 56 | 54 / 56 / 52 / 56 | 55 / 56 / 56 / 56 | 34 / 37 / 32 / 43 |
+    | 4.5-5.0 m | 56 | 55 / 56 / 54 / 56 | 55 / 56 / 56 / 56 | 11 / 13 / 10 / 16 |
+
+    - **Start pose: no effect** (ever within 1 cm 50/50 from every pose, held 47-49; the rotated drop CLD r2 showed is
+      gone). One collapse at the offset pose (single run).
+    - **Out of range: only the closest targets lose anything** (0.6-0.8 m: held within 1 cm 17/24, the arm still gets
+      within 1 cm in 22); **beyond 3 m the model is about as good as in the training range, up to 5 m** (held within
+      1 cm 93-96%, 0 timeout latches). So the "fails beyond ~4 m" limitation of CLD r2 is gone: it was CLD's arm
+      spinning on long drives (correction above), and the final model's arm moves to its pre-shaped pose and stays
+      there (max arm joint speed while driving 8 rad/s in one brief spike, joint range 0.2 rad).
+    - Report: the final model is insensitive to the start pose and generalises to targets 3-5 m away; only targets
+      closer than ~0.8 m (where the base can barely back off) cost precision. The expert reference is the sequential
+      expert (the concurrent one wasn't run here; both reach ~100%).
 12. **Robustness: sensor noise only** (Kris; **runs on Wed 4 Nov in the background while we write the report**, on the final model, with 11;
     the noise-config change is done and smoke-tested on Tuesday; decided 2 Nov:
     friction and shoves dropped, the start-pose test (11) is the other robustness result). Uses the simulator's own

@@ -1,8 +1,8 @@
-band,targets,split_dartdagger_bb_plusCLD_r2_s0 ever_1cm,split_dartdagger_bb_plusCLD_r2_s0 held_1cm,split_dartdagger_bb_plusCLD_r2_s0 ever_5mm,split_dartdagger_bb_plusCLD_r2_s1 ever_1cm,split_dartdagger_bb_plusCLD_r2_s1 held_1cm,split_dartdagger_bb_plusCLD_r2_s1 ever_5mm,split_dartdagger_bb_plusCLD_r2_s2 ever_1cm,split_dartdagger_bb_plusCLD_r2_s2 held_1cm,split_dartdagger_bb_plusCLD_r2_s2 ever_5mm,expert ever_1cm,expert held_1cm,expert ever_5mm,mean ever_1cm,mean ever_1cm %,mean held_1cm,mean held_1cm %,mean ever_5mm,mean ever_5mm %
-distance 1.0-1.5 m,25,24,21,21,24,18,19,20,19,18,25,25,25,22.7,90.7,19.3,77.3,19.3,77.3
-distance 1.5-2.0 m,36,35,29,34,34,26,32,34,26,28,36,35,36,34.3,95.4,27.0,75.0,31.3,87.0
-distance 2.0-2.5 m,38,36,31,35,37,27,34,38,29,34,38,38,38,37.0,97.4,29.0,76.3,34.3,90.4
-distance 2.5-3.0 m,51,50,36,37,44,37,39,46,38,43,51,51,50,46.7,91.5,37.0,72.5,39.7,77.8
-height 0.2-0.5 m,58,54,33,41,47,24,34,46,31,41,58,58,57,49.0,84.5,29.3,50.6,38.7,66.7
-height 0.5-0.8 m,40,40,39,38,40,40,40,40,38,39,40,39,40,40.0,100.0,39.0,97.5,39.0,97.5
-height 0.8-1.1 m,52,51,45,48,52,44,50,52,43,43,52,52,52,51.7,99.4,44.0,84.6,47.0,90.4
+band,targets,split_conc_drive_r1_s0 ever_1cm,split_conc_drive_r1_s0 held_1cm,split_conc_drive_r1_s0 ever_5mm,split_conc_drive_r1_s1 ever_1cm,split_conc_drive_r1_s1 held_1cm,split_conc_drive_r1_s1 ever_5mm,split_conc_drive_r1_s2 ever_1cm,split_conc_drive_r1_s2 held_1cm,split_conc_drive_r1_s2 ever_5mm,expert ever_1cm,expert held_1cm,expert ever_5mm,mean ever_1cm,mean ever_1cm %,mean held_1cm,mean held_1cm %,mean ever_5mm,mean ever_5mm %
+distance 1.0-1.5 m,25,25,24,25,25,24,23,25,25,24,25,25,25,25.0,100.0,24.3,97.3,24.0,96.0
+distance 1.5-2.0 m,36,36,34,35,36,36,36,36,35,35,36,35,36,36.0,100.0,35.0,97.2,35.3,98.1
+distance 2.0-2.5 m,38,38,36,35,38,37,35,37,37,37,38,38,38,37.7,99.1,36.7,96.5,35.7,93.9
+distance 2.5-3.0 m,51,51,49,49,51,48,49,51,50,50,51,51,50,51.0,100.0,49.0,96.1,49.3,96.7
+height 0.2-0.5 m,58,58,53,52,58,55,54,57,55,55,58,58,57,57.7,99.4,54.3,93.7,53.7,92.5
+height 0.5-0.8 m,40,40,40,40,40,40,39,40,40,39,40,39,40,40.0,100.0,40.0,100.0,39.3,98.3
+height 0.8-1.1 m,52,52,50,52,52,50,50,52,52,52,52,52,52,52.0,100.0,50.7,97.4,51.3,98.7
