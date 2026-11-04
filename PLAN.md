@@ -3266,6 +3266,22 @@ lower limit (see "Found on the way" below).
         from an unused seed as the final test). (3) Matteo's PC counts for these runs. (4) Usual round pick (seed-0
         val: held 1 cm, ever 1 cm, reached), seeds 1-2 only for a round that passes. (5) Kris runs the sequential
         pre-shaping model tomorrow in the background while writing.
+        **Update ~19:45 (Matteo):** the final model is now drive-phase r1 (`split_conc_drive_r1_s0/1/2`, demo s0, see
+        FINAL MODEL at the top), chosen on val 150. **Plan for 5 Nov (Kris, Mac, in the background while writing):**
+        (a) the sequential pre-shaping expert and model as in (1) (arm still while driving; after the latch the
+        joint-space path to `q_final`, then the short Cartesian correction; same data seeds and recipe as Route B);
+        (b) **the same addition as drive-phase r1, adapted**: in that model the arm moves only after parking, so the
+        frames DAgger mislabels are after the latch (his `--relabel-from-final` labels them with the Cartesian reach,
+        but this expert first follows the joint path): a labeller for it (hold the start pose before the latch, flag
+        0; from the latch the path to `q_final` with the expert's own timing and the 0.15 rad lead limit; then the
+        Cartesian reach where the expert switches), 1-3 rounds on top of its final CLD-style round, round picked on
+        seed-0 val, seeds 1-2 of the chosen round. **Catch to check first:** after the latch the flag is 1 in both the
+        path and the Cartesian part, so the network must tell them apart from the arm state (Route A failed on one
+        flag for two behaviours); a switch on "joint path (nearly) done" is visible to it, one on time since parking
+        is not. (c) Measure with `compare.py --val-full` and test 150, 3 seeds, every compared model on the same
+        machine (on his Mac: also run drive-phase r1 there, or send the checkpoints to Matteo's PC). Purpose: the fair
+        comparison (pre-shaping without concurrency v Route B / drive-phase r1); the main model of the report is
+        decided after it, with everyone.
         Series: `split_conc_drive`, 3 rounds on `split_conc_dartdagger_bb_plusCLD_r3_s0`, PC; then Route B's test 150
         on the PC (3 seeds; his test 150 is from the Mac, CLD's from the PC).
       - **Result (4 Nov ~18:35, PC).** Rounds, seed 0, val 50: r1 50 / 50 / 49 / 50 (reached / ever 1 cm / held 1 cm /
