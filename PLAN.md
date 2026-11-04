@@ -735,6 +735,24 @@ report must already be complete without it; Thursday only swaps in results, nobo
         labelled, and it makes no difference. So the extra swing-through of B and C isn't caused by the posture labels
         (consistent with test 1 on DART); more likely the long window itself (much more data from the policy's own
         hovering states near the target). Seeds 1 and 2 of B r5 and C r5 next, then the decision.
+      **Seeds and decision (01:32-01:46):** seeds 1 and 2 of B r5 and C r5 (same data and settings, base copied),
+      val 50:
+
+      | | reached | ever 1 cm | held 1 cm | held 2 cm | held 5 cm | collapsed / spins |
+      |---|---|---|---|---|---|---|
+      | **final model (A: 5 s window)** | 35 / 39 / 39 = 37.7 | 44 / 48 / 47 = 46.3 (spread 4) | **41 / 38 / 38 = 39.0** (spread 3) | 48.3 | 50 | 0 / 0 |
+      | B: whole run | 45 / 37 / 46 = 42.7 | 49 / 47 / 49 = 48.3 | 31 / 28 / 33 = 30.7 | 49.7 | 50 | 0 / 0 |
+      | C: whole run, posture-free | 42 / 45 / 43 = 43.3 | 48 / 48 / 48 = 48.0 | 29 / 14 / 20 = 21.0 | 46.7 | 50 | 0 / 0 |
+
+      - **Decision by the rule: the final model stays.** Held within 1 cm: B and C clearly worse (30.7, 21.0 v 39.0,
+        far beyond the spread of 3); ever within 1 cm: +2.0 and +1.7, within the spread of 4; held within 5 cm unchanged.
+      - **Report point: labelling the whole run trades holding for reaching**, consistently over 3 seeds: +5 reached
+        (85% on val), +2 ever within 1 cm, -8 held within 1 cm. The arm gets to the target in more runs but passes
+        through it more. **Posture-free labels make the holding worse still** (21.0), as for DART (test 1): together,
+        the posture part of the labels helps the arm hold, even where it depends on the hidden q_des.
+      - Best DAgger labelling for the bounded-base series (rule: highest 3-seed held within 1 cm): **A** (5 s window,
+        labels as now). Test 150 for B (3 seeds) as report information only (a clear trade-off worth showing); C is
+        clearly worse, no test.
 
 **D. Extensions:** camera (Kris from 3 Nov once the winner's test 150 is done, finished 5 Nov; Matteo joins after the
 final edit; cut-off Thursday evening, see the week table); parking pose + arm early: future work in the report. Dropped unless time: parked-start arm episodes, randomised arm start
