@@ -3068,7 +3068,7 @@ lower limit (see "Found on the way" below).
       - The arm moves at most 0.063 rad while the base turns (the same sag as the sequential expert's). The base never
         leaves the floor (lowest base z -0.004 m in both). `q_final`'s IK error is at most 1 mm on all 300 targets:
         none is beyond the reach limit.
-    - **Done (Kris, 4 Nov, not pushed): can the final model's arm network learn the concurrent expert's torques?**
+    - **Done (Kris, 4 Nov, pushed 4 Nov): can the final model's arm network learn the concurrent expert's torques?**
       Offline, no simulation (`concurrent_arm/learnability.py`): the arm network's own inputs (`make_features`
       columns 3-26 + the arrived flag = `nav_done`), gravity-residual labels, a 3 x 256 ReLU MLP like the final
       model's arm, 40 epochs, every 10th frame of episodes 0-299, 240 / 60 episodes train / held out. Same test on
@@ -3096,7 +3096,7 @@ lower limit (see "Found on the way" below).
       - Offline error is not closed-loop success (step 27, "offline vs closed-loop gap"); this only rules out "can't
         be learned from these inputs". For scale: DART's noise at scale 1 is 0.011-0.077 N*m per joint (the split
         MLP's error on expert frames).
-    - **Done (Kris, 4 Nov, Mac, not pushed): Route B (C19) trained with the final model's recipe (CLD r2's), val 50.**
+    - **Done (Kris, 4 Nov, Mac, pushed 4 Nov): Route B (C19) trained with the final model's recipe (CLD r2's), val 50.**
       **Data** (all with **early IK off**, `ROBOENV_ARM_EARLY_IK=0`, so the arm switches to the Cartesian correction
       exactly at `nav_done`, the flag the split arm gets; the offline check above showed early IK makes the 0.35 s
       before the latch the hardest part): `data_route_b` (1,000 episodes, `--seed 0`: the same targets and ids as
