@@ -606,7 +606,11 @@ report must already be complete without it; Thursday only swaps in results, nobo
     | 1 kg | 0 / 4 / 0 / 50 | -3.4 cm (4.2 cm) | 49 / 50 / 50 / 50 | 0.8% |
     | 2 kg | 0 / 0 / 0 / 2 (6 collapses) | -7.8 cm (8.9 cm) | 34 / 42 / 42 / 49 | 66.7% |
 
-    - **The final model is not robust to an unknown payload; the expert is (up to 1 kg).** With 0.5-1 kg the model
+    - **Framing for the report (Matteo, 4 Nov): the model degrades gracefully up to 1 kg and breaks at 2 kg.** Up to
+      1 kg every run still parks, reaches and holds within 5 cm (precision lost, not stability; the hand settles at a
+      steady offset proportional to the load); 2 kg is a different regime (2/50 within 5 cm, 6 collapses), where the arm
+      is torque-limited even for the expert (3 kg at the hand in total with the unmodelled 1 kg).
+    - **Precision with an unknown payload: the expert compensates up to 1 kg, the model doesn't.** With 0.5-1 kg the model
       still parks and reaches (every run within 5 cm) but the hand **sags** below the target by an amount growing
       with the load (-1.4 / -3.4 / -7.8 cm): it has learned the torques for the known arm (gravity term + residual),
       and nothing in it integrates the remaining error, so a constant extra load leaves a constant offset. The
