@@ -71,6 +71,13 @@ Look there for the current state of each model instead of this file.
 **FINAL MODEL, 4 Nov ~13:10 (C18e, Matteo): `split_dartdagger_bb_plusCLD_r2_s0/1/2`** (+C plus extra low-target
 DAgger runs and 60 extra low-target expert episodes; ties +C on val, ahead on every val mean, tie rule "higher val
 means" added after the results; test 150: 83.1% reached, 74.9% held within 1 cm, 0 collapses).
+**Submitted / demo checkpoint (4 Nov, Matteo): seed 0, `checkpoints/split_dartdagger_bb_plusCLD_r2_s0.pt`.** Results
+stay the 3-seed mean; the demo needs one file. Picked on val only: seed 0 is best of the three on every val measure
+(reached 46 v 45 / 44, ever within 1 cm 50 v 49 / 48, held within 1 cm 44 v 43 / 41), so no tie rule was needed. Its
+test 150 is also the best (127 reached, 117 held), but that is report information, not the reason. To run it:
+`ROBOENV_POLICY=checkpoints/split_dartdagger_bb_plusCLD_r2_s0.pt pixi run python robotnik_arm_policy_task.py` (PowerShell:
+`$env:ROBOENV_POLICY = "..."` first). **Catch:** without `ROBOENV_POLICY` the script loads `checkpoints/mlp_baseline.pt`
+(the first baseline), not the final model. The README is not changed (course file).
 **Superseded 4 Nov ~13:10. Was, from ~10:00 (C18e): final model = `split_dartdagger_bb_plusC_r3_s0/1/2`** (3 extra posture-free
 whole-run DAgger rounds on top of the bounded-base model; ties it on val, wins on the new tie-breaker "fewer
 collapses" (val 0 v 1); test 150 85.8% reached, 75.8% held within 1 cm, 0 / 2 / 0 collapses). Pending the drift
