@@ -1,0 +1,6 @@
+model,episodes,ever_5mm,held_5mm,ever_1cm,held_1cm,ever_2cm,held_2cm,ever_5cm,held_5cm,ever_10cm,held_10cm,ever_1cm_after_latch
+split_dartdagger_w25_r5_s0,150,127,15,149,99,150,148,150,150,150,150,149
+split_dartdagger_w25_r5_s1,150,103,9,133,79,150,141,150,150,150,150,133
+split_dartdagger_w25_r5_s2,150,120,12,148,80,150,148,150,150,150,150,148
+mean of seeds,150,116.7,12.0,143.3,86.0,150.0,145.7,150.0,150.0,150.0,150.0,143.3
+expert,150,149,145,150,149,150,150,150,150,150,150,150

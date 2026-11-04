@@ -808,6 +808,31 @@ report must already be complete without it; Thursday only swaps in results, nobo
       - Best DAgger labelling for the bounded-base series (rule: highest 3-seed held within 1 cm): **A** (5 s window,
         labels as now). Test 150 for B (3 seeds) as report information only (a clear trade-off worth showing); C is
         clearly worse, no test.
+      **B on test 150 (01:47-01:56, report information only, not a decision):** `compare_out/split_dartdagger_w25_r5_s*_test`,
+      distances from `analyse_distances.py --name B_w25` (`results/analysis/B_w25_*.csv`):
+
+      | test 150, 3-seed mean | reached | ever 1 cm | held 1 cm | held 5 mm | held 2 cm |
+      |---|---|---|---|---|---|
+      | final model | 103.7 (69.1%) | 132.7 (88.4%) | **105.0 (70.0%)** | 29.7 | 145.7 |
+      | B, whole run labelled (127 / 103 / 120 reached) | **116.7 (77.8%)** | **143.3 (95.5%)** | 86.0 (57.3%) | 12.0 | 145.7 |
+
+      The test confirms the validation trade-off: more reaches and touches, fewer holds.
+      **Bounded-base series (01:56-02:35, Matteo's request: the best DAgger recipe, A, with the bounded base):**
+      `dagger.py --start split_dart_base_bound_s2 --extra-data dart/a60 dart/a60b --name split_dartdagger_bb --rounds 5`
+      (5 s window, labels as now). The start model is the bounded base (C15; seed 2 picked by the base's own metrics:
+      smallest worst-case parking, then latch closest to the expert) with the DART-300 arm; each round trains a new
+      arm on DAgger data collected behind the bounded base, so the arm is fitted to it. `dagger.py` now passes the
+      start model's output type on (else `train.py` refused the copied bounded base). Val 50, seed 0:
+
+      | | reached | ever 1 cm | held 1 cm | held 2 cm | held 5 cm | closest (median) |
+      |---|---|---|---|---|---|---|
+      | final model r5 (ReLU base), seed 0 | 35 | 44 | 41 | 47 | 50 | 0.35 cm |
+      | bounded start (DART arm, no DAgger) | 28 | 43 | 38 | 46 | 50 | 0.46 cm |
+      | rounds 1 / 2 / 3 / 4 | 21 / 30 / 35 / 33 | 39 / 43 / 46 / 44 | 31 / 28 / 36 / 35 | 46 / 48 / 49 / 49 | 50 | |
+      | **round 5** (chosen: most held 1 cm) | **42** | **50** | **45** | **50** | 50 | **0.28 cm** |
+
+      Round 5 beats the final model's seed 0 on every count and lies above all three of its seeds on held (38-41)
+      and ever (44-48) within 1 cm; one seed: seeds 1 and 2 decide.
 
 **D. Extensions:** camera (Kris from 3 Nov once the winner's test 150 is done, finished 5 Nov; Matteo joins after the
 final edit; cut-off Thursday evening, see the week table); parking pose + arm early: future work in the report. Dropped unless time: parked-start arm episodes, randomised arm start
