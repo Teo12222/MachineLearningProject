@@ -3475,6 +3475,22 @@ lower limit (see "Found on the way" below).
         the design point that mattered: learn where in the image, read how far from the depth sensor (direct distance
         regression: 16 mm). In closed loop both detectors are good enough that the policy, not perception, limits
         success.
+      - **For the report, must explain: why not a ResNet (or another standard pretrained backbone).** Not tried (as
+        of 4 Nov); the report has to say why. Reasons:
+        - **Little room to gain on the images:** the error is ~1/3 pixel at 3 m and the distance comes from the depth
+          sensor, not the network; a bigger encoder could only improve the image position, already sub-pixel.
+        - **No room to gain in closed loop:** with the CNN the policy already matches the true target within the seed
+          spread (47.0 v 48.3 held); the policy's own 1-2 cm hovering limits success, so a better detector cannot show.
+        - **Cost:** ResNet-18 is ~11M parameters, ~35x ours (308k); ours runs 16 ms per image on one CPU thread, and
+          the camera runs at 10 Hz alongside the policy and the simulation.
+        - **Pretraining fits poorly:** ImageNet weights expect RGB only; our input is RGB-D, so the first layer must
+          change (the depth part starts untrained), and the scenes are simple renders (one red sphere, the robot, a
+          flat floor), not natural photos where pretrained features help most.
+        - **Output resolution:** ResNet downsamples 32x; the heatmap needs fine resolution (ours outputs at stride 2),
+          so it would need an added upsampling decoder, which is what our small encoder-decoder already is.
+        - Optional, only if time is left: a ResNet-18 encoder (pretrained, extra depth input channel) with our same
+          heads and training, scored with `cnn_eval.py` on the same test shard, would turn this into a measured
+          comparison.
 
 ### Low priority: other model families (comparison only, unassigned: only if time is left at the end)
 Purpose: show in the report why a neural network is the right choice. One or two of these in the results table is
