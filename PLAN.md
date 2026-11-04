@@ -3014,6 +3014,31 @@ lower limit (see "Found on the way" below).
         then 7.5 cm from the target (median, DAgger r3) instead of 22.6 cm, and within 1 cm 1.39 s later instead of
         2.04 s. Less correction after the latch, where the final model's failures happen (hovering 1.5-2 cm off).
         The arm learned to move while driving: 0.73 rad by the latch (CLD r2: 0.05).
+        **Checked as the cause (val 50, both models' 3 seeds, 150 runs each, Mac):**
+
+        | | CLD r2 (final) | Route B CLD r3 |
+        |---|---|---|
+        | held within 1 cm | 121 | 145 |
+        | hand path from the latch to within 1 cm (median) | 26.0 cm | 7.8 cm |
+        | held within 1 cm by correction length (thirds of the hand's distance at the latch) | short (< 16.3 cm) 47/50, middle 45/50, **long (> 27.7 cm) 29/50** | short (< 6.8 cm) 49/50, middle 49/50, long (> 8.1 cm) 47/50 |
+        | held, low / mid / high targets | 22/39, 57/60, 42/51 | 34/39, 60/60, 51/51 |
+        | base parked from its expert's spot (median; held v failed) | 1.3 cm (1.3 v 1.3) | 1.3 cm (1.3 v 1.3) |
+        | final posture v its expert's (median, max joint) | 0.054 rad | 0.048 rad |
+        | runs with clipped torques in the 0.5 s after the latch (J6 jolt) | 101 (held 83/101 v 38/49 without) | 0 |
+
+        - **The cause is the length of the closed-loop Cartesian correction the policy has to make.** Within the final
+          model itself, runs that start it within 16 cm of the target hold within 1 cm as often as Route B (47/50);
+          runs that start it more than 28 cm away hold 29/50. Route B starts every run within ~8 cm (its long third
+          still holds 47/50): the big motion is the joint-space path to `q_final` during the drive, where a small
+          error doesn't matter, and the precise part is short. The longest corrections are the low and high targets
+          (far from the start pose at 0.757 m), which is where the final model fails and Route B gains most (low
+          22 -> 34 of 39, high 42 -> 51 of 51).
+        - **Not the cause:** parking (same 1.3 cm, failures don't park worse on val), the final posture (similar), the
+          J6 jolt at the start of the reach (final-model runs with it hold as often as without).
+        - Failures look the same in both: the hand hovers ~2 cm off and keeps moving (11-15 cm of hand travel in the
+          last 2 s, against 4-6 cm for held runs); Route B just has far fewer of them.
+        - Correlational within the final model (long corrections are also the low and high targets), but the
+          dose-response inside one model and the same pattern across the two point the same way.
       - Before the CLD rounds the mean time to reach was not lower (11.6 s v 11.0-11.7): a few runs stayed within
         1 cm and reached 5 mm only at 20-29 s (median already 0.4 s lower). The CLD rounds removed that tail (slowest
         reach 18.7 s, seed 0).
