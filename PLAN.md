@@ -959,6 +959,32 @@ report must already be complete without it; Thursday only swaps in results, nobo
         0.2,0.5 --out-dir data_low`, all 60 reached and kept by `clean_ids`; arm training only, via --extra-data, so
         the base and the val/test split are untouched). Then: combine every one that is as good or better than +C
         without drift. First attempt crashed out of memory (a test 150 run at the same time); rerun one at a time.
+      - **Drift tests done (09:55-11:36), val 50, seed 0 per round; best round picked by held 1 cm, then ever, then
+        reached:**
+
+        | val 50, seed 0 | reached | ever 1 cm | held 1 cm | collapsed |
+        |---|---|---|---|---|
+        | +C r3 (final model) | 44 | 49 | 41 | 0 |
+        | R r1 / r2 / r3 (spring, kp 20) | 38 / 28 / 40 | 48 / 37 / 44 | 36 / 33 / 38 | 0 |
+        | CL r1 / r2 / r3 (+ low runs) | 40 / 41 / 43 | 49 / 47 / 48 | **45** / 42 / 35 | 0 |
+        | CD r1 / r2 / r3 (+ data_low) | 36 / 46 / 46 | 48 / 47 / 47 | 37 / **45** / 41 | 0 |
+
+        R dropped (below +C on every round: the spring to 0 fights the posture the expert actually uses, ~0.3 rad
+        on low targets). Seeds 1-2 of CL r1 and CD r2 (same data, base copied from `bb_r5_s0`):
+
+        | val 50, 3 seeds | reached | ever 1 cm | held 1 cm | held 5 cm | collapsed |
+        |---|---|---|---|---|---|
+        | +C r3 (final model) | 44 / 45 / 45 = 44.7 | 49 / 49 / 47 = 48.3 (spread 2) | 41 / 38 / 42 = 40.3 (spread 4) | 50 | 0 / 0 / 0 |
+        | CL r1 | 40 / 37 / 31 = 36.0 | 49 / 49 / 45 = 47.7 | 45 / 42 / 37 = 41.3 | 50 | 0 / 0 / 0 |
+        | CD r2 | 46 / 42 / 40 = 42.7 | 47 / 49 / 49 = 48.3 | 45 / 40 / 38 = 41.0 | 50 | 0 / 2 / 0 |
+
+        **Both tie with +C** (held within 1 cm +1.0 / +0.7, ever -0.6 / 0, all within +C's spreads). Tie-breaker:
+        CL same collapses (0 v 0) -> +C stays; CD more (2 v 0) -> +C stays. **Final model unchanged: +C r3.**
+        Seed 0 flattered both (45 held each, the other seeds 37-42). CL costs a lot of reaching (36.0 v 44.7).
+        By the agreed plan only CL qualified for a combination (CD has collapses), but Matteo leaned to trying the
+        combination anyway, so it runs (decision still by the rule): **CLD** = +C with `--low-extra 100` and
+        `data_low` (`split_dartdagger_bb_plusCLD`, 3 rounds on `bb_r5_s0`, best round's seeds 1-2 + val 50; from
+        11:40, `compare_out/night5/chain7.sh`).
 
 **D. Extensions:** camera (Kris from 3 Nov once the winner's test 150 is done, finished 5 Nov; Matteo joins after the
 final edit; cut-off Thursday evening, see the week table); parking pose + arm early: future work in the report. Dropped unless time: parked-start arm episodes, randomised arm start
