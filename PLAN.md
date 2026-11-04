@@ -3789,7 +3789,10 @@ lower limit (see "Found on the way" below).
         only by the Route A switch (off by default), so `camera_policy_task.py` runs the model unchanged.
         **4 Nov late (Matteo):** the Route A early-start switch (`ROBOENV_ARM_START`, the drive gate, the `arm_on` /
         `arm_start` fields) removed from `camera_policy_task.py` when merging into Matteo: it was off, so the camera
-        runs are unchanged (the arm's flag is the base's latch, as before). **Checked on Matteo's PC after the merge**
+        runs are unchanged (the arm's flag is the base's latch, as before). **Bit for bit (Kris's check, done on the PC):**
+        one val episode (data_route_b ep 5, CNN detector, seed 0) run with the script before and after the removal:
+        all 29 shared fields identical (`cam_pos` only with NaN = NaN, its no-reading frames), 10,716 frames each,
+        the only difference the two removed fields. **Checked on Matteo's PC after the merge**
         (`ROBOENV_DETECTOR=cnn`, original CNN, seed 0, val 50, `compare_out/split_conc_drive_r1_s0_cnn_pc_val`; needs
         `concurrent_arm/models` and `configs` linked to `robotnik_arm_task/`'s, made as Windows junctions here): reached
         47, ever within 1 cm 50, held within 1 cm 48, held within 5 cm 50; camera estimate at the end 0.25 mm median
