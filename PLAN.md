@@ -549,6 +549,58 @@ report must already be complete without it; Thursday only swaps in results, nobo
     - The expert reference needs **fresh expert runs under the same noise** (`run_batch.py` with the noisy config
       into its own folder, never `data_main`): `compare.py --test-set` scores the expert from the stored clean
       episodes.
+    - **Code (4 Nov, Kris, branch `test/sensor-noise`):** `ROBOENV_CONFIG` picks the config in both task scripts
+      (default `robotnik_arm.json`); `make_noise_configs.py` writes `configs/robotnik_arm_noise1/5/10.json` (every
+      channel sigma 0.001 / 0.005 / 0.01: rad, rad/s, m, rad). **The referee uses the true state:** the scripts compute
+      `ee_pos` from the measured (noisy) angles, so with noise on the 5 mm stop and every saved hand position would
+      measure the noise (at sigma 5 the noisy hand is 1.1 cm RMS off the true one). With noise on, the policy still gets
+      the noisy hand position as its input, the expert's controller the noisy state, but the stop rule, the log and the
+      saved `ee_pos` use the simulator's true state (`sim.bot[0]`, `true_ee_pos`). Saved `q_mes` / `base_pos` stay what
+      the controller read (noisy). Checked: with noise off both scripts are bit-identical (expert 3 episodes v `dart/a0`,
+      policy val 50 of `split_dart_a60x2_s0` v its Mac val runs, every array equal); at sigma 5 the joint readings jump
+      7.1 mrad per step (sigma x sqrt 2), the saved hand moves at most 1.7 mm per step.
+      **Runs (Mac, fixed before running):** the final model (`split_dartdagger_bb_plusC_r3_s0/1/2`) on val 50 clean
+      (its Mac reference) and at sigma 1 / 5 / 10, plus the expert on the same 50 targets at each sigma. Reported per
+      level: reached, ever / held within 1 cm, held within 5 cm, median final error, collapses, spins / off floor, 3-seed
+      means. The noise isn't seeded, so a rerun gives other numbers. If a drift test replaces the final model, rerun
+      on it.
+      **Done (4 Nov, Kris, Mac, ~13:00):** val 50, per seed 0 / 1 / 2 (3-seed mean), counted twice from the episode
+      files with two separate scripts; expert on the same 50 targets (one run per level):
+
+      | sensor noise sigma | reached (5 mm) | ever 1 cm | held 1 cm | held 5 cm | median final error | collapses / spins / off floor | runs at the 30 s cap | expert reached / held 1 cm |
+      |---|---|---|---|---|---|---|---|---|
+      | 0 (clean, Mac) | 43 / 47 / 48 (46.0) | 48 / 49 / 48 (48.3) | 38 / 39 / 41 (39.3) | 50 / 50 / 50 | 0.79 / 0.61 / 0.69 cm | 0 / 0 / 0 | 12 / 150 | 50 / 50 |
+      | 1 mm, mrad | 45 / 47 / 44 (45.3) | 47 / 48 / 47 (47.3) | 40 / 44 / 41 (41.7) | 50 / 50 / 50 | 0.58 / 0.51 / 0.47 cm | 0 / 0 / 0 | | 50 / 49 |
+      | 5 | 39 / 42 / 39 (40.0) | 49 / 46 / 47 (47.3) | 47 / 42 / 45 (44.7) | 50 / 50 / 50 | 0.47 / 0.49 / 0.48 cm | 0 / 0 / 0 | 30 / 150 | 50 / 50 |
+      | 10 | 13 / 22 / 29 (21.3) | 44 / 43 / 42 (43.0) | 29 / 32 / 40 (33.7) | 50 / 50 / 50 | 3.20 / 2.73 / 0.94 cm | 0 / 0 / 0 | 86 / 150 | 50 / 50 |
+
+      - **Robust to small noise, not to large:** at sigma 1 nothing changes beyond seed spread; at 5 the 5 mm reach
+        drops by 6 (46 -> 40) but every run still gets within 5 cm and almost all within 1 cm; at 10 (1 cm on the base
+        position, 10 mrad on every joint) the 5 mm reach halves (21.3) and the final error grows to 1-3 cm, while
+        nothing collapses, spins or leaves the floor. The expert, with the same noisy readings, reaches all 50 at every
+        level: likely because its integrated reference smooths the noise while the policy reacts to every noisy frame
+        (not tested).
+      - **Read "held 1 cm" with care across levels:** fewer runs stop at the 5 mm rule under noise, so more run to the
+        30 s cap (12 -> 30 -> 86 of 150) and have more time to be held within 1 cm; its rise at sigma 5 is that, not
+        better holding. Reached (5 mm, on the true hand) and the median final error are the comparable columns.
+      - The clean expert rerun isn't bit-identical to `data_main` (~1e-6 rad from the first steps, other machine /
+        build), so the noisy experts are compared with this Mac rerun, not with `data_main`. Episode files:
+        `compare_out/split_dartdagger_bb_plusC_r3_s*_{mac,noise1,noise5,noise10}_val`, `compare_out/expert_*_val`.
+      **Rerun on the final model CLD r2, seed 0 (4 Nov ~14:30, Kris, Mac; seed 0 only, agreed with Matteo).** Val 50,
+      counted twice; expert rows as above (same targets and noise, the expert runs don't depend on the model):
+
+      | sensor noise sigma | reached (5 mm) | ever 1 cm | held 1 cm | held 5 cm | median final error | collapses / spins / off floor | runs at the 30 s cap |
+      |---|---|---|---|---|---|---|---|
+      | 0 (clean, Mac) | 44 | 48 | 40 | 50 | 0.60 cm | 0 / 0 / 0 | 6 |
+      | 1 | 44 | 48 | 44 | 50 | 0.53 cm | 0 / 0 / 0 | 6 |
+      | 5 | 41 | 46 | 45 | 50 | 0.42 cm | 0 / 0 / 0 | 9 |
+      | 10 | 25 | 39 | 35 | 50 | 1.52 cm | 0 / 0 / 0 | 25 |
+
+      Same picture as +C r3: no change at sigma 1, a few 5 mm reaches lost at 5, half at 10, nothing collapses (the
+      5 mm reach at 10 is 25 v +C's 13 / 22 / 29 for one seed each). The clean Mac run is 44 / 48 / 40 against the
+      PC's 46 / 50 / 44 for seed 0 (machine difference, as for the other models). The noisy readings were checked
+      (joint readings jump 1.4 / 7.1 / 14.1 mrad per step at sigma 1 / 5 / 10, sigma x sqrt 2). Files:
+      `compare_out/split_dartdagger_bb_plusCLD_r2_s0_{mac,noise1,noise5,noise10}_val`.
 13. Efficiency table (Jamie) (24).
 14. Success at 1 cm next to 5 mm: decided 2 Nov ("How we work"); computed once after 7 from the saved runs (Matteo).
 15. **Activation and output function check (added 3 Nov, Matteo; today):** never tested so far (the tuning plan
