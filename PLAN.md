@@ -95,7 +95,8 @@ Failure analysis and worst test run of this model: C18e, after CLD r2's (4 Nov e
 4 Nov evening):** the hand gets within 1 cm on 149.7 of 150 test targets (3-seed mean) — say in the same sentence that
 it holds there 0.5 s on 145.0 (96.7%), because "ever within" alone also counts a hand swinging through.
 **Failure graphs (all in `robotnik_arm_task/results/analysis/`, 4 Nov evening, from saved test runs; details C18e):**
-`final_typical_failure.png` (the one to show in the report: a typical failure of the final model, picked by a rule),
+`final_typical_failure.png` (a typical failure of the final model, picked by a rule; available if needed, probably
+not used in the report, Matteo),
 `final_worst_test_run.png` (the final model's worst run, an atypical stall), `cld_r2_worst_test_run.png` (the
 previous final model's worst run).
 **Superseded 4 Nov ~19:45. Was, from ~13:10 (C18e, Matteo): `split_dartdagger_bb_plusCLD_r2_s0/1/2`** (+C plus extra low-target
@@ -1242,8 +1243,8 @@ report must already be complete without it; Thursday only swaps in results, nobo
         2.20 cm, ends 5.7 cm off at the cap). Unlike the typical failure it stalls: the arm stops moving 2-3 cm off
         (mostly y) right after the latch, then from ~20 s the error grows as the base slides (0.3 cm 5 s after the
         latch, 4.2 cm at 30 s; parked 0.4 cm from the expert's spot). Plot `results/analysis/final_worst_test_run.png`.
-        Not for the report as "the" failure: it is atypical (Matteo: show the general failure instead).
-        **Typical failure (for the report): seed 1, episode 208**, plot `results/analysis/final_typical_failure.png`
+        Not for the report as "the" failure: it is atypical (Matteo: if a failure is shown, show the general one).
+        **Typical failure (available if needed; probably not used in the report, Matteo): seed 1, episode 208**, plot `results/analysis/final_typical_failure.png`
         (7 x 3.5 in, 150 dpi; left: hand error v the expert on the same target, log scale, base parking marked; right:
         hand - target per world axis after parking, with the ±2.9 mm band). **Picked by a rule fixed before plotting,
         so it isn't cherry-picked:** among the failures with both main traits (target below 0.5 m and still moving in
