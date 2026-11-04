@@ -3787,6 +3787,9 @@ lower limit (see "Found on the way" below).
         conflicts in Matteo's `dagger.py` and `expert_relabel.py` (his Route A branch, already in Kris, against his
         drive-phase DAgger on master); **left for Matteo to resolve**. The policy script on master differs from Kris's
         only by the Route A switch (off by default), so `camera_policy_task.py` runs the model unchanged.
+        **4 Nov late (Matteo):** the Route A early-start switch (`ROBOENV_ARM_START`, the drive gate, the `arm_on` /
+        `arm_start` fields) removed from `camera_policy_task.py` when merging into Matteo: it was off, so the camera
+        runs are unchanged (the arm's flag is the base's latch, as before).
       - **Scripts:** `camera_policy_eval.py --set test` (every test episode of the split, into `test_set/`) and
         `route_b_eval.py --set test`; checked on the stored Route B test runs (146 / 145 / 145 reached, 141 / 141 / 144
         held, as above). `cnn_data.py --arm-data <folders> --arm-episodes 0`: arm poses from policy runs (default
