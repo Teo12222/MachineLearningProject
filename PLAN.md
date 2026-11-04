@@ -631,6 +631,25 @@ report must already be complete without it; Thursday only swaps in results, nobo
       **Rule, fixed before the results:** the same as (c) against `split_dart_a60x2_s*`. Also reported: held 1 cm for
       targets below 0.4 m. Only 3.5 N*m of the DART posture label is the hidden part, so a small effect is the likely
       outcome; the DAgger side (9 N*m) is test 2 if this isn't worse.
+      **Result test 1 (4 Nov, Kris, Mac): not adopted, posture-free DART labels hold worse.** Val 50, recomputed twice
+      from the episode files (two separate scripts), same 50 targets as the baseline:
+
+      | model | reached | ever 1 cm | held 1 cm | held 2 cm | held 5 cm | median final error | 2 cm -> 1 cm (median) | held 1 cm below 0.4 m | spins / off floor |
+      |---|---|---|---|---|---|---|---|---|---|
+      | `split_dart_a60x2_s*` (labels as stored) | 30 / 16 / 25 | 39 / 33 / 44 | 39 / 30 / 41 | 45 / 43 / 47 | 50 / 50 / 50 | 0.7 / 2.1 / 0.9 cm | 1.72 / 2.22 / 1.36 s | 1 / 4 / 5 of 8 | 0 / 0 |
+      | `split_dart_a60npx2_s*` (posture part -> damping) | 12 / 14 / 14 | 36 / 29 / 37 | 32 / 23 / 34 | 45 / 38 / 43 | 50 / 48 / 50 | 3.2 / 3.9 / 4.1 cm | 1.48 / 1.16 / 0.94 s | 0 / 0 / 2 of 8 | 0 / 0 |
+
+      - By the registered rule a tie on held / ever 1 cm (overlap at 32-34 v 30-41, 36-37 v 33-44), and held within 5 cm
+        drops to 48 in seed 1, so it fails either way. By the team rule of 4 Nov (3-seed mean beats the reference by
+        more than its spread) also not a win: held 1 cm 29.7 v 36.7, ever 1 cm 34.0 v 38.7. Worse with no seed overlap
+        on reached (12-14 v 16-30) and median final error (3.2-4.1 v 0.7-2.1 cm); low targets 2 / 24 v 10 / 24 held.
+      - **The same pattern as the fade (c):** it gets within 1 cm a little faster but doesn't stay. Removing the
+        posture part of the DART labels removes something the policy uses to hold the target, so in the DART data
+        that part isn't just unpredictable noise. Caveat for the DAgger test (C, Matteo, 4 Nov): there the hidden part
+        is ~3x larger (9 v 3.5 N*m) and the comparison is a different one, so this doesn't decide it, but it is a
+        warning that C may hold worse too.
+      - Not tested: an expert whose posture term depends only on what the policy sees (a pull toward a fixed pose in
+        the null space) instead of no posture term at all; that needs an expert-side change (the posture-term pilot).
       **Overnight 3 -> 4 Nov (Matteo's PC, branch `Matteo`; agreed with Kris before any result): one change per step,
       ending in a final-model decision.** All from the current DART model `split_dart_a60x2_s0` (base copied from
       `split_arrived_s0`), DART data `dart/a60` + `a60b` in every round, 5 rounds, val 50 per round; logs
@@ -646,12 +665,13 @@ report must already be complete without it; Thursday only swaps in results, nobo
          saturation check, so the stop judges the cleaned labels; the expert's `q_des` still integrates as before
          (Kris: projecting it inside the integrator leaves an offset that never unwinds).
       3. Seeds 1 and 2 of B's and C's chosen rounds (same data and settings), val 50.
-      4. **D, posture-free DART** (`relabel_posture.py dart/a60 dart/a60b`, recipe as `split_dart_a60x2`, 3 seeds),
-         against `split_dart_a60x2` on this PC. Kris runs the same on the Mac as a replication under his registered
-         rule (no seed overlap); reported under both rules.
-      5. **DAgger behind D's best seed unless D is clearly worse** (worse with no seed overlap; on a tie it still runs,
-         Matteo: DART's effect may only show after DAgger), with the better of B / C's labelling, then its seeds.
-      6. **Decision** among B, C and 5 against the current final model; test 150 x 3 seeds + distances table for the
+      4. ~~D on this PC, and DAgger behind it~~ **dropped (4 Nov ~00:15, Matteo):** Kris's D on the Mac (test 1 result
+         above) came out worse on reached and final error with no seed overlap and much worse at low targets, i.e.
+         "clearly worse", the condition for skipping the DAgger series behind it; a second D here would only replicate
+         a clear negative. The ~2 h go to seeds and test-150 runs for B and C. C still runs: its hidden part is ~3x
+         larger and it is judged against B, but test 1 is a warning that C may hold worse too, so **B v C (held within
+         1 cm, low targets) is the comparison to watch**.
+      6. **Decision** among B and C against the current final model; test 150 x 3 seeds + distances table for the
          winner. Candidates close to it but not winning also get seeds and test 150 if the night allows, as report
          information only: **the final model is chosen on validation only** (no test data in any choice, step 27).
       **Rules (fixed before the results):** rounds chosen by held within 1 cm, then ever within 1 cm, then reached (on
