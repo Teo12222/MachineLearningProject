@@ -985,6 +985,31 @@ report must already be complete without it; Thursday only swaps in results, nobo
         combination anyway, so it runs (decision still by the rule): **CLD** = +C with `--low-extra 100` and
         `data_low` (`split_dartdagger_bb_plusCLD`, 3 rounds on `bb_r5_s0`, best round's seeds 1-2 + val 50; from
         11:40, `compare_out/night5/chain7.sh`).
+      - **CLD done (11:40-12:16), val 50:** rounds 1 / 2 / 3 seed 0: reached 39 / 46 / 41, ever 1 cm 43 / 50 / 45,
+        held 1 cm 37 / **44** / 40, 0 collapses -> r2. Seeds:
+
+        | val 50, 3 seeds | reached | ever 1 cm | held 1 cm | held 5 cm | collapsed |
+        |---|---|---|---|---|---|
+        | +C r3 (final model) | 44.7 | 48.3 (spread 2) | 40.3 (spread 4) | 50 | 0 / 0 / 0 |
+        | **CLD r2** | 46 / 44 / 45 = 45.0 | 50 / 48 / 49 = 49.0 | 44 / 41 / 43 = 42.7 | 50 | 0 / 0 / 0 |
+
+        **A tie by the rule** (held +2.4 < 4, ever +0.7 < 2; collapses equal) -> **+C r3 stays the final model.** CLD
+        is ahead on every val mean and has the most even seeds of the day, but within noise.
+      - **Test 150 of all candidates (12:16-12:47, report information, not a decision):**
+
+        | test 150, s0 / s1 / s2 (mean) | reached | ever 1 cm | held 1 cm | held 2 cm | collapsed | joint 1/5 > 0.5 rad | median rotation, low |
+        |---|---|---|---|---|---|---|---|
+        | `bb_r5` | 122 / 120 / 111 (117.7) | 142.7 | 120 / 111 / 106 (112.3) | 146.3 | 1 / 6 / 0 (7) | 8 / 8 / 5 | 0.23-0.27 |
+        | **+C r3 (final model)** | 127 / 132 / 127 (**128.7**) | 140.3 | 110 / 115 / 116 (113.7) | 146.3 | 0 / 2 / 0 (2) | 1 / 5 / 0 | 0.10-0.18 |
+        | CL r1 | 109 / 115 / 75 (99.7) | 133.3 | 107 / 115 / 82 (101.3) | 141.7 | 0 / 0 / 0 (0) | 1 / 1 / 3 | 0.22-0.25 |
+        | CD r2 | 135 / 122 / 115 (124.0) | 141.3 | 128 / 107 / 107 (114.0) | 145.7 | 0 / 4 / 3 (7) | 1 / 1 / 4 | 0.20-0.23 |
+        | CLD r2 | 127 / 124 / 123 (124.7) | 140.7 | 117 / 108 / 112 (112.3) | 144.7 | **0 / 0 / 0 (0)** | 2 / 1 / 0 | 0.13-0.20 |
+
+        (CL s1 and CLD s1 hold within 5 cm in 149 of 150, all others 150.) Reading: +C reaches the most; holding
+        is the same for all but CL (seed 2 weak); **CLD is the only candidate with no collapses on val and test**;
+        CD's extra low data alone brings collapses back (7). The extra low-target runs (CL) remove collapses but
+        cost reaching unless the low expert data is added too (CLD). The test numbers don't change the decision
+        (val only): final model **+C r3**; CLD is the report's "no collapses" alternative.
 
 **D. Extensions:** camera (Kris from 3 Nov once the winner's test 150 is done, finished 5 Nov; Matteo joins after the
 final edit; cut-off Thursday evening, see the week table); parking pose + arm early: future work in the report. Dropped unless time: parked-start arm episodes, randomised arm start
