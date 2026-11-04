@@ -713,6 +713,28 @@ report must already be complete without it; Thursday only swaps in results, nobo
         low targets, which make the arm livelier there; C tests exactly that.
       - Labelled frames over the 5 rounds: 8.48 M, 2.47 M of them at targets below 0.5 m (final model's rounds: 4.02 M,
         1.33 M); fewer per round as the policy improves (shorter runs once it reaches).
+      **Kris's test 1 (posture-free DART) on this PC (00:40-00:45, his checkpoints, no retraining):** val 50, against
+      `split_dart_a60x2_s*_pc_val`: reached 10 / 13 / 15 v 32 / 18 / 25, ever 1 cm 36 / 27 / 34 v 38 / 34 / 42, held 1 cm
+      31 / 22 / 30 (mean 27.7) v 37 / 31 / 37 (35.0), held 5 cm 50 / 48 / 50 v 50, collapsed 0 / 2 / 5 v 0. **Confirms his
+      Mac result on this machine: worse.** His results files (pushed later, `ea4fc23`) show the same recipe as
+      `split_dart_a60x2` (379,087 DART frames, lr 3e-3, base copied), only the labels differ; the posture-free arms
+      stopped training much earlier (best arm epoch 25 / 40 / 32 v 57).
+      **C done (00:45-01:31):** val 50, seed 0 (`split_dartdagger_w25np_r*_s0`):
+
+      | round | labelled frames | reached | ever 1 cm | held 1 cm | held 2 cm | held 5 cm | closest (median) | collapsed |
+      |---|---|---|---|---|---|---|---|---|
+      | 1 | 2.89 M | 27 | 37 | 26 | 45 | 50 | 0.45 cm | 1 |
+      | 2 | 1.89 M | 27 | 38 | 15 | 43 | 49 | 0.47 cm | 0 |
+      | 3 | 2.34 M | 38 | 47 | 21 | 46 | 50 | 0.38 cm | 0 |
+      | 4 | 1.70 M | 39 | 46 | 19 | 45 | 50 | 0.37 cm | 0 |
+      | **5** (chosen: most held 1 cm) | 1.60 M | 42 | 48 | 29 | 50 | 50 | 0.34 cm | 0 |
+
+      - **C ~ B: removing the hidden-posture part doesn't restore the holding.** Round 5: reached 42 v B's 45, held
+        1 cm 29 v 31, ever 48 v 49, despite labelling almost twice as many frames at low targets (4.66 M v 2.47 M over
+        the 5 rounds; 10.42 M in all): without the fix the saturation stop cut those runs short, with it they're
+        labelled, and it makes no difference. So the extra swing-through of B and C isn't caused by the posture labels
+        (consistent with test 1 on DART); more likely the long window itself (much more data from the policy's own
+        hovering states near the target). Seeds 1 and 2 of B r5 and C r5 next, then the decision.
 
 **D. Extensions:** camera (Kris from 3 Nov once the winner's test 150 is done, finished 5 Nov; Matteo joins after the
 final edit; cut-off Thursday evening, see the week table); parking pose + arm early: future work in the report. Dropped unless time: parked-start arm episodes, randomised arm start
