@@ -3238,6 +3238,19 @@ lower limit (see "Found on the way" below).
         ceiling on held within 1 cm, so it can't win on that): replaces Route B only if held within 1 cm is not
         below Route B's mean minus its spread AND (time to reach at least 0.3 s lower OR held within 1 cm on low
         targets clearly up); otherwise a note in the report.
+      - **Decisions, 4 Nov ~18:00 (Matteo; to confirm with everyone):** (1) **Route B is the best model overall for
+        now** (the extension); tomorrow Kris trains the same recipe on a *sequential* pre-shaping expert (arm still
+        while the base drives, joint-space path to `q_final` after the latch, then the short Cartesian correction),
+        which is planned to be the main model in the report, with Route B as the extension (a fair comparison:
+        pre-shaping v concurrency). (2) The rule above is used for the drive-phase rounds' tests, but the final pick
+        between Route B and a drive-phase model is Matteo's and **will also look at test 150**. This breaks "decisions
+        use val only": **the report must then not say "no test data was used for any choice"**; it says which choice
+        used test, and that the chosen model's test numbers are slightly optimistic (alternative: a fresh target set
+        from an unused seed as the final test). (3) Matteo's PC counts for these runs. (4) Usual round pick (seed-0
+        val: held 1 cm, ever 1 cm, reached), seeds 1-2 only for a round that passes. (5) Kris runs the sequential
+        pre-shaping model tomorrow in the background while writing.
+        Series: `split_conc_drive`, 3 rounds on `split_conc_dartdagger_bb_plusCLD_r3_s0`, PC; then Route B's test 150
+        on the PC (3 seeds; his test 150 is from the Mac, CLD's from the PC).
 
 ### Low priority: other model families (comparison only, unassigned: only if time is left at the end)
 Purpose: show in the report why a neural network is the right choice. One or two of these in the results table is
