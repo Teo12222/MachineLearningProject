@@ -38,7 +38,7 @@ from pathlib import Path
 import numpy as np
 
 from bc_data import clean_ids, split_episodes
-from bc_split import SplitPolicy, load_policy, net_settings
+from bc_split import SplitPolicy, load_policy, net_activation, net_settings
 from compare import POLICY_SCRIPT, POLICY_TIMEOUT, load_npz, run_episode, stored_start
 from results import read_results
 
@@ -175,6 +175,7 @@ def main():
     train_options = ["--split", "--gravity-residual" if cfg["gravity_residual"] else "--no-gravity-residual",
                      "--hidden", str(base_h), "--layers", str(base_n), "--dropout", str(base_p),
                      "--arm-hidden", str(arm_h), "--arm-layers", str(arm_n), "--arm-dropout", str(arm_p),
+                     "--base-activation", net_activation(cfg, "base"), "--arm-activation", net_activation(cfg, "arm"),
                      "--seed", str(args.seed), "--base-from", args.start]
     for option, column in (("--lr", "lr"), ("--batch", "batch"), ("--weight-decay", "weight_decay")):
         if row.get(column):
