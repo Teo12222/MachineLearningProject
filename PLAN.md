@@ -68,7 +68,9 @@ Look there for the current state of each model instead of this file.
 
 ### Plan from 3 Nov (overrides the 2 Nov plan where they differ)
 
-**The final model is settled:** DART + DAgger r5 (`split_dartdagger_r5_s0/1/2`), one base, reported as the 3-seed
+**Superseded 4 Nov (overnight, C18e): by the rule the final model is now DART + DAgger behind the bounded base
+(`split_dartdagger_bb_r5_s0/1/2`): test 150 78.4% at 5 mm, 95.1% ever / 74.9% held within 1 cm; caveat: 1 / 6 / 0
+collapses; Matteo to confirm.** Was: **The final model is settled:** DART + DAgger r5 (`split_dartdagger_r5_s0/1/2`), one base, reported as the 3-seed
 mean on test 150: **88.4% ever within 1 cm**, 70.0% held within 1 cm, 69.1% at 5 mm; no spins, nothing off the floor.
 Everything tried on 3 Nov came out "no gain" or a finding, not a better model: near-target loss weighting (C16), seed
 ensemble (C17), torque smoothing (C18a); the base's share (C18b) showed the arm is fitted to its base's hand-over.
@@ -833,6 +835,37 @@ report must already be complete without it; Thursday only swaps in results, nobo
 
       Round 5 beats the final model's seed 0 on every count and lies above all three of its seeds on held (38-41)
       and ever (44-48) within 1 cm; one seed: seeds 1 and 2 decide.
+      **Seeds and decision (02:35-02:42):** seeds 1 and 2 of round 5 (same data and settings, same bounded base), val 50:
+
+      | val 50, 3 seeds | reached | ever 1 cm | held 1 cm | held 2 cm | held 5 cm | collapsed |
+      |---|---|---|---|---|---|---|
+      | old final model (ReLU base) | 35 / 39 / 39 = 37.7 | 44 / 48 / 47 = 46.3 (spread 4) | 41 / 38 / 38 = 39.0 (spread 3) | 48.3 | 50 | 0 |
+      | **bounded base** | 42 / 39 / 44 = 41.7 | 50 / 49 / 48 = 49.0 | 45 / 41 / 41 = **42.3** | 49.7 | 50 | 0 / 1 / 0 |
+
+      **By the rule: the bounded-base series replaces the final model** (held within 1 cm +3.3 v the spread of 3; ever
+      within 1 cm +2.7, within its spread of 4; held within 5 cm unchanged). A narrow margin, and the round was picked
+      on seed 0's val 50 (Kris's caveat), so the test 150 is the number that counts.
+      **Test 150, 3 seeds (02:41-02:50), `compare_out/split_dartdagger_bb_r5_s*_test`, distances in
+      `results/analysis/bounded_*.csv`:**
+
+      | test 150, 3-seed mean | reached (5 mm) | ever 1 cm | held 1 cm | held 2 cm | held 5 mm | time to reach | final error (median) | never within 1 cm | collapsed |
+      |---|---|---|---|---|---|---|---|---|---|
+      | old final model (ReLU base) | 103.7 (69.1%) | 132.7 (88.4%) | 105.0 (70.0%) | 145.7 | 29.7 | 13.5 s | 1.0 cm | 29 / 9 / 14 | 0 / 0 / 0 |
+      | **new final model (bounded base)** | **117.7 (78.4%)** | **142.7 (95.1%)** | **112.3 (74.9%)** | 146.3 | 30.0 | **12.5 s** | **0.75 cm** | **6 / 6 / 10** | **1 / 6 / 0** |
+      | expert | 149 | 150 | 149 | 150 | 145 | 12.2 s | | 0 | |
+
+      - Per seed reached 122 / 120 / 111, held within 1 cm 120 / 111 / 106. **Better on every precision count on test,
+        not only on val**, and not a reach-for-hold trade like B: it reaches more and holds more. By height, held within
+        1 cm: 49% for 0.2-0.5 m (old 39%), 93% for 0.5-0.8 m, 90% for 0.8-1.1 m; by distance 65-80%.
+      - **Caveat: collapses.** The error goes back above 20 cm after the closest approach in 1 / 6 / 0 of the 150 test
+        runs (old final model 0 / 0 / 0; on val 0 / 1 / 0), no arm spins: seed 1 sometimes loses the arm late in a run.
+        The rule (fixed before) guards held within 5 cm (150/150, unchanged), not collapses. **By the rule the new final
+        model is `split_dartdagger_bb_r5_s0/1/2`; Matteo to confirm in the morning** given the collapses, before the
+        report uses it.
+      - **What made it:** only the base changed v the old final model (bounded wheel output, C15; the DAgger arm
+        retrained behind it, 5 rounds with the old recipe). Why a better-parking base helps this much isn't measured
+        (C15: the bounded base parks 1.4 cm from the expert's spot on every seed; the arm is fitted to its base's
+        hand-over, C18b).
 
 **D. Extensions:** camera (Kris from 3 Nov once the winner's test 150 is done, finished 5 Nov; Matteo joins after the
 final edit; cut-off Thursday evening, see the week table); parking pose + arm early: future work in the report. Dropped unless time: parked-start arm episodes, randomised arm start
