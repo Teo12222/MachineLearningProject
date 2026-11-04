@@ -917,6 +917,44 @@ report must already be complete without it; Thursday only swaps in results, nobo
           collapses would use test data for a choice. Option if wanted: seeds 1-2 of C r3 on val 50; a tie there keeps
           the final model by the rule, but the report can state the collapse/holding trade-off with C r3 as the
           evidence.
+      - **Seeds 1-2 of +C r3 (4 Nov 08:50-09:05), val 50** (same data and settings, base copied from `bb_r5_s0`):
+
+        | val 50 | reached | ever 1 cm | held 1 cm | held 5 cm | collapsed |
+        |---|---|---|---|---|---|
+        | final model `bb_r5` s0 / s1 / s2 | 42 / 39 / 44 = 41.7 | 50 / 49 / 48 = 49.0 (spread 2) | 45 / 41 / 41 = 42.3 (spread 4) | 50 | 0 / 1 / 0 |
+        | `bb_plusC_r3` s0 / s1 / s2 | 44 / 45 / 45 = **44.7** | 49 / 49 / 47 = 48.3 | 41 / 38 / 42 = 40.3 | 50 | **0 / 0 / 0** |
+
+        A tie by the rule: neither held nor ever within 1 cm differs by more than the spread, held within 5 cm equal.
+      - **Test 150 of all 3 +C seeds (09:35-09:45, report information):**
+
+        | test 150 | reached | ever 1 cm | held 1 cm | held 2 cm | collapsed | joint 1/5 > 0.5 rad | median rotation, low targets |
+        |---|---|---|---|---|---|---|---|
+        | `bb_r5` s0 / s1 / s2 | 122 / 120 / 111 = 117.7 (78.4%) | 142.7 | 120 / 111 / 106 = 112.3 (74.9%) | 146.3 | 1 / 6 / 0 | 8 / 8 / 5 | 0.23-0.27 |
+        | `bb_plusC_r3` s0 / s1 / s2 | 127 / 132 / 127 = **128.7 (85.8%)** | 140.3 | 110 / 115 / 116 = **113.7 (75.8%)** | 146.3 | **0 / 2 / 0** | 1 / 5 / 0 | 0.10-0.18 |
+
+        Seed 1's 2 collapses are not the slow low-target drift: joint 5 spins a full turn (6.7 rad) in both, and one
+        target is high (1.1 m, the other 0.34 m). C removes the drift, not every failure.
+      - **Rule change, 4 Nov ~10:00 (Matteo): fewer collapses breaks a tie.** A candidate that ties by the rule (no
+        difference larger than the reference's seed spread on held / ever within 1 cm, held within 5 cm not more than
+        1 lower) wins if it has fewer collapses (error back above 20 cm after the closest approach), counted on **val
+        50 over the 3 seeds**. Why: a collapse is the worst failure (the arm swings away from a target it had reached),
+        and ideally there are none. **Honest note for the report:** the tie-breaker was added after the test 150 of
+        +C had been seen (Matteo had asked for the test numbers to compare seeds); it is applied on val only.
+        **Applied:** +C r3 v `bb_r5`: tie, val collapses 0 v 1 -> **+C r3 (`split_dartdagger_bb_plusC_r3_s0/1/2`)
+        is the new final model**, unless the drift tests below (R, CL, CD and their combination) win by the rule.
+        The val difference is a single collapse; the test 150 (2 v 7) points the same way but is not used.
+      - **+C rounds on the old final model (ReLU base, `split_dartdagger_plusC_r1-r3_s0`, val 50, seed 0):** reached
+        40 / 43 / 45, ever 1 cm 47 / 47 / 49, held 1 cm 37 / 37 / 37, collapsed 0 / 1 / 0 (old final model seed 0:
+        35 / 44 / 41, mean 37.7 / 46.3 / 39.0). The same trade as on the bounded base (more reached, a little less
+        held): C's effect comes from the labels, not from the bounded base. No seeds (below the bounded models).
+      - **Drift tests (running, 4 Nov from ~09:55), each 3 rounds on top of `bb_r5` with +C's settings plus one
+        change, compared with +C:** R = spring posture labels (`--posture-kp 20`: in the posture part, a spring
+        pulling joints 1, 3, 5 to 0 plus damping, `relabel_posture.remove_posture(kp_ref)`); CL = +C with 100 extra
+        runs per round on low training targets (`--low-extra 100`, z < 0.5 m; 231 of the 700 training targets are
+        low); CD = +C with 60 new expert episodes on low targets (`run_batch.py --n 60 --seed 11 --height-range
+        0.2,0.5 --out-dir data_low`, all 60 reached and kept by `clean_ids`; arm training only, via --extra-data, so
+        the base and the val/test split are untouched). Then: combine every one that is as good or better than +C
+        without drift. First attempt crashed out of memory (a test 150 run at the same time); rerun one at a time.
 
 **D. Extensions:** camera (Kris from 3 Nov once the winner's test 150 is done, finished 5 Nov; Matteo joins after the
 final edit; cut-off Thursday evening, see the week table); parking pose + arm early: future work in the report. Dropped unless time: parked-start arm episodes, randomised arm start
