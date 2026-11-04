@@ -49,9 +49,10 @@ TORQUE_LIMIT = 30.0     # N*m, the expert's torque clip
 SATURATED_RUN = 50      # frames (ms): the expert's label at its limit this long ends the labelled part ...
 SATURATION_GRACE = 500  # frames: ... but not in the first 0.5 s after the latch, where the expert's own reach starts
                         # with a short kick at the limit (J6 starts below its joint limit, PLAN.md step 21)
+LOW_Z = 0.5             # m: targets below this are "low" (--low-extra; all collapses were below it, PLAN.md C18e)
 
 
-def label_run(raw_path, out_path, window, posture_free=False):
+def label_run(raw_path, out_path, window, posture_free=False, posture_kp=0.0):
     """Label one policy run's arm phase with the expert and save it as a DAgger episode. Returns the labelled frames.
 
     Labelled from the latch until window seconds later, or until the expert's label stays at its torque limit for
@@ -63,6 +64,8 @@ def label_run(raw_path, out_path, window, posture_free=False):
     posture_free (PLAN.md C18e): each label's posture-only part (the arm's null space, which depends on the expert's
     hidden q_des) is replaced by the expert's damping on the measured joint velocity (relabel_posture.remove_posture),
     BEFORE the saturation check, so the stop judges the cleaned labels. The expert's q_des still integrates as before.
+    posture_kp (with posture_free, PLAN.md C18e 4 Nov): plus a spring pulling joints 1, 3, 5 to 0 in the null space
+    (remove_posture's kp_ref), against the drift on low targets.
     """
     from expert_relabel import relabel_arm
     d = load_npz(raw_path)
@@ -80,7 +83,7 @@ def label_run(raw_path, out_path, window, posture_free=False):
             # remove_posture doesn't process the frames after it)
             t = d["torque_arm"][:stop].astype(float).copy()
             t[k:stop] = labels
-            labels = remove_posture({**d, "torque_arm": t}, k)[k:stop]
+            labels = remove_posture({**d, "torque_arm": t}, k, posture_kp)[k:stop]
         saturated = (np.abs(labels) >= TORQUE_LIMIT - 0.01).any(axis=1)
         runs = np.convolve(saturated, np.ones(SATURATED_RUN), "valid") == SATURATED_RUN   # run starting at each frame
         runs[:SATURATION_GRACE] = False
@@ -110,7 +113,7 @@ def save_episode(path, d, torque, mask):
     )
 
 
-def collect(model, ids, out_dir, workers, window, posture_free=False):
+def collect(model, ids, out_dir, workers, window, posture_free=False, posture_kp=0.0):
     """Run model on the training episodes ids and save their labelled DAgger episodes in out_dir."""
     out_dir.mkdir(parents=True, exist_ok=True)
     os.environ["ROBOENV_POLICY"] = str(SCRIPT_DIR / "checkpoints" / f"{model}.pt")   # passed on to the policy runs
@@ -124,7 +127,7 @@ def collect(model, ids, out_dir, workers, window, posture_free=False):
     with ProcessPoolExecutor(max_workers=workers) as pool:
         frames = list(pool.map(label_run, [out_dir / f"raw_{i:04d}.npz" for i in done],
                                [out_dir / f"ep_{i:04d}.npz" for i in done], [window] * len(done),
-                               [posture_free] * len(done)))
+                               [posture_free] * len(done), [posture_kp] * len(done)))
     print(f"  labelled {sum(frames)} frames ({sum(f > 0 for f in frames)} of {len(done)} runs latched)", flush=True)
 
 
@@ -138,6 +141,12 @@ def main():
     parser.add_argument("--window", type=float, default=5.0, help="seconds of the arm phase labelled after the latch")
     parser.add_argument("--posture-free", action="store_true",
                         help="labels without their posture-only part (relabel_posture.remove_posture, PLAN.md C18e)")
+    parser.add_argument("--posture-kp", type=float, default=0.0,
+                        help="with --posture-free: spring gain (N*m/rad) pulling joints 1, 3, 5 to 0 in the null space, "
+                             "against the drift on low targets (PLAN.md C18e, 4 Nov); 0 = damping only")
+    parser.add_argument("--low-extra", type=int, default=0,
+                        help="extra runs per round on low training targets (z < LOW_Z), on top of --n, from their own "
+                             "fixed order (PLAN.md C18e, 4 Nov: the arm drifts only on low targets)")
     parser.add_argument("--workers", type=int, default=16, help="policy runs / labelling processes in parallel")
     parser.add_argument("--val-set", action="store_true", help="compare.py --val-set after each round")
     parser.add_argument("--extra-data", nargs="+", default=[], metavar="FOLDER",
@@ -153,7 +162,11 @@ def main():
             parser.error(f"--extra-data {folder}: no ep_*.npz episodes there")
     # A --name already used by another run: its "done" steps would be skipped, i.e. its data and models reused
     info_file = DAGGER_DIR / f"{args.name}_r1" / "dagger_info.json"
-    info = dict(start=args.start, extra_data=extra, **({"posture_free": True} if args.posture_free else {}))
+    if args.posture_kp and not args.posture_free:
+        parser.error("--posture-kp needs --posture-free (the spring replaces the expert's posture part)")
+    info = dict(start=args.start, extra_data=extra, **({"posture_free": True} if args.posture_free else {}),
+                **({"posture_kp": args.posture_kp} if args.posture_kp else {}),
+                **({"low_extra": args.low_extra} if args.low_extra else {}))
     if info_file.exists():
         if json.loads(info_file.read_text()) != info:
             parser.error(f"--name {args.name} belongs to another run ({info_file}: {info_file.read_text().strip()}); "
@@ -192,6 +205,9 @@ def main():
     train_ids, _, _ = split_episodes(DATA_DIR)
     train_ids = clean_ids(DATA_DIR, train_ids)
     order = np.random.default_rng(0).permutation(train_ids)
+    # --low-extra: the low training targets in their own fixed order, the k-th block of low_extra in round k
+    low_ids = [i for i in train_ids if np.load(DATA_DIR / f"ep_{i:04d}.npz")["target"][2] < LOW_Z]
+    low_order = np.random.default_rng(1).permutation(low_ids)
     env = dict(os.environ, MPLBACKEND="Agg")   # train.py / compare.py plots are saved, not shown
 
     model, folders = args.start, list(extra)
@@ -199,14 +215,18 @@ def main():
         new_model = f"{args.name}_r{k}_s{args.seed}"
         folder = DAGGER_DIR / f"{args.name}_r{k}"
         ids = [int(i) for i in np.take(order, range((k - 1) * args.n, k * args.n), mode="wrap")]
-        print(f"\n== DAgger round {k}: {model} -> {new_model}", flush=True)
-        if len(list(folder.glob("ep_*.npz"))) >= args.n:
+        if args.low_extra:
+            # Episode files are named by target id, so a low target already in this round's block is run once
+            extra_low = np.take(low_order, range((k - 1) * args.low_extra, k * args.low_extra), mode="wrap")
+            ids += [int(i) for i in extra_low if int(i) not in ids]
+        print(f"\n== DAgger round {k}: {model} -> {new_model} ({len(ids)} targets)", flush=True)
+        if len(list(folder.glob("ep_*.npz"))) >= len(ids):
             print(f"  {folder.name} already collected, skipping the runs")
         else:
             if k == 1:
                 folder.mkdir(parents=True, exist_ok=True)
                 info_file.write_text(json.dumps(info))
-            collect(model, ids, folder, args.workers, args.window, args.posture_free)
+            collect(model, ids, folder, args.workers, args.window, args.posture_free, args.posture_kp)
         folders.append(str(folder))
         if (SCRIPT_DIR / "checkpoints" / f"{new_model}.pt").exists():
             print(f"  {new_model} already trained, skipping the training")

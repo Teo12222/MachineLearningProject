@@ -24,15 +24,28 @@ import pinocchio as pin
 import expert_relabel as er
 
 
-def remove_posture(d, start):
-    """Arm torques of a saved run d with the posture part replaced by damping from frame start on."""
+# Joints 1, 3 and 5: the ones that drift together on low targets (PLAN.md C18e, 4 Nov); 0 in the expert's usual
+# reaching posture
+SPRING_JOINTS = [0, 2, 4]
+
+
+def remove_posture(d, start, kp_ref=0.0):
+    """Arm torques of a saved run d with the posture part replaced by damping from frame start on.
+
+    kp_ref > 0 (PLAN.md C18e, 4 Nov) adds a spring pulling SPRING_JOINTS towards 0 inside the posture part:
+    -kp_ref q on those joints, projected with (I - P) like the damping, so it moves only the spare joints, never the
+    hand. Damping alone stops the posture being pulled to the expert's hidden q_des but nothing brings a drifted arm
+    back; the spring does, and depends only on the measured joints, which the policy sees. kp_ref = 0: as before.
+    """
     torque = d["torque_arm"].astype(float).copy()
     for i in range(start, len(torque)):
         q_pin = er._q_pin(d["base_pos"][i], d["base_bearing"][i], d["q_mes"][i])
         J = pin.computeFrameJacobian(er._MODEL, er._DATA, q_pin, er._EE_FRAME, pin.LOCAL_WORLD_ALIGNED)[:3, 6:13]
         P = np.linalg.pinv(J) @ J
         g = pin.computeGeneralizedGravity(er._MODEL, er._DATA, q_pin)[6:13]
-        torque[i] = g + P @ (torque[i] - g) - er._PARAMS.kd * (np.eye(7) - P) @ d["qd_mes"][i, 4:11]
+        spring = np.zeros(7)
+        spring[SPRING_JOINTS] = -kp_ref * d["q_mes"][i, 4:11][SPRING_JOINTS]
+        torque[i] = g + P @ (torque[i] - g) + (np.eye(7) - P) @ (spring - er._PARAMS.kd * d["qd_mes"][i, 4:11])
     return np.clip(torque, -er._PARAMS.max_torque, er._PARAMS.max_torque)
 
 
