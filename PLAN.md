@@ -81,14 +81,23 @@ used for picking rounds. Test 150 agrees (held 145.0 v 139.3) and was looked at,
 the same choice. Cost: slightly fewer exact 5 mm reaches than Route B on test (144.3 v 146.7). Demo seed 0 picked on
 val like CLD's (best of the three on val 50 and val 150: reached 50 / 150, held within 1 cm 49 / 147, held within 5 mm
 90 on val 150); on test it is the lowest of the three on held within 1 cm (143 v 145 / 147), seed noise. Run:
-`ROBOENV_POLICY=checkpoints/split_conc_drive_r1_s0.pt pixi run python robotnik_arm_policy_task.py`. Provisional until
-Matteo checks with everyone; Kris's sequential pre-shaping model (5 Nov) may become the main one with this as the
-extension (decision note in step 28). **Rerun on this model (4 Nov ~20:15):** start pose and out-of-range (step 11,
+`ROBOENV_POLICY=checkpoints/split_conc_drive_r1_s0.pt pixi run python robotnik_arm_policy_task.py`. **Final, not provisional
+(Matteo, 4 Nov evening):** Kris's sequential pre-shaping model (5 Nov) is only a check of whether the arm-after-parking
+model also improves with the two changes made here (concurrent expert data, drive-phase labels); it will not become the
+final model. (Was: "Provisional until Matteo checks with everyone; Kris's sequential pre-shaping model may become the
+main one with this as the extension", decision note in step 28.) **Rerun on this model (4 Nov ~20:15):** start pose and out-of-range (step 11,
 under CLD r2's tables, with a correction to CLD's far-target explanation), distances table
 (`results/analysis/final_distances.csv` / `final_bands.csv` are now this model's, `analyse_distances.py`'s default;
 CLD r2's kept as `cld_r2_distances.csv` / `cld_r2_bands.csv`): 3-seed mean, ever / held within 0.5 s, of 150:
 5 mm 144.3 / 73.0, 1 cm 149.7 / 145.0, 2 cm 149.7 / 149.7, 5 cm and 10 cm 150 / 150 (expert: 149 / 145, 150 / 149,
 150 / 150); held within 1 cm 96-97% in every distance band, 94% on targets below 0.5 m (CLD r2: 51%).
+Failure analysis and worst test run of this model: C18e, after CLD r2's (4 Nov evening). **Report headline (Matteo,
+4 Nov evening):** the hand gets within 1 cm on 149.7 of 150 test targets (3-seed mean) — say in the same sentence that
+it holds there 0.5 s on 145.0 (96.7%), because "ever within" alone also counts a hand swinging through.
+**Failure graphs (all in `robotnik_arm_task/results/analysis/`, 4 Nov evening, from saved test runs; details C18e):**
+`final_typical_failure.png` (the one to show in the report: a typical failure of the final model, picked by a rule),
+`final_worst_test_run.png` (the final model's worst run, an atypical stall), `cld_r2_worst_test_run.png` (the
+previous final model's worst run).
 **Superseded 4 Nov ~19:45. Was, from ~13:10 (C18e, Matteo): `split_dartdagger_bb_plusCLD_r2_s0/1/2`** (+C plus extra low-target
 DAgger runs and 60 extra low-target expert episodes; ties +C on val, ahead on every val mean, tie rule "higher val
 means" added after the results; test 150: 83.1% reached, 74.9% held within 1 cm, 0 collapses).
@@ -1196,7 +1205,8 @@ report must already be complete without it; Thursday only swaps in results, nobo
         (`analyse_distances.py`, no simulation; its default models changed to CLD r2, old value kept as a comment).
         3-seed mean v expert, ever / held 0.5 s: 5 mm 124.7 / 35.7 v 149 / 145; 1 cm 140.7 / 112.3 v 150 / 149;
         2 cm 148.3 / 144.7 v 150 / 150; 5 cm 150 / 149.7 v 150 / 150; 10 cm 150 / 150 v 150 / 150. Agrees with the
-        numbers above (reached = ever within 5 mm).
+        numbers above (reached = ever within 5 mm). (Since ~20:15 these two files are drive-phase r1's; CLD r2's are
+        `cld_r2_distances.csv` / `cld_r2_bands.csv`.)
         **Why not 100% (failure analysis, 4 Nov):** from the saved test runs (no simulation). 76 of 450 runs (3 seeds x
         150; 23 / 26 / 27) not reached; all 76 latched the base, so the failures are in the final arm approach, not
         navigation. (1) **They don't settle off target, they keep moving:** 75 of 76 still move in the last 5 s
@@ -1205,14 +1215,58 @@ report must already be complete without it; Thursday only swaps in results, nobo
         each axis within 2.9 mm at some moment but never all three at once (2.9 mm per axis = 5 mm in 3D) — the
         policy corrects one axis while another drifts. So the miss is precision, not a wrong target. (2) **Mostly low
         targets:** 76% of failures have the target below 0.5 m v 31% of successes (also the 0.2-0.5 m height band:
-        held within 1 cm 51% v 85-98% elsewhere, `final_bands.csv`); low targets need the most arm bending, where
-        the arm data is thinnest (the reason for CLD's extra low data). (3) **The base parks worse on failures:**
-        median 3.5 cm from the expert's parking spot on failures v 1.4 cm on successes, so the arm starts from a pose
-        the expert never showed for that target. 5 targets fail on all 3 seeds, 14 on 2, 33 on 1, so most failures
+        held within 1 cm 51% v 85-98% elsewhere, `cld_r2_bands.csv`); low targets need the most arm bending, where
+        the arm data is thinnest (the reason for CLD's extra low data). (3) ~~The base parks worse on failures: median
+        3.5 cm from the expert's parking spot on failures v 1.4 cm on successes~~ **Wrong, corrected 4 Nov evening:**
+        that was measured at the end of the run. At the latch failures park as well as successes (1.43 v 1.42 cm from
+        the expert's spot); after the latch the base slides slowly with zero wheel commands (same 0.2-0.3 cm in the
+        first 3 s for both), and failures run on to the 30 s cap (median 21 s after the latch v 4 s), so they slide
+        ~2 cm more. The slide is a consequence of failing, not a cause; parking does not explain the failures.
+        5 targets fail on all 3 seeds, 14 on 2, 33 on 1, so most failures
         are seed-specific rather than impossible targets. **Worst test run:** seed 0, episode 876 (target z 0.28 m,
-        closest 1.78 cm, ends 9.6 cm off at the 30 s cap, base 4.7 cm from the expert's spot); plot
-        `results/analysis/final_worst_test_run.png` (hand error v expert, hand offset per axis after the latch, arm
-        joints, base path).
+        closest 1.78 cm, ends 9.6 cm off at the 30 s cap, base 4.7 cm from the expert's spot at the end); plot
+        `results/analysis/cld_r2_worst_test_run.png` (was `final_worst_test_run.png`, renamed when the final model
+        changed; hand error v expert, hand offset per axis after the latch, arm joints, base path).
+        **Final model (drive-phase r1, `split_conc_drive_r1`) failure analysis (4 Nov evening, saved test runs, no
+        simulation; expert reference = the concurrent expert on the same targets, `data_route_b`):** 17 of 450 runs
+        not reached (6 / 7 / 4), all latched. (1) **Near misses:** 16 of 17 get within 1 cm (closest 0.5-1.0 cm) but
+        not 5 mm, and 16 of 17 still move in the last 5 s (median hand speed 1.7 cm/s, error swings 1.4 cm): the same
+        circling as CLD r2, just much rarer. (2) **Still mostly low targets:** 76% of failures below 0.5 m v 37% of
+        successes (39% of all runs). (3) **Parking is not the cause:** 1.56 v 1.50 cm from the expert's spot at the
+        latch. (4) **Seed noise, not hard targets:** no target fails on all 3 seeds, 1 on 2 (episode 292), 15 on 1.
+        (5) **The remaining gap is holding 5 mm, not reaching** (held within 5 mm 73.0 of 150 v the expert's 145): in
+        the 1 s logged after the reach, the hand stays within 5 mm a median 66% of the time (expert 100%), stays
+        inside for 0.5 s in 50% of reached runs (expert 100%), and leaves 1 cm in 22% (expert 0%); median largest
+        error in that second 0.65 cm v 0.50 cm. So it gets there but wobbles around 5 mm; held within 1 cm (96.7%)
+        is the measure that shows the task done. **Worst test run:** seed 2, episode 292 (target z 0.41 m, closest
+        2.20 cm, ends 5.7 cm off at the cap). Unlike the typical failure it stalls: the arm stops moving 2-3 cm off
+        (mostly y) right after the latch, then from ~20 s the error grows as the base slides (0.3 cm 5 s after the
+        latch, 4.2 cm at 30 s; parked 0.4 cm from the expert's spot). Plot `results/analysis/final_worst_test_run.png`.
+        Not for the report as "the" failure: it is atypical (Matteo: show the general failure instead).
+        **Typical failure (for the report): seed 1, episode 208**, plot `results/analysis/final_typical_failure.png`
+        (7 x 3.5 in, 150 dpi; left: hand error v the expert on the same target, log scale, base parking marked; right:
+        hand - target per world axis after parking, with the ±2.9 mm band). **Picked by a rule fixed before plotting,
+        so it isn't cherry-picked:** among the failures with both main traits (target below 0.5 m and still moving in
+        the last 5 s: 12 of 17), the run nearest that group's median closest approach (0.63 cm) and median final
+        error (2.85 cm). Episode 208: target z 0.42 m, closest 0.67 cm, ends 3.0 cm off; within 1 cm only 5% of the
+        time after parking. **What it shows:** the expert reaches 5 mm about 2 s after parking; the model gets within
+        1 cm at the same moment, then circles 1-3 cm away: x and z swing back and forth across the target while y stays
+        1-2.5 cm off, so each axis gets within 2.9 mm at some point but never all three at once (as in point (1)).
+        (The same target is reached by seeds 0 and 2: seed noise, point (4).) Scripts in a session scratchpad, not in
+        the repo.
+        **Why the parked base slides (4 Nov evening, Matteo asked; saved runs + simulator code, no simulation):** the
+        wheels are in "velocity" mode, which in the simulator's motor model is pure damping, torque = -kd (qd - qd_des)
+        (`simulation_and_control/controllers/servo_motor.py`, velocity branch): with the command at 0 (exactly 0 after
+        the latch in every run, model and expert) the wheels resist speed but nothing pulls them back to a position,
+        so any small steady force makes them roll slowly and the drift adds up. Evidence: base speed follows wheel
+        speed (rank correlation 0.89 over 3,451 half-second windows after the latch) and rolling explains it (wheel
+        0.004 rad/s x 0.11 m ~ 0.04 of the 0.055 cm/s median), so the base rolls, it doesn't skid. Arm motion only
+        adds a little (correlation 0.20; windows with the arm moving 0.16 v still 0.06 cm/s). Late in failing runs
+        (10+ s after the latch) it rolls ~0.2 cm/s even with the arm almost still (episode 299, s0: arm 0.009 rad/s,
+        base 0.20 cm/s); why it speeds up then is not explained (not needed). The expert's base does the same at
+        ~0.02 cm/s (0.13-0.16 cm over the ~3 s it stays parked). **For the report:** one caveat line at most: "after
+        parking the wheels are only damped, not braked, so the base creeps slowly (~0.2 cm in the first 3 s); this only
+        matters in runs that time out." It explains none of the results.
         **How it is made (for the report):** DART model with the bounded base (`split_dart_base_bound_s2`) -> 5 DAgger
         rounds labelled for 5 s after the latch (`split_dartdagger_bb_r1-r5`) -> 2 more DAgger rounds with posture-free
         labels over the whole run (`--window 25 --posture-free`), 100 extra runs per round on low training targets
@@ -3326,7 +3380,9 @@ lower limit (see "Found on the way" below).
         is not. (c) Measure with `compare.py --val-full` and test 150, 3 seeds, every compared model on the same
         machine (on his Mac: also run drive-phase r1 there, or send the checkpoints to Matteo's PC). Purpose: the fair
         comparison (pre-shaping without concurrency v Route B / drive-phase r1); the main model of the report is
-        decided after it, with everyone.
+        decided after it, with everyone. **Changed (Matteo, 4 Nov evening):** the main model is drive-phase r1 (demo
+        s0) and stays so; the sequential pre-shaping run is only a check that the arm-after-parking model also gains
+        from concurrent data + drive-phase labels, reported as such, never the final model.
         Series: `split_conc_drive`, 3 rounds on `split_conc_dartdagger_bb_plusCLD_r3_s0`, PC; then Route B's test 150
         on the PC (3 seeds; his test 150 is from the Mac, CLD's from the PC).
       - **Result (4 Nov ~18:35, PC).** Rounds, seed 0, val 50: r1 50 / 50 / 49 / 50 (reached / ever 1 cm / held 1 cm /
