@@ -877,6 +877,26 @@ report must already be complete without it; Thursday only swaps in results, nobo
         retrained behind it, 5 rounds with the old recipe). Why a better-parking base helps this much isn't measured
         (C15: the bounded base parks 1.4 cm from the expert's spot on every seed; the arm is fitted to its base's
         hand-over, C18b).
+      - **Extra rounds with B's and C's labels on top of the new final model (4 Nov, 04:45-05:31, Matteo's idea):**
+        B and C replaced the whole DAgger series and did worse, so this test keeps the final model's 5 rounds and only
+        adds 3. `dagger.py --start split_dartdagger_bb_r5_s0 --extra-data dart/a60 dart/a60b dagger/split_dartdagger_bb_r1
+        ... _r5 --window 25 [--posture-free] --rounds 3`, names `split_dartdagger_bb_plusB/plusC_r1-r3` (= rounds 6-8;
+        the new rounds train on DART + the 5 old rounds (labels as before) + the new ones (B's or C's labels); bounded base
+        copied unchanged). The idea: window 25 labels the late drift on low targets that caused the collapses, which
+        the 5 s labels never see. Logs in `compare_out/night5/`. Val 50, seed 0:
+
+        | val 50, seed 0 | reached | ever 1 cm | held 1 cm | held 2 cm | held 5 cm | collapsed |
+        |---|---|---|---|---|---|---|
+        | final model `bb_r5_s0` | 42 | 50 | **45** | 50 | 50 | 0 |
+        | +B r1 / r2 / r3 | 43 / 30 / 46 | 46 / 39 / 50 | 38 / 31 / 34 | 49 / 47 / 50 | 50 | 0 |
+        | +C r1 / r2 / r3 | 39 / 38 / 44 | 47 / 48 / 49 | 40 / 39 / 41 | 50 / 50 / 49 | 50 | 0 |
+
+        **Neither helps; final model unchanged, no seeds trained.** To win by the rule, a 3-seed mean would need held
+        within 1 cm > 45.3 (final model 42.3 + spread 3) or ever within 1 cm > 51 (impossible out of 50). The best
+        rounds' seed 0 (B r1 38, C r3 41) is below the final model's worst seed (41). B shows the same reach-for-hold
+        trade as before (r3 reaches 46, holds 34). C costs less holding but gains nothing. Collapses can't be judged on
+        val (0 everywhere, the final model's too); not tested on test 150, since neither is a candidate.
+        **Planned follow-up dropped:** B and C on the old final model (ReLU base) were to run only if this helped.
 
 **D. Extensions:** camera (Kris from 3 Nov once the winner's test 150 is done, finished 5 Nov; Matteo joins after the
 final edit; cut-off Thursday evening, see the week table); parking pose + arm early: future work in the report. Dropped unless time: parked-start arm episodes, randomised arm start
