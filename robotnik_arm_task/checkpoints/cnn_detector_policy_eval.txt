@@ -1,0 +1,35 @@
+# on data_camera_images_policy shard 9 (policy arm poses)
+test shard 9: 1200 images, 475 with a usable target (checkpoint epoch 39, distance mode residual)
+CNN detection: found 466/475 (98.1%), missed 9, false detections 7 on 725 images without a usable target
+  false detections by placement (in view / at the gripper / out of view): [5, 2, 0]
+
+3D error on 466 usable targets (mm): mean / median / 95th pct / max
+  CNN         0.99 /   0.69 /   2.58 /    6.52
+  classical   1.36 /   1.11 /   2.94 /    4.73
+  by distance (m): n, CNN mean / median, classical mean / median
+    0.4-1.0:  139  CNN   0.49 /   0.48   classical   0.84 /   0.84
+    1.0-1.5:  106  CNN   0.63 /   0.59   classical   1.03 /   1.01
+    1.5-2.0:   79  CNN   1.02 /   0.95   classical   1.33 /   1.25
+    2.0-2.5:   56  CNN   1.27 /   1.14   classical   1.76 /   1.74
+    2.5-3.0:   43  CNN   1.72 /   1.71   classical   2.08 /   1.90
+    3.0-3.7:   43  CNN   2.36 /   2.11   classical   2.69 /   2.66
+
+CPU inference, 1 thread: 17.9 ms per image
+
+# on data_camera_images32 shard 9 (expert arm poses)
+test shard 9: 1200 images, 472 with a usable target (checkpoint epoch 39, distance mode residual)
+CNN detection: found 464/472 (98.3%), missed 8, false detections 6 on 728 images without a usable target
+  false detections by placement (in view / at the gripper / out of view): [2, 4, 0]
+
+3D error on 464 usable targets (mm): mean / median / 95th pct / max
+  CNN         0.99 /   0.70 /   2.69 /    6.71
+  classical   1.37 /   1.12 /   2.93 /    4.73
+  by distance (m): n, CNN mean / median, classical mean / median
+    0.4-1.0:  136  CNN   0.50 /   0.45   classical   0.83 /   0.83
+    1.0-1.5:  105  CNN   0.64 /   0.59   classical   1.04 /   1.01
+    1.5-2.0:   79  CNN   0.99 /   0.95   classical   1.34 /   1.25
+    2.0-2.5:   58  CNN   1.28 /   1.16   classical   1.73 /   1.72
+    2.5-3.0:   43  CNN   1.66 /   1.62   classical   2.08 /   1.90
+    3.0-3.7:   43  CNN   2.37 /   2.12   classical   2.71 /   2.66
+
+CPU inference, 1 thread: 17.9 ms per image

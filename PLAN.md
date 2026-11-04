@@ -159,7 +159,8 @@ Route A in detail:
   **(Text brought over from branch `c19-route-a` on 4 Nov evening, Matteo: only this PLAN.md text is on master; the
   Route A code (`ROBOENV_ARM_START`, `dagger.py --arm-start`, `relabel_arm_preshape`), its checkpoints
   `split_armstart20_r1-r3_s0` and results files stay on that branch. Route A is the contrast in the report: see the
-  result table below; the final model is drive-phase r1 on Route B, see FINAL MODEL at the top.)**
+  result table below; the final model is drive-phase r1 on Route B, see FINAL MODEL at the top. Branch `Kris` had
+  them through a merge of `c19-route-a`; they were left out when `Kris` was merged into `Matteo`, 4 Nov late.)**
   **Updated 4 Nov (Matteo), coded on branch `c19-route-a`:** the final model is now CLD r2, so start from
   `split_dartdagger_bb_plusCLD_r2_s0` (was `split_dartdagger_r5_s0`), base copied unchanged. Keep CLD's settings
   (`--window 25 --posture-free --low-extra 100`) and all its data as `--extra-data` (dart/a60, a60b, bb_r1-r5,
@@ -3581,6 +3582,251 @@ lower limit (see "Found on the way" below).
         held 1 cm 51 / 50 / 46 = 49.0 of 58. So on test r2 is level with Route B (held 140.0 v 139.3, low 49 v 49) and
         below r1 (145.0, low 54.3); its val-150 edge at 5 mm shows on test only in seed 1 (98). **Of the three, r1 is
         ahead on test held within 1 cm and low targets, and on val 150 level with r2 and more even.**
+
+### Extension: camera expert, the concurrent expert finds the target with a mast camera (Kris, 4 Nov)
+29. **Camera expert** (Kris, folder `concurrent_arm/`, nothing in `robotnik_arm_task/` changed). The robot is no longer
+    told `TARGET_EE_POS`: one forward-facing RGB-D camera on a mast finds the red sphere, the base searches by turning
+    on the spot when it is not in view, and the concurrent expert (step 28) runs from the camera's estimate. Departs
+    from the "Final extension" design below on purpose: **one camera + search instead of four cameras at t = 0**
+    (with 360 deg coverage the camera is the true target plus ~1 mm noise, which adds nothing over the sensor-noise
+    test, step 12); the search is scripted, not learned (the expert data never shows it). The segmentation mask is
+    still not used to find the target (colour + depth), only as the robot's self-filter (below).
+    - **Files:** `concurrent_arm/mast_camera.py` (camera, detector, estimator), `concurrent_arm/camera_expert.py` (a
+      copy of `concurrent_expert.py` with the changes below), `concurrent_arm/analyse_camera.py` (results from the
+      saved episodes, paired with `data_concurrent`), `concurrent_arm/check_camera_physics.py` (the no-physics check).
+    - **Run:** `cd concurrent_arm && ROBOENV_TARGET=x,y,z python camera_expert.py` (GUI), or in batches from
+      `robotnik_arm_task/` with `run_batch.py --script ../concurrent_arm/camera_expert.py --out-dir data_camera`.
+      `ROBOENV_CAMERA_REFINE=0` keeps the first clean detection only; `ROBOENV_CAMERA_MOUNT=x,y,z,pitch_deg` moves the
+      camera; step 28's switches (`ROBOENV_ARM_EARLY_IK` etc.) work as there (early IK on by default, like
+      `data_concurrent`; Route B's data had it off).
+    - **Camera and mounting:** 320 x 240, 80 x 64 deg field of view, 10 Hz, at (-0.10, -0.20, 1.00) m in the base
+      frame (behind the arm, right of the centre line, 1 m up), tilted 15 deg down. Chosen from probe renders: the
+      arm's travel pose puts the hand at (0.71, 0, 0.76), in the middle of a centred mast camera's image, i.e. exactly
+      where the target sits once the base faces it, so the camera is offset 0.2 m to the side; from 1 m up it sees
+      every target height (0.2-1.1 m) from 3 m away down to the parking distance. A front-bumper camera (the 27 Oct
+      prototype) is blocked by the concurrent arm mid-drive and can't see high targets close up.
+    - **Assumption: the camera and mast are weightless and have no collision shape.** Nothing is added to the
+      simulation (pose computed from the base pose each frame, image rendered from there), so the physics are those
+      of every other expert. **Checked** (`check_camera_physics.py`): 4 s of driving with random arm torques, with v
+      without rendering every 0.1 s: base and joint states bit-identical (max difference 0), robot mass 60.562 kg both.
+      A real mast (~1-2 kg at 1 m) would raise the centre of mass a little; not modelled.
+    - **Detector:** red pixels -> one 3D point per pixel from the depth image -> mean + 2r/3 along the viewing ray
+      (centroid of a visible hemisphere) = sphere centre. Thrown away when the blob touches the image border or the
+      robot's own body in the image (self-filter: a partly hidden blob biases the centre; a real robot would do this
+      from its known geometry). **Pixel convention found and fixed:** TinyRenderer samples column u at x = u and row
+      v at y = v + 1, not at pixel centres (measured on 33 targets against their exact projection, offsets
+      -0.04 / -0.96 px, spread 0.2 / 0.1 px). With the usual +0.5 the estimate was off sideways by ~1 px: 12 mm mean
+      at 3 m. Static accuracy after the fix (72 placements, 0.75-3 m, heights 0.2-1.1 m, base at rest): **mean 1.6 mm,
+      max 4.9 mm**; 0.9 mm at 0.75 m, 2.3 mm at 3 m. Render + detect ~9 ms per frame.
+    - **Estimator:** weighted mean of the clean detections, weight 1 / distance^4 (pixel error grows with distance,
+      depth error with its square), so close views dominate as the base approaches.
+    - **Exact changes vs `concurrent_expert.py`:** (1) search: until the first clean detection the base turns on the
+      spot counter-clockwise at 0.8 rad/s (4.6 deg per camera frame), the arm holds its start pose; after a full turn
+      + 0.5 rad without a sighting the run stops ("Target not found"); (2) parking spot, q_final and the 25 s
+      navigation time-out are computed from the first sighting (spot on the line from where the base was then to the
+      estimate); (3) the camera keeps running, the spot follows the estimate, q_final is solved again while the base
+      turns or drives if the estimate moved > 1 cm (never happened: 1 solve in all 600 runs), and the Cartesian IK
+      uses the latest estimate; (4) the stop rule measures to the estimate (all the robot knows), so "reached" = within
+      5 mm of the estimate; the saved `final_error` is the true error. Extra fields: `searching`, `target_est` (per
+      frame), `est_error`, `first_seen_time`, `search_turned`, per camera frame `cam_status` / `cam_pos` / ...
+    - **Done (Kris, 4 Nov, not pushed): 300 targets, same as `data_concurrent`** (`run_batch.py --n 300 --seed 0
+      --workers 10 --script ../concurrent_arm/camera_expert.py --out-dir data_camera`, Mac, 201 s; the seen-once
+      variant with `ROBOENV_CAMERA_REFINE=0` into `data_camera_once`, 196 s; both git-ignored). Same targets checked
+      episode by episode against `data_concurrent/index.csv`. True errors from `ee_pos` v `target`:
+
+      | 300 targets | reached | held within 1 cm (0.5 s) | true final error, reached runs: median / max | estimate error at the end: median / max | time to reach (paired with the concurrent expert) |
+      |---|---|---|---|---|---|
+      | concurrent expert (true target, `data_concurrent`) | 300 | 300 | 1.12 / 1.95 mm | (0) | 10.08 s |
+      | **camera, refined (`data_camera`)** | **298** | **298** | **1.15 / 2.29 mm** | 0.8 / 1.2 mm | 11.23 s (+1.15 s, 298 paired) |
+      | camera, seen once (`data_camera_once`) | 296 | 296 | 1.58 / 3.98 mm | 1.5 / 4.0 mm | 11.23 s (+1.13 s, 296 paired) |
+
+      - **Perception is not the limit:** every run found the target (300 / 300 both), the estimate at the first
+        sighting is within 1.5 mm (median, max 4.0 mm), and refining it while approaching brings the reach back to
+        the concurrent expert's precision (1.15 v 1.12 mm median). No reached run is more than 5 mm off the true
+        target in either variant. Seen once is ~0.5 mm worse at the median, ~2 mm at the max.
+      - **The cost is time, and it depends on the side:** first sighting 0.02 s for the 72 targets within 40 deg of
+        straight ahead, 2.75 s mean (max 5.6 s) for the others. Paired with the concurrent expert: front +0.05 s,
+        left +0.26 s, **right +2.75 s** (max +5.4 s). The concurrent expert turns on the spot to face the target
+        anyway, so searching left costs almost nothing; the search always turns counter-clockwise, so targets on the
+        right are found the long way round. Turning toward the nearer side isn't possible without knowing where the
+        target is; a second camera facing backwards would halve the worst case.
+      - **Failures (2 refined: episodes 157, 180; 4 seen once: also 65, 207) are the base controller's known
+        circling quirk, not perception** (expert quirks above, `data_main` episode 774): close targets behind-right
+        (~1.25 m, bearing -110 to -117 deg, parking spot ~0.6 m away); the base passes its spot 8.5 cm away, just
+        outside `pos_tol` = 8 cm (the concurrent expert passes the same spot at 7.8 cm), then circles it until the
+        25 s time-out and ends ~1.2 m from the target. The estimate was fine in all of them (0.7-1.9 mm). The search
+        spin moves the base ~0.13 m before it sets off, which makes the near miss more likely on these targets. Not
+        fixed here: the fix belongs in the shared base controller and would change every expert's data.
+      - **Checked twice:** `analyse_camera.py` (per-episode loop) and a separate vectorised recount with the outcomes
+        from `index.csv`: same counts (298 / 296 reached and held), same failed episodes, same times (11.23 v 10.08 /
+        10.10 s).
+    - **Done (Kris, 4 Nov, not pushed): the trained Route B policy driven by the camera, no retraining.**
+      Why no retraining: the estimate is within ~1 mm of the truth, so the policy's inputs barely change, and the
+      search can't be learned by imitation (the expert data never shows it); the question is whether the learned
+      policy still works when nobody tells it the target.
+      - **Files:** `concurrent_arm/camera_policy_task.py` (a copy of `robotnik_arm_policy_task.py`, which is Matteo's
+        and not edited, with the camera in front of the policy), `concurrent_arm/camera_policy_eval.py` (the 50 val
+        targets and start poses of `compare.py --val-set`, output readable by `route_b_eval.py`).
+      - **How it runs:** until the camera sees the target, the base turns on the spot (scripted, as in the camera
+        expert) and the arm holds its start pose (joint PD + gravity, as the concurrent expert's arm does while the
+        base turns); the policy can't run before that, it has no target to put in its inputs. From the first clean
+        detection the policy drives everything with the estimate in place of `TARGET_EE_POS` (still refined at
+        10 Hz); the arrival latch's 25 s time-out counts from the sighting. The stop rule, reached / held and the
+        saved errors are measured to the true target (the referee), exactly as in the true-target runs; the 30 s
+        cap includes the search.
+      - **Checked:** with `ROBOENV_CAMERA=0` the copy reproduces stored Route B val runs bit for bit (seed 0,
+        episodes 5, 13, 19: all 16 fields identical).
+      - **Val 50, Route B CLD r3, seeds 0 / 1 / 2, Mac** (`compare_out/split_conc_dartdagger_bb_plusCLD_r3_s*_camera_val`;
+        true-target runs are the stored ones above):
+
+        | val 50, s0 / s1 / s2 (mean) | reached (5 mm) | ever 1 cm | held 1 cm | held 5 cm | collapsed | time to reach (mean of reached) |
+        |---|---|---|---|---|---|---|
+        | Route B, true target | 50 / 49 / 47 (48.7) | 50 / 50 / 50 (50.0) | 50 / 46 / 49 (48.3) | 50 | 0 | 10.43 / 10.15 / 10.08 (10.22 s) |
+        | **Route B, camera** | 49 / 49 / 48 (**48.7**) | 49 / 50 / 50 (**49.7**) | 47 / 48 / 48 (**47.7**) | 50 | 0 | 10.93 / 10.50 / 11.12 (**10.85 s**) |
+
+        - **The learned policy works from the camera as well as from the true target:** reached the same (48.7),
+          held within 1 cm -0.7 (143 v 145 of 150 runs; the true-target seed spread is 4), ever within 1 cm -0.3,
+          nothing collapses, every target found (150 / 150), estimate error at the end 0.83 mm median (max 1.29 mm).
+        - The run-by-run differences go both ways (16 runs differ in reached or held: camera worse in 9, better in
+          7), mostly runs hovering 1-2 cm off, the policy's known failure mode, i.e. noise rather than a perception
+          effect. **Slight right-side cost:** held within 1 cm right 37 v 40 (42 runs), front 57 v 55, left 49 v 50;
+          one target (episode 99, bearing -87 deg, found after a ~270 deg turn) is held by all 3 seeds with the true
+          target and by none with the camera. Likely cause (not tested): after a long search the policy takes over
+          from a base still spinning counter-clockwise, which the expert never does for a target on its right.
+        - **Time:** +0.58 s mean (median +0.23 s) over the 143 target-seed pairs both reach; front -0.35 s, left
+          -0.08 s, right +2.78 s: same side pattern as the camera expert (step 29 above).
+        - 4 runs hit the 30 s cap (s0: 99; s1: 590; s2: 244, 634), all with the estimate within 1 mm; 590 and 634
+          still held within 1 cm before the cap, hovering just outside 5 mm.
+        - **Checked twice:** `route_b_eval.py` and a separate paired script (same targets and start poses asserted
+          per episode): same reached / held counts per seed, same times.
+      - **For the report:** perception error (static 1.6 mm mean, 0.8 mm at the end of a run) and closed-loop success
+        with v without the camera on the same policy and targets: the gap is within the seed spread, so the camera
+        replaces the given target without costing success; the cost is time, on targets the search finds last.
+    - **Done (Kris, 4 Nov, not pushed): learned target detector (CNN) in place of the classical one.** The ML part of
+      the camera extension: the same camera, a network instead of the hand-written red-pixel rule.
+      - **Files:** `concurrent_arm/cnn_data.py` (rendered training images), `concurrent_arm/cnn_detector.py` (network,
+        training, `CNNDetector` for the runs), `concurrent_arm/cnn_eval.py` (learned v classical on held-out images);
+        `ROBOENV_DETECTOR=cnn` switches `camera_expert.py` and `camera_policy_task.py` to it (default classical:
+        checked bit for bit on a stored camera-expert and camera-policy episode). Checkpoints
+        `checkpoints/cnn_detector.pt` (final) and `cnn_detector_rangehead.pt` (first version), with their training
+        logs and test outputs (`*_train.log`, `*_eval.txt`).
+      - **Data (no expert runs):** 12,000 rendered mast-camera RGB-D images (320 x 240), each a scene set up directly:
+        random base pose (any yaw, ~0.7 deg chassis tilt), an arm configuration from real `data_concurrent` frames
+        (23,152 to draw from: start pose, mid-drive, reaching), the target 55% anywhere in or just outside the view
+        (0.4-3.6 m), 25% within 15 cm of the gripper (the hidden-by-the-arm cases), 20% out of view. Labels from the
+        simulator (training only): exact image position of the centre, distance, and "usable" = the classical
+        detector's clean rule (computed with the segmentation mask). 39% have a usable target. Shards 0-7 train
+        (9,600), 8 validation (early stopping), 9 test. 17 s to render on 10 cores (`data_camera_images32/`, 6 GB,
+        git-ignored).
+      - **Network:** CenterNet-style encoder-decoder (308k parameters), RGB-D in, at half resolution out: heatmap of
+        the centre (focal loss), sub-pixel offset, and a distance channel; pixel + distance -> 3D with the camera
+        intrinsics. Usable / not usable is learned from the image alone: no segmentation mask at run time (the
+        classical detector needs it as a self-filter). AdamW, one-cycle lr 2e-3, batch 32, 40 epochs, MPS, ~30 s per
+        epoch (20 min).
+      - **First version, direct distance regression (`cnn_detector_rangehead.pt`):** found 98.3% of the usable test
+        targets, but 3D error 16.2 mm median (classical 1.1 mm). Split: pixel error 0.07 px median (better than the
+        classical centroid, ~0.2 px), distance error 16 mm median (40 mm beyond 2 m): regressing an absolute 0.4-3.6 m
+        distance gives ~1% relative precision. **Fix (`cnn_detector.pt`, `--range-mode residual`):** the distance is
+        the depth image read at the predicted pixel (the sphere's near surface on the ray through its centre) plus the
+        learned correction to the centre (28.4 mm median target, ~ the radius). Also stored the depth as float32
+        (float16 quantises ~4 mm beyond 2 m, too coarse for a one-pixel reading).
+      - **Held-out test images (shard 9, 1,200 images, 472 usable; `cnn_eval.py`):**
+
+        | test shard | found (of 472 usable) | false detections (728 images without) | 3D error mean / median / 95th / max | 0.4-1 m median | 3-3.7 m median | CPU time per image |
+        |---|---|---|---|---|---|---|
+        | classical (red pixels + depth) | (needs the mask) | (needs the mask) | 1.36 / 1.11 / 2.93 / 4.73 mm | 0.83 mm | 2.66 mm | ~9 ms incl. render |
+        | CNN, direct distance | 464 (98.3%) | 8 | 27.8 / 16.2 / 98.4 / 206 mm | 9.1 mm | 49.9 mm | 17 ms |
+        | **CNN, residual distance** | **467 (98.9%)** | 10 (6 touching the gripper) | **0.98 / 0.76 / 2.59 / 5.36 mm** | **0.50 mm** | **1.99 mm** | 16 ms |
+
+        The learned detector is more precise than the classical one at every distance (errors on the same 467 images).
+      - **Closed loop with the CNN** (`ROBOENV_DETECTOR=cnn`; camera expert on the same 300 targets into
+        `data_camera_cnn/`, 327 s; Route B val 50 x 3 seeds into `compare_out/split_conc_dartdagger_bb_plusCLD_r3_s*_cnn_val`):
+
+        | | reached | held within 1 cm | estimate error at the end, median / max | time to reach |
+        |---|---|---|---|---|
+        | camera expert, classical (300) | 298 | 298 | 0.8 / 1.2 mm | 11.23 s (+1.15 v concurrent) |
+        | **camera expert, CNN (300)** | **298** | **298** | **0.3 / 0.9 mm** | 11.23 s (+1.15) |
+        | Route B, true target (val 50 x 3) | 50 / 49 / 47 (48.7) | 50 / 46 / 49 (48.3) | (0) | 10.22 s |
+        | Route B, classical camera | 49 / 49 / 48 (48.7) | 47 / 48 / 48 (47.7) | 0.83 / 1.29 mm | 10.85 s |
+        | **Route B, CNN camera** | 49 / 49 / 47 (**48.3**) | 48 / 45 / 48 (**47.0**) | **0.24 / 0.90 mm** | 11.06 s |
+
+        - Camera expert: same 2 failures (157, 180: the base circling quirk, estimate 0.1 / 0.3 mm), true final error of
+          the reached runs 1.19 mm median (classical 1.15, true target 1.12); first-sighting estimate 1.2 mm median,
+          max 6.0 mm (classical 1.5 / 4.0), refined to 0.3 mm. No false detection pulled an estimate off (max 0.9 mm).
+        - Route B: all three conditions within the seed spread (held within 1 cm spread 4 with the true target). The
+          CNN's 3.5x better estimate does not show in the policy: **perception is no longer the limit, the policy's
+          own precision is** (the runs that miss hover 1-2 cm off, as with the true target). Time: the search, on
+          targets to the right.
+        - **Checked twice:** `analyse_camera.py` / `route_b_eval.py` and a separate recount from the episode files
+          (same per-seed counts; 450 files all record `detector=cnn`).
+      - **For the report:** a learned detector trained on 12k rendered images (no expert data) beats the hand-written
+        one on precision (0.76 v 1.11 mm) and learns the occlusion check from the image, with no segmentation mask;
+        the design point that mattered: learn where in the image, read how far from the depth sensor (direct distance
+        regression: 16 mm). In closed loop both detectors are good enough that the policy, not perception, limits
+        success.
+      - **For the report, must explain: why not a ResNet (or another standard pretrained backbone).** Not tried (as
+        of 4 Nov); the report has to say why. Reasons:
+        - **Little room to gain on the images:** the error is ~1/3 pixel at 3 m and the distance comes from the depth
+          sensor, not the network; a bigger encoder could only improve the image position, already sub-pixel.
+        - **No room to gain in closed loop:** with the CNN the policy already matches the true target within the seed
+          spread (47.0 v 48.3 held); the policy's own 1-2 cm hovering limits success, so a better detector cannot show.
+        - **Cost:** ResNet-18 is ~11M parameters, ~35x ours (308k); ours runs 16 ms per image on one CPU thread, and
+          the camera runs at 10 Hz alongside the policy and the simulation.
+        - **Pretraining fits poorly:** ImageNet weights expect RGB only; our input is RGB-D, so the first layer must
+          change (the depth part starts untrained), and the scenes are simple renders (one red sphere, the robot, a
+          flat floor), not natural photos where pretrained features help most.
+        - **Output resolution:** ResNet downsamples 32x; the heatmap needs fine resolution (ours outputs at stride 2),
+          so it would need an added upsampling decoder, which is what our small encoder-decoder already is.
+        - Optional, only if time is left: a ResNet-18 encoder (pretrained, extra depth input channel) with our same
+          heads and training, scored with `cnn_eval.py` on the same test shard, would turn this into a measured
+          comparison.
+    - **Done (Kris, 4 Nov late, not pushed): the final model (drive-phase r1) with the camera, test 150, and a CNN
+      trained on the policy's arm poses.**
+      - **Model:** `split_conc_drive_r1_s0/1/2` (Matteo's final model). Its checkpoints and results files copied
+        unchanged from master into Kris (`git checkout origin/master -- ...`), not merged: merging master into Kris
+        conflicts in Matteo's `dagger.py` and `expert_relabel.py` (his Route A branch, already in Kris, against his
+        drive-phase DAgger on master); **left for Matteo to resolve**. The policy script on master differs from Kris's
+        only by the Route A switch (off by default), so `camera_policy_task.py` runs the model unchanged.
+      - **Scripts:** `camera_policy_eval.py --set test` (every test episode of the split, into `test_set/`) and
+        `route_b_eval.py --set test`; checked on the stored Route B test runs (146 / 145 / 145 reached, 141 / 141 / 144
+        held, as above). `cnn_data.py --arm-data <folders> --arm-episodes 0`: arm poses from policy runs (default
+        unchanged: `data_concurrent`, 80 episodes, same pool).
+      - **Policy-pose CNN (`checkpoints/cnn_detector_policy.pt`):** 12,000 images rendered as before but with the
+        arm poses (47,766) of drive-phase r1's own camera runs on val 50 x 3 seeds (search phase included; no test
+        target used), `data_camera_images_policy/` (git-ignored); same recipe, epoch 39. Held-out images
+        (`cnn_detector_policy_eval.txt`):
+
+        | shard 9 | original CNN: found, median error | policy-pose CNN: found, median error |
+        |---|---|---|
+        | expert-pose images | 98.9%, 0.76 mm | 98.3%, 0.70 mm |
+        | policy-pose images | 99.2%, 0.75 mm | 98.1%, 0.69 mm |
+
+        No distribution gap: the original CNN is as accurate on policy poses as on its own.
+      - **Val 50 x 3, original CNN (Mac, `compare_out/split_conc_drive_r1_s*_cnn_mac_val`):** reached 48 / 46 / 50
+        (48.0), held within 1 cm 49 / 47 / 49 (48.3); true target (PC, above) 48.7 / 48.7.
+      - **Test 150 x 3, Mac (`compare_out/split_conc_drive_r1_s*_{true,cnn,cnnpolicy}_mac_test`):**
+
+        | drive-phase r1, test 150 | reached (5 mm) | ever 1 cm | held 1 cm | held 5 cm | collapsed | time to reach (no settle) | estimate error at the end, median / max |
+        |---|---|---|---|---|---|---|---|
+        | true target (camera off, same script) | 146 / 144 / 149 (**146.3**) | 150 / 150 / 150 | 146 / 143 / 145 (**144.7**) | 450 | 0 | 10.42 s | (0) |
+        | camera, original CNN | 142 / 136 / 148 (**142.0**) | 149 / 148 / 150 | 146 / 139 / 146 (**143.7**) | 450 | 0 | 11.73 s | 0.29 / 0.71 mm |
+        | camera, policy-pose CNN | 147 / 130 / 148 (**141.7**) | 149 / 150 / 150 | 147 / 141 / 145 (**144.3**) | 450 | 0 | 11.73 s | 0.25 / 0.88 mm |
+
+        - **Held within 1 cm (the model's main measure): the camera costs 0.4-1.0 of 150**, within the seed spread
+          (3). Reached within 5 mm: -4.3 / -4.7, mostly seed 1 (-8 / -14; seeds 0 and 2 between -4 and +1).
+        - **The policy-pose CNN changes nothing beyond noise:** same reached, +0.6 held; per seed it swings -6 to +5
+          against the original CNN although the two estimates differ by fractions of a mm: the policy's sensitivity
+          to its start, not the detector.
+        - **Not perception:** the estimate ends within 0.9 mm on every run. Original CNN, targets reached with the
+          true target but not with the camera: 18, the other way 5; all 18 hover 5-10 mm off until the 30 s cap with
+          a fixed estimate, and they had longer searches (median turn 179 deg, first seen 3.6 s, v 102 deg / 2.1 s
+          for targets both reach). Likely cause (not tested): after a long spin the policy starts from base
+          headings and a later start time its training data rarely had.
+        - **Checked twice:** `route_b_eval.py --set test` and a separate recount from the episode files (same reached
+          per seed for all three conditions; every camera file records `detector=cnn`).
+      - **For the report:** the final model runs from the camera with no retraining at a cost within the seed spread
+        on held within 1 cm (144.7 -> 143.7 / 144.3) and ~1.3 s of search; training the detector on the policy's own
+        arm poses instead of the expert's gives the same, as the detector already generalises to them.
 
 ### Low priority: other model families (comparison only, unassigned: only if time is left at the end)
 Purpose: show in the report why a neural network is the right choice. One or two of these in the results table is
