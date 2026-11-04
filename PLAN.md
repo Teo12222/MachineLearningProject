@@ -2872,9 +2872,38 @@ lower limit (see "Found on the way" below).
       - The arm moves at most 0.063 rad while the base turns (the same sag as the sequential expert's). The base never
         leaves the floor (lowest base z -0.004 m in both). `q_final`'s IK error is at most 1 mm on all 300 targets:
         none is beyond the reach limit.
-    - **Next:** the model: a goal network (target -> `q_final`; its labels need no simulation) plus the split arm
-      net with `q_final` and progress as inputs. Expect the goal network to be easy: with perfect parking the target
-      is always `standoff(z)` straight ahead at height z, so `q_final` depends on the target height alone.
+    - **Done (Kris, 4 Nov, not pushed): can the final model's arm network learn the concurrent expert's torques?**
+      Offline, no simulation (`concurrent_arm/learnability.py`): the arm network's own inputs (`make_features`
+      columns 3-26 + the arrived flag = `nav_done`), gravity-residual labels, a 3 x 256 ReLU MLP like the final
+      model's arm, 40 epochs, every 10th frame of episodes 0-299, 240 / 60 episodes train / held out. Same test on
+      `data_main` 0-299 (the sequential expert) as the reference. Run twice (split and training seed 0 and 1);
+      held-out RMSE of the 7 torques:
+
+      | phase | sequential (seed 0 / 1) | concurrent, arm inputs as now | + drive progress | + progress + `q_final` |
+      |---|---|---|---|---|
+      | turn to face the target | 0.051 / 0.059 N*m | 0.089 / 0.065 | 0.102 / 0.073 | 0.111 / 0.126 |
+      | drive | 0.022 / 0.027 | **0.150 / 0.093** (R2 0.985 / 0.995) | 0.155 / 0.136 | 0.115 / 0.149 |
+      | final turn (flag still 0) | 0.061 / 0.070 | **0.368 / 0.459** (R2 0.984 / 0.973) | 0.386 / 0.420 | 0.372 / 0.457 |
+      | parked (flag 1) | 0.130 / 0.110 | 0.088 / 0.101 | 0.100 / 0.091 | 0.091 / 0.112 |
+
+      - **The drive is learnable from the current inputs:** 4-7x the sequential expert's error (there the arm only
+        holds still), but R2 >= 0.985. **Adding drive progress or `q_final` makes no consistent difference** (the
+        differences between variants are smaller than between the two runs): the joint angles and speeds already
+        tell the network where the arm is on its path. So the change to the expert's path timing I suggested
+        (by distance left, because progress isn't observable) **isn't needed**; corrected 4 Nov.
+      - **The final turn is the weak spot** (6-7x the sequential error, consistent over both runs): with early IK the
+        expert's arm switches to the Cartesian correction 0.35 s before `nav_done`, so with the flag still 0 the
+        network has to tell "follow the path" from "correct" by itself. Fix to try: set the arm's flag when the drive
+        ends rather than at the latch, from a geometric rule on the inputs (the drive ends within `pos_tol` = 8 cm of
+        the parking spot), like Route A's `d_start` trigger (C19), or by turning early IK off for the model's data.
+      - After parking the concurrent labels are as easy as the sequential ones (the arm starts closer).
+      - Offline error is not closed-loop success (step 27, "offline vs closed-loop gap"); this only rules out "can't
+        be learned from these inputs". For scale: DART's noise at scale 1 is 0.011-0.077 N*m per joint (the split
+        MLP's error on expert frames).
+    - **Next:** the model: train the split model on `data_concurrent` with the final model's recipe (base copied, DART,
+      then DAgger), see the plausibility notes above. Optional: a goal network (target -> `q_final`; its labels need
+      no simulation), explicit "estimate the final arm pose" for the report. Expect it to be easy: with perfect
+      parking the target is always `standoff(z)` straight ahead at height z, so `q_final` depends on the height alone.
 
 ### Low priority: other model families (comparison only, unassigned: only if time is left at the end)
 Purpose: show in the report why a neural network is the right choice. One or two of these in the results table is
