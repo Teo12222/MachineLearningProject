@@ -1,0 +1,6 @@
+model,episodes,ever_5mm,held_5mm,ever_1cm,held_1cm,ever_2cm,held_2cm,ever_5cm,held_5cm,ever_10cm,held_10cm,ever_1cm_after_latch
+split_dart_a60x2_s0,150,76,59,112,102,136,136,148,148,150,150,112
+split_dart_a60x2_s1,150,56,36,98,90,142,139,150,150,150,150,98
+split_dart_a60x2_s2,150,61,42,116,94,143,139,150,150,150,150,116
+mean of seeds,150,64.3,45.7,108.7,95.3,140.3,138.0,149.3,149.3,150.0,150.0,108.7
+expert,150,149,145,150,149,150,150,150,150,150,150,150
