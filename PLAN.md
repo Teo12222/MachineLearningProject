@@ -488,6 +488,28 @@ report must already be complete without it; Thursday only swaps in results, nobo
       level: reached, ever / held within 1 cm, held within 5 cm, median final error, collapses, spins / off floor, 3-seed
       means. The noise isn't seeded, so a rerun gives other numbers. If a drift test replaces the final model, rerun
       on it.
+      **Done (4 Nov, Kris, Mac, ~13:00):** val 50, per seed 0 / 1 / 2 (3-seed mean), counted twice from the episode
+      files with two separate scripts; expert on the same 50 targets (one run per level):
+
+      | sensor noise sigma | reached (5 mm) | ever 1 cm | held 1 cm | held 5 cm | median final error | collapses / spins / off floor | runs at the 30 s cap | expert reached / held 1 cm |
+      |---|---|---|---|---|---|---|---|---|
+      | 0 (clean, Mac) | 43 / 47 / 48 (46.0) | 48 / 49 / 48 (48.3) | 38 / 39 / 41 (39.3) | 50 / 50 / 50 | 0.79 / 0.61 / 0.69 cm | 0 / 0 / 0 | 12 / 150 | 50 / 50 |
+      | 1 mm, mrad | 45 / 47 / 44 (45.3) | 47 / 48 / 47 (47.3) | 40 / 44 / 41 (41.7) | 50 / 50 / 50 | 0.58 / 0.51 / 0.47 cm | 0 / 0 / 0 | | 50 / 49 |
+      | 5 | 39 / 42 / 39 (40.0) | 49 / 46 / 47 (47.3) | 47 / 42 / 45 (44.7) | 50 / 50 / 50 | 0.47 / 0.49 / 0.48 cm | 0 / 0 / 0 | 30 / 150 | 50 / 50 |
+      | 10 | 13 / 22 / 29 (21.3) | 44 / 43 / 42 (43.0) | 29 / 32 / 40 (33.7) | 50 / 50 / 50 | 3.20 / 2.73 / 0.94 cm | 0 / 0 / 0 | 86 / 150 | 50 / 50 |
+
+      - **Robust to small noise, not to large:** at sigma 1 nothing changes beyond seed spread; at 5 the 5 mm reach
+        drops by 6 (46 -> 40) but every run still gets within 5 cm and almost all within 1 cm; at 10 (1 cm on the base
+        position, 10 mrad on every joint) the 5 mm reach halves (21.3) and the final error grows to 1-3 cm, while
+        nothing collapses, spins or leaves the floor. The expert, with the same noisy readings, reaches all 50 at every
+        level: its controller averages the noise out (high-gain PD on an integrated reference), the policy reacts to
+        every noisy frame.
+      - **Read "held 1 cm" with care across levels:** fewer runs stop at the 5 mm rule under noise, so more run to the
+        30 s cap (12 -> 30 -> 86 of 150) and have more time to be held within 1 cm; its rise at sigma 5 is that, not
+        better holding. Reached (5 mm, on the true hand) and the median final error are the comparable columns.
+      - The clean expert rerun isn't bit-identical to `data_main` (~1e-6 rad from the first steps, other machine /
+        build), so the noisy experts are compared with this Mac rerun, not with `data_main`. Episode files:
+        `compare_out/split_dartdagger_bb_plusC_r3_s*_{mac,noise1,noise5,noise10}_val`, `compare_out/expert_*_val`.
 13. Efficiency table (Jamie) (24).
 14. Success at 1 cm next to 5 mm: decided 2 Nov ("How we work"); computed once after 7 from the saved runs (Matteo).
 15. **Activation and output function check (added 3 Nov, Matteo; today):** never tested so far (the tuning plan
