@@ -3768,6 +3768,11 @@ lower limit (see "Found on the way" below).
       held 1 cm r1-r5 37 / **131** / 124 / 113 / 129, reached 15 / 112 / 125 / 117 / 125, ever 48 / 144 / 142 / 145 /
       144: r2 stays the pick. `seqpre_chain8.sh`: 3 CLD-style rounds on it (`--label-postpark --window 25
       --posture-free --low-extra 100`, `data_low_s`; `split_seqpre_ppdart_cld_r1-r3`), each round's seed 0 on val 150.
+      **Chain 8 (18:45-19:43), val 150, seed 0:** reached 126 / 138 / 139, ever 1 cm 143 / 148 / 147, held 1 cm 118 /
+      124 / 128, held 5 cm 149 / 150 / 150, collapsed 1 / 1 / 0, 12.81 / 12.53 / 11.83 s (start ppdart r2 s0: 112 / 144
+      / 131 / 149, 12.75 s). Reaching and speed up (+27 reached, -0.9 s at r3), held within 1 cm -3 at r3, inside
+      ppdart r2's seed range (120-131). Best CLD-style round: r3; one seed can't decide it against its start, so
+      `seqpre_chain9.sh`: seeds 1-2 of r3 (round 3's options and 8 folders), val 150 and test 150, 3 seeds.
 
 ### Extension: camera expert, the concurrent expert finds the target with a mast camera (Kris, 4 Nov)
 29. **Camera expert** (Kris, folder `concurrent_arm/`, nothing in `robotnik_arm_task/` changed). The robot is no longer
