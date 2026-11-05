@@ -782,11 +782,11 @@ report must already be complete without it; Thursday only swaps in results, nobo
 
       - **Start pose: no effect on either** (sequential ever 1 cm 49-50, held 42-45 from every pose; final 50, 47-49).
       - **Out of range: the sequential model generalises too**, near and far: every far run within 5 cm, ever 1 cm
-        52-54 per band, no long-drive failure (unlike CLD r2: its arm span on long drives; this one's is held still
+        52-54 per band, no long-drive failure (unlike CLD r2: its arm spun on long drives; this one's is held still
         under flag 0 with DAgger labels while driving). Held within 1 cm stays below the final model's, about the
         in-range gap (far 164 v 192 of 200).
       - **Payload: both sag the same way** (no integral action in either), but the sequential model is less stable
-        under load: at 1 kg 8 runs end beyond 5 cm and 5 collapse (final model: all within 5 cm, none), at 2 kg 19
+        under load: at 1 kg 8 runs never hold within 5 cm and 5 collapse (final model: all hold 5 cm, none collapse), at 2 kg 19
         collapses v 3. Likely because its arm makes the whole post-park move under the load (joint path + correction),
         while the concurrent arm is already at its pose when parked (not checked).
       - Report: the arm-after-parking model is as insensitive to start pose and distance as the concurrent one, at
