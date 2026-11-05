@@ -1,0 +1,30 @@
+train 9600 (3171 usable), val 1200 (411), device cuda
+308292 parameters
+MIOpen: Warning [IsEnoughWorkspace] [EvaluateInvokers] Solver <GemmFwdRest>, workspace required: 2764800, provided ptr: 0000000000000000 size: 0
+MIOpen: Warning [IsEnoughWorkspace] [EvaluateInvokers] Solver <GemmFwdRest>, workspace required: 691200, provided ptr: 0000000000000000 size: 0
+MIOpen: Warning [IsEnoughWorkspace] [EvaluateInvokers] Solver <GemmBwdRest>, workspace required: 691200, provided ptr: 0000000000000000 size: 0
+MIOpen: Warning [IsEnoughWorkspace] [EvaluateInvokers] Solver <GemmWrwUniversal>, workspace required: 691200, provided ptr: 0000000000000000 size: 0
+MIOpen: Warning [IsEnoughWorkspace] [EvaluateInvokers] Solver <GemmBwdRest>, workspace required: 2764800, provided ptr: 0000000000000000 size: 0
+MIOpen: Warning [IsEnoughWorkspace] [EvaluateInvokers] Solver <GemmWrwUniversal>, workspace required: 2764800, provided ptr: 0000000000000000 size: 0
+MIOpen: Warning [IsEnoughWorkspace] [EvaluateInvokers] Solver <GemmFwdRest>, workspace required: 2764800, provided ptr: 0000000000000000 size: 0
+MIOpen: Warning [IsEnoughWorkspace] [EvaluateInvokers] Solver <GemmFwdRest>, workspace required: 691200, provided ptr: 0000000000000000 size: 0
+MIOpen: Warning [IsEnoughWorkspace] [EvaluateInvokers] Solver <GemmFwdRest>, workspace required: 2764800, provided ptr: 0000000000000000 size: 0
+MIOpen: Warning [IsEnoughWorkspace] [EvaluateInvokers] Solver <GemmFwdRest>, workspace required: 691200, provided ptr: 0000000000000000 size: 0
+epoch  1: train loss 2.7033 | val: found 85/411, false 0, error mean 15.92 mm median 13.83 mm | 118 s
+epoch  2: train loss 1.6041 | val: found 266/411, false 5, error mean 5.34 mm median 4.62 mm | 70 s
+epoch  3: train loss 1.2775 | val: found 255/411, false 1, error mean 5.28 mm median 4.11 mm | 70 s
+epoch  4: train loss 1.0674 | val: found 323/411, false 6, error mean 4.58 mm median 3.93 mm | 70 s
+epoch  5: train loss 0.9124 | val: found 352/411, false 3, error mean 3.10 mm median 2.02 mm | 70 s
+epoch  6: train loss 0.8095 | val: found 366/411, false 6, error mean 4.39 mm median 1.69 mm | 70 s
+epoch  7: train loss 0.7436 | val: found 382/411, false 5, error mean 3.37 mm median 2.16 mm | 70 s
+epoch  8: train loss 0.6892 | val: found 401/411, false 13, error mean 2.53 mm median 1.09 mm | 70 s
+epoch  9: train loss 0.6466 | val: found 384/411, false 4, error mean 3.48 mm median 1.36 mm | 70 s
+epoch 10: train loss 0.7601 | val: found 387/411, false 6, error mean 5.66 mm median 2.87 mm | 70 s
+epoch 11: train loss 0.6450 | val: found 396/411, false 5, error mean 4.31 mm median 2.77 mm | 70 s
+epoch 12: train loss 0.5754 | val: found 390/411, false 9, error mean 5.07 mm median 3.10 mm | 71 s
+epoch 13: train loss 0.5555 | val: found 391/411, false 3, error mean 3.05 mm median 1.72 mm | 70 s
+epoch 14: train loss 0.5177 | val: found 395/411, false 14, error mean 6.07 mm median 2.51 mm | 70 s
+epoch 15: train loss 0.5137 | val: found 396/411, false 10, error mean 3.23 mm median 1.13 mm | 72 s
+epoch 16: train loss 0.4755 | val: found 392/411, false 13, error mean 2.41 mm median 0.92 mm | 70 s
+early stop: best epoch 8
+saved checkpoints/cnn_detector_hand.pt (epoch 8)

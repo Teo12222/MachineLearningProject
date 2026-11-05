@@ -22,7 +22,11 @@ stands in for the self-filter a real robot would run on its known geometry): a p
 from dataclasses import dataclass
 
 import numpy as np
-import pybullet as p
+
+try:
+    import pybullet as p
+except ImportError:   # training-only environments (e.g. the ROCm GPU venv, 5 Nov) need only the camera parameters
+    p = None
 
 # Image coordinates sampled by pixel (column u, row v) of a TinyRenderer image: x = u + 0, y = v + 1 (see detect_target)
 PIXEL_OFFSET_U = 0.0

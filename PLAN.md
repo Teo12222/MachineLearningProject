@@ -3855,6 +3855,48 @@ lower limit (see "Found on the way" below).
         (val 50), against the mast: 47 reached / 48 held within 1 cm (PC). Untested: whether the search turn finds
         every target from the hand's height and view (the estimator fuses all clean detections, weight 1/d^4, so close
         views dominate once the hand gets near).
+        **Done 5 Nov (Matteo's PC):** both detectors trained on the AMD GPU (ROCm venv; `cnn_detector.py` now imports
+        `mast_camera` without PyBullet in training-only environments), **both with `--patience 40`** (all 40 epochs,
+        best epoch kept by Kris's score: mean error + 10 x (missed + false) / usable). Why: the hand run with the default
+        patience 8 stopped at epoch 16 keeping epoch 8 (log kept: `cnn_detector_hand_earlystop_train.log`), because on
+        the hand images the score jumps by up to 3 mm between epochs while the OneCycle schedule only settles towards
+        epoch 40; Kris's mast run never early-stopped (best 34 of 40), so patience 40 reproduces what his run did.
+        Note: the GPU training repeated identically to the printed precision (same seed, epochs 1-16 equal), better
+        than the general "GPUs are not repeatable" caveat in the README note.
+        - **Hand CNN** (`checkpoints/cnn_detector_hand.pt`, epoch 19 by the score: 395/411 found, 6 false, mean 1.52 mm,
+          median 0.82 mm; later epochs reach 0.52 mm median but with 10 false detections and a higher mean).
+        - **Mast CNN retrained test-free** (`checkpoints/cnn_detector_mast_train.pt`, images
+          `data_camera_images_mast_train`: Kris's recipe, arm poses from the training split of ids 0-299 only, 4,637 /
+          12,000 usable): epoch 37, 441/451 found, 4 false, mean 1.01 mm, median 0.72 mm, i.e. the same accuracy as
+          Kris's original (455/458, 9 false, 1.01 / 0.72 mm): removing the test-split arm poses costs nothing.
+        **Closed loop, final model (drive-phase r1), Matteo's PC, 3 seeds** (`camera_policy_eval.py`; folders
+        `compare_out/split_conc_drive_r1_s*_{cnnhand,cnnmasttrain}_pc`; true target = the stored runs on the same
+        episodes):
+
+        | input | set | reached (5 mm) | ever 1 cm | held 1 cm | held 5 cm | never found / wrong estimate |
+        |---|---|---|---|---|---|---|
+        | true target | val 50 | 50 / 47 / 49 = 48.7 | 50.0 | 49 / 49 / 48 = 48.7 | 50 | - |
+        | mast camera, retrained | val 50 | 48 / 43 / 50 = 47.0 | 50.0 | 48 / 48 / 48 = 48.0 | 50 | 0 / 0 |
+        | hand camera | val 50 | 47 / 41 / 48 = 45.3 | 47.3 | 48 / 42 / 48 = 46.0 | 48 | 2 / 0 per seed |
+        | true target | test 150 | 144 / 143 / 146 = 144.3 | 149.7 | 143 / 145 / 147 = 145.0 | 150 | - |
+        | **mast camera, retrained** | test 150 | 143 / 136 / 146 = 141.7 | **150.0** | 146 / 140 / 146 = **144.0** | 150 | 0 / 0 |
+        | hand camera | test 150 | 142 / 127 / 139 = 136.0 | 143.0 | 139 / 131 / 143 = 137.7 | 145.3 | 2 / 2 per seed |
+
+        - **The retrained (test-free) mast camera is nearly free:** held within 1 cm 144.0 v 145.0 with the true
+          target, every run within 1 cm, final estimate within 2 cm on every run (median 0.25 mm). It replaces Kris's
+          original CNN for the report (Kris's Mac numbers, original CNN: 143.7 held).
+        - **The hand camera costs ~7 of 150 held** and fails systematically on 4 test targets per seed (2 on val):
+          (1) **never found** (val 99 / 111, test 416 / 420): close targets at the extreme heights (1.09-1.10 m high or
+          0.25-0.27 m, 1.0-1.25 m from the base): in the travel pose the hand looks straight ahead from 0.76 m, ~0.6 m
+          from such a target, and +-32 deg of vertical view can't reach them (~30 deg up: at the edge, cut off; ~40 deg
+          down: outside); (2) **wrong estimate** (test 334 / 793, every seed): the hand CNN locks onto something else,
+          final estimate 0.3-1.4 m off (a false detection). The rest is seed 1 (as for every camera). Where it finds the
+          target, its final estimate is as accurate as the mast's (median 0.29 mm).
+        - Fixes for later (not done): a scripted wrist sweep (look up / down) in the search turn, or backing the base up
+          after a full turn without a detection (blind zone); more hand images with distractors near the target / later
+          epochs with a stricter false-detection penalty (wrong estimates).
+        - **Report:** the mast camera (retrained test-free) is the camera result; the hand camera is an exploration
+          (one paragraph: what it gains, its blind zone and false detections).
       - **Scripts:** `camera_policy_eval.py --set test` (every test episode of the split, into `test_set/`) and
         `route_b_eval.py --set test`; checked on the stored Route B test runs (146 / 145 / 145 reached, 141 / 141 / 144
         held, as above). `cnn_data.py --arm-data <folders> --arm-episodes 0`: arm poses from policy runs (default

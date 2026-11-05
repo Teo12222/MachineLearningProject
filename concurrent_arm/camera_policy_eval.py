@@ -47,14 +47,15 @@ def main():
     ap.add_argument("--data-dir", default="data_route_b")
     ap.add_argument("--out-dir", required=True)
     ap.add_argument("--workers", type=int, default=10)
-    ap.add_argument("--set", choices=("val", "test"), default="val")
+    # val150 (5 Nov, Matteo): all 150 validation episodes (the fixed 50 among them), like compare.py --val-full
+    ap.add_argument("--set", choices=("val", "val150", "test"), default="val")
     a = ap.parse_args()
     root = HERE.parent / "robotnik_arm_task"
     data_dir = root / a.data_dir
     checkpoint = root / "checkpoints" / f"{a.model}.pt"
     assert checkpoint.exists(), checkpoint
     _, val_ids, test_ids = split_episodes(data_dir)
-    ids = quick_val_ids(val_ids) if a.set == "val" else list(test_ids)
+    ids = quick_val_ids(val_ids) if a.set == "val" else list(val_ids) if a.set == "val150" else list(test_ids)
     run_dir = Path(a.out_dir).resolve() / f"{a.set}_set"
     run_dir.mkdir(parents=True, exist_ok=True)
     for old in run_dir.glob("ep_*.npz"):

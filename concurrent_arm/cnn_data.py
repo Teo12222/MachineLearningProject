@@ -34,7 +34,7 @@ EE_LINK = 16                          # robot_j2s7s300_end_effector
 FINGER_ANGLE = 0.1
 
 
-def arm_pool(data_dirs, n_episodes=80, every=40, seed=0, split=None):
+def arm_pool(data_dirs, n_episodes=80, every=40, seed=0, split=None, id_range=None):
     """Arm configurations from stored episodes: every `every`-th frame of n_episodes random episodes (0: all) found
     under the folders data_dirs (expert data folders, or policy-run folders such as compare_out/<run>/val_set).
     split="train" (5 Nov, Matteo): only episodes of each folder's training split (bc_data.split_episodes; expert data
@@ -48,6 +48,10 @@ def arm_pool(data_dirs, n_episodes=80, every=40, seed=0, split=None):
         from bc_data import split_episodes
         allowed = {(Path(d).resolve(), i) for d in data_dirs for i in split_episodes(d)[0]}
         files = [f for f in files if (f.parent.resolve(), int(f.stem[3:])) in allowed]
+    if id_range is not None:
+        # episode ids lo..hi only (5 Nov: data_concurrent = data_route_b's ids 0-299, bit for bit, for Kris's recipe)
+        lo, hi = id_range
+        files = [f for f in files if lo <= int(f.stem[3:]) <= hi]
     if n_episodes <= 0:
         n_episodes = len(files)
     qs = []
@@ -165,13 +169,17 @@ def main():
     ap.add_argument("--arm-split", choices=("all", "train"), default="all",
                     help="train: arm poses only from the training split of each --arm-data folder (no val / test "
                          "episodes); all: every episode (default, as before)")
+    ap.add_argument("--arm-ids", default="",
+                    help="lo-hi: arm poses only from episode ids lo..hi (e.g. 0-299: data_route_b's ids that are "
+                         "bit-identical to data_concurrent); default all")
     ap.add_argument("--place", choices=("mast", "hand"), default="mast",
                     help="camera: the mast (default, unchanged) or the hand / palm camera (5 Nov)")
     a = ap.parse_args()
     out = Path(a.out).resolve()
     out.mkdir(parents=True, exist_ok=True)
     arm_qs = arm_pool(a.arm_data, n_episodes=a.arm_episodes, seed=a.seed,
-                      split="train" if a.arm_split == "train" else None)
+                      split="train" if a.arm_split == "train" else None,
+                      id_range=tuple(int(v) for v in a.arm_ids.split("-")) if a.arm_ids else None)
     print(f"{len(arm_qs)} arm configurations from {a.arm_data}", flush=True)
     per = int(np.ceil(a.n / a.workers))
     jobs = [(w, per, a.seed * 1000 + w + 1, arm_qs, str(out / f"shard_{w:02d}.npz"), a.place)
