@@ -755,6 +755,28 @@ report must already be complete without it; Thursday only swaps in results, nobo
       offset / rotated / both, seed 21, 1-3 m from the start) and the out-of-range test (near 0.6-1.0 m, far 3.0-5.0 m,
       seed 31, default start). Why: a fair robustness comparison between the arm-moves-while-driving final model and
       the arm-after-parking model.
+      **Done (5 Nov ~21:20, Matteo's PC): Kris's sequential pre-shaping model `split_seqpre_ppdart_cld_r3_s0`**, same
+      commands, targets and pruning as the final model (folders `starts/`, `oor/`, `payload/<model>_*`, git-ignored;
+      expert rows reused). Final model (drive-phase r1 s0) v sequential, seed 0:
+
+      | test | final model (concurrent) | sequential pre-shaping |
+      |---|---|---|
+      | start pose default / offset / rotated / both: reached / ever 1 cm / held 1 cm | 50/50/48, 48/50/47, 49/50/49, 49/50/49 | 47/48/43, 46/49/47, 47/50/46, 46/50/44 |
+      | near 0.6-0.8 / 0.8-1.0 m: held 1 cm (of 24 / 26) | 17 / 24 | 13 / 19 |
+      | far 3.0-3.5 / 3.5-4.0 / 4.0-4.5 / 4.5-5.0 m: held 1 cm (of 35 / 53 / 56 / 56) | 33 / 49 / 52 / 54 | 30 / 40 / 46 / 50 |
+      | far: timeout latches | 0 | 0 |
+      | payload 0 / 0.5 / 1 / 2 kg: held 1 cm | 48 / 5 / 0 / 0 | 43 / 6 / 0 / 0 |
+      | payload: held 5 cm | 50 / 50 / 50 / 2 | 50 / 48 / 42 / 2 |
+      | payload: collapses | 0 / 0 / 0 / 6 | 0 / 1 / 6 / 23 |
+
+      - **Start pose: no effect on either** (the sequential model a few runs lower everywhere, as its held 1 cm is overall).
+      - **Out of range: both fine up to 5 m, no timeout latches;** the final model ahead in every band. Supports the
+        CLD r2 correction above: the sequential model's arm also stays still while driving but was trained to hold that
+        pose (its post-park labels include "hold the start pose" before the latch), and it doesn't spin; CLD r2's did.
+      - **Payload: the sequential model is less robust.** At 1 kg the final model keeps every run within 5 cm, the
+        sequential one loses 8 and collapses in 6; at 2 kg it collapses in 23 / 50 (final 6). A plausible reason
+        (untested): its post-parking path makes a large arm motion under the unknown load, while the final model is
+        already in its pose when it parks.
 12. **Robustness: sensor noise only** (Kris; **runs on Wed 4 Nov in the background while we write the report**, on the final model, with 11;
     the noise-config change is done and smoke-tested on Tuesday; decided 2 Nov:
     friction and shoves dropped, the start-pose test (11) is the other robustness result). Uses the simulator's own
