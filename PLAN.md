@@ -3838,7 +3838,12 @@ lower limit (see "Found on the way" below).
         6 GB, git-ignored). **Kris's original CNN (`cnn_detector.pt`) very likely has the same issue:** reproducing its
         pick (`data_concurrent` = ids 0-299, seed 0, 80 episodes) gives 57 train / 11 val / **12 test** (a
         reproduction, Kris to confirm). The policy-pose CNN used val runs only (no test). **Plan (Matteo, 6 Nov): retrain
-        Kris's original CNN with `--arm-split train`** and rerun its camera tests; until then the report must not say
+        Kris's original CNN with `--arm-split train`** and rerun its camera tests. **Order agreed (Matteo, 5 Nov): first
+        the hand CNN (train on the GPU, then its closed loop), then Kris's mast CNN:** render new MAST images
+        (`cnn_data.py --place mast --arm-split train`) with arm poses as close to his recipe as possible: `data_concurrent`
+        is not on this PC, but its episodes 0-299 are bit-identical to `data_route_b` 0-299, so limit the pool to those
+        ids' training split (needs a small `--arm-ids 0-299` option, off by default); train with his command on the GPU;
+        rerun val 50 and test 150 x 3 with the retrained detector against his numbers. Until then the report must not say
         the camera's training data contains no test episodes ("the detector never saw a test target position" stays
         true).
         **Next (Matteo, later):** from `robotnik_arm_task/`:
