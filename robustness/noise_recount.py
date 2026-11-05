@@ -17,6 +17,7 @@ and the time to reach). One frame is 1 ms.
 Usage, from robotnik_arm_task/ (folders as robustness/noise_runs.sh names them):
     python ../robustness/noise_recount.py split_conc_drive_r1
     python ../robustness/noise_recount.py split_seqpre_ppdart_cld_r3 --levels mac noise1 noise5 noise10
+    python ../robustness/noise_recount.py expert     # robustness/expert_noise_runs.py's folders (one run per level)
 """
 import argparse
 import re
@@ -58,8 +59,11 @@ def main():
     ref_ids = None
     for level in args.levels:
         seeds = []
-        for s in args.seeds:
-            files = sorted(Path(args.root, f"{args.model}_s{s}_{level}_val", "val_set").glob("ep_*.npz"))
+        # "expert": robustness/expert_noise_runs.py's folders, one per level, episode files at the top level
+        for s in ([0] if args.model == "expert" else args.seeds):
+            folder = (Path(args.root, f"expert_{level}_val") if args.model == "expert"
+                      else Path(args.root, f"{args.model}_s{s}_{level}_val", "val_set"))
+            files = sorted(folder.glob("ep_*.npz"))
             if not files:
                 print(f"{level:8s} s{s}: no episode files")
                 continue
