@@ -823,6 +823,29 @@ report must already be complete without it; Thursday only swaps in results, nobo
       PC's 46 / 50 / 44 for seed 0 (machine difference, as for the other models). The noisy readings were checked
       (joint readings jump 1.4 / 7.1 / 14.1 mrad per step at sigma 1 / 5 / 10, sigma x sqrt 2). Files:
       `compare_out/split_dartdagger_bb_plusCLD_r2_s0_{mac,noise1,noise5,noise10}_val`.
+      **Rerun on the final model drive-phase r1 (`split_conc_drive_r1_s0/1/2`; 5 Nov, Kris, Mac, 3 seeds).** Val 50,
+      master at 8218399 (its own policy script, `ROBOENV_CONFIG=robotnik_arm_noise{1,5,10}.json`). Counted three ways
+      that agree on every run: `route_b_eval.py --data-dir data_main` (same 50 ids), a separate recount from the
+      episode files, and compare.py's reached count. Collapsed = the error back above 20 cm after the closest
+      approach; no spin count (this model's arm moves while the base drives by design). Expert rows as above (same
+      targets and noise; the sequential expert, not the concurrent one this model learned from):
+
+      | sensor noise sigma | reached (5 mm) | ever 1 cm | held 1 cm | held 5 cm | median final error | collapses / off floor | runs at the 30 s cap | time to reach (reached, mean) | expert reached / held 1 cm |
+      |---|---|---|---|---|---|---|---|---|---|
+      | 0 (clean, Mac) | 50 / 47 / 50 (49.0) | 50 / 50 / 50 | 50 / 49 / 50 (49.7) | 50 / 50 / 50 | 0.37 / 0.51 / 0.42 cm | 0 / 0 | 3 / 150 | 10.14 s | 50 / 50 |
+      | 1 mm, mrad | 49 / 47 / 47 (47.7) | 50 / 50 / 50 | 50 / 48 / 49 (49.0) | 50 / 50 / 50 | 0.41 / 0.40 / 0.44 cm | 0 / 0 | 7 / 150 | 10.13 s | 50 / 49 |
+      | 5 | 50 / 49 / 46 (48.3) | 50 / 50 / 50 | 50 / 49 / 50 (49.7) | 50 / 50 / 50 | 0.38 / 0.37 / 0.36 cm | 0 / 0 | 5 / 150 | 10.24 s | 50 / 50 |
+      | 10 | 48 / 39 / 46 (44.3) | 50 / 50 / 50 | 49 / 50 / 50 (49.7) | 50 / 50 / 50 | 0.42 / 0.66 / 0.44 cm | 0 / 0 | 17 / 150 | 10.30 s | 50 / 50 |
+
+      - **The final model barely notices the noise:** up to sigma 5 nothing moves beyond the seed spread; at sigma 10
+        the 5 mm reach drops by 4.7 (49.0 -> 44.3, most of it seed 1: 47 -> 39, 11 runs at the cap), but every run
+        still gets within 1 cm, holds within 1 cm in 49.7 of 50, holds within 5 cm, and nothing collapses or leaves the
+        floor. Time to reach +0.16 s.
+      - **Much more robust than the earlier final models** at sigma 10: +C r3 reached 21.3 / 50 (3 seeds, 0.9-3.2 cm
+        median final error), CLD r2 seed 0 25 / 50 (1.52 cm); drive-phase r1 44.3 (0.4-0.7 cm). Why is not tested:
+        the report states it without a cause.
+      - "Held 1 cm" is comparable across levels here: few runs reach the cap (3 -> 17 of 150), unlike +C r3 (12 -> 86).
+      - Files: `compare_out/split_conc_drive_r1_s{0,1,2}_{mac,noise1,noise5,noise10}_val` (Kris's Mac, git-ignored).
 13. Efficiency table (Jamie) (24).
 14. Success at 1 cm next to 5 mm: decided 2 Nov ("How we work"); computed once after 7 from the saved runs (Matteo).
 15. **Activation and output function check (added 3 Nov, Matteo; today):** never tested so far (the tuning plan
