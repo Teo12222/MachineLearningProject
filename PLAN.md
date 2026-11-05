@@ -45,9 +45,9 @@ Look there for the current state of each model instead of this file.
   merge two versions of a checkpoint, so two people retraining the same name means picking one.
 - Run with `pixi run python <script>` from `robotnik_arm_task/`. In PyCharm, scripts that import torch set
   `KMP_DUPLICATE_LIB_OK` themselves (needed on Windows).
-- **From 3 Nov, 1 cm is the main success measure for our models** (the brief's tolerance): **ever within 1 cm** (the
-  first time the end effector gets within 1 cm, the brief's rule), with **held within 1 cm for 0.5 s** next to it as
-  the stricter version (it doesn't count an arm that swings through the target). The **5 mm** column stays as the
+- **From 3 Nov, 1 cm is the main success measure for our models** (the template's tolerance: `REACH_TOLERANCE =
+  0.01` in the course's starter code; the assignment slides give none): **ever within 1 cm** (the first time the end
+  effector gets within 1 cm, the template's rule), with **held within 1 cm for 0.5 s** next to it as the stricter version (it doesn't count an arm that swings through the target). The **5 mm** column stays as the
   strictest, so every earlier model stays comparable. Why the expert uses 5 mm: it is the data source, so it was made
   to stop at 5 mm (+ 1 s settle) to give **more accurate demonstrations** (a more precise final approach and holding
   frames near the target), not because 5 mm is the task's tolerance; the policy runs use the same stop rule, so expert
@@ -547,17 +547,17 @@ rejected models lost by more than the seed spread (see "Evidence per feature" un
    "Collapsed 25" is a different measure from "off floor" (1 on the Mac): dropped from the report row. The report
    row uses all-Mac numbers (one machine for all 3 seeds).
    Expert 149/150. Picked on validation only (val 75%, test 69%: the usual small drop of a best-of-several pick). On
-   the brief's 1 cm: held 70%, ever within 1 cm 88%. (Internal context only, **never in the report**: another model is known to reach 149/150 at 1 cm, success
+   the template's 1 cm: held 70%, ever within 1 cm 88%. (Internal context only, **never in the report**: another model is known to reach 149/150 at 1 cm, success
    counted as the end effector reaching the target point in simulation, i.e. the first time within 1 cm. Its authors
    suggested fewer inputs (checked: step 6, arm input check) and plotting torques and the loss curves. Not asked further: their
-   targets and time limit are assumed to be the brief's, like ours, so the comparable number is our ever within
+   targets and time limit are assumed to be the same as ours (the slides fix neither), so the comparable number is our ever within
    1 cm, 88%.)
 
 **If B isn't enough: ideas to improve the final model further (2 Nov, cheapest first; only on 4 Nov, cut-off 4 Nov
 midday, then report only).** Where the best models fail now is **precision, not collapse**: DART holds within 5 cm in
 50/50 and within 2 cm in 45-47/50 but reaches 5 mm in 16-30/50; r5 was ever within 1 cm in 90/150 on test but within
 5 mm in 62/150. So the fixes aim at the last 5-20 mm:
-- **Report success at 1 cm too (14):** no cost. The brief's tolerance is 1 cm, ours is 5 mm to match the expert;
+- **Report success at 1 cm too (14):** no cost. The template's tolerance is 1 cm, ours is 5 mm to match the expert;
   show both with the reason. Already decided (2 Nov, see "How we work"); computed after 7 from the saved runs.
 - **Seed ensemble:** average the arm outputs of the 3 seeds trained anyway (7, 8). Attacks the seed spread (16-30)
   directly and usually helps fine precision; no new training, ~0.5 ms per step (under the 1 ms step); a small change
@@ -1494,7 +1494,7 @@ bigger code (Kris's GRU in the split model, Matteo's camera work) and merge it a
   would need, e.g. its own DAgger rounds behind the early-starting arm), using the designs in steps 15 and the
   camera section.
 - **Dropped:** shallow vs deep check (16), base DAgger (21), tuning of the final model, DAgger rounds behind the vw base.
-- **Open, to decide later:** report success at 1 cm too (the brief's tolerance) next to our 5 mm.
+- **Open, to decide later:** report success at 1 cm too (the template's tolerance) next to our 5 mm.
 
 Numbers refer to the steps in the plan below. Everyone tunes the hyperparameters of their own models (on validation
 only), runs several seeds for their final candidates, records everything in `results/`, and writes the report sections
@@ -1623,7 +1623,7 @@ for their own work as they go.
    kept going it got from 1 cm to 5 mm within 0.5 s), so the data shows a more precise final approach; and the
    policy is judged by the **same rule** as the expert, so expert and model success rates in `results/` mean the
    same thing (we first considered keeping 1 cm for the policy, but then the expert's "reached" would be stricter
-   than the models'). Our success test is stricter than the brief's 1 cm: say so in the report; the policy's frames
+   than the models'). Our success test is stricter than the template's 1 cm: say so in the report; the policy's frames
    are saved, so success at 1 cm (ever within 1 cm) can still be computed. Checked on all 350 pilot targets at 5 mm
    + 1 s settle:
    **349/350 reached**, final error median 1.25 mm (90%: 1.46 mm), sim time median 12.5 s (5.8-17.5 s), 4.30 M
@@ -2802,7 +2802,7 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
     **Same model on Matteo's PC (2 Nov), val 50** (`compare_out/split_dart_a60x2_s0_pc_val/`): **32/50** reached (Mac
     30/50: the machine difference is small, as for r5's 23 vs 26), held within 1 / 2 / 5 cm for 0.5 s **37** / 46 / 50,
     closest approach median 0.41 cm, collapsed 0, arm spins 0. Against `split_dagger_r5_s0` on the same PC and targets:
-    26 reached, held 1 / 2 / 5 cm 13 / 32 / 42, 8 collapsed, 9 spins. **On the brief's 1 cm the gap is much bigger than
+    26 reached, held 1 / 2 / 5 cm 13 / 32 / 42, 8 collapsed, 9 spins. **On the template's 1 cm the gap is much bigger than
     on reached (37 vs 13 held):** r5 swings around the target (e.g. val 429: between 0.5 and 4 cm every ~1.3 s, never
     settles; torques normal), DART comes in smoothly and stays. One seed each.
     **DART amount x 3 training seeds (B4, 2 Nov, Kris):** noise 60, validation 50, Mac. 600 episodes = the 300 above
@@ -2911,7 +2911,7 @@ the world-frame model can't fix its closed-loop failure: 0/150 at a good validat
       **Full test set, `split_dagger_r5_s0`: 62/150 reached (41.3%)** (expert 149/150), final error median 3.9 cm
       (mean 0.20 m), time to reach 11.2 s for reached runs (expert 12.2 s, both incl. the 1 s settle; the reached
       targets are likely the easier ones, so not a like-for-like speed comparison). 90/150 got within 1 cm at some
-      point (the brief's 1 cm tolerance, "ever within 1 cm"). Validation (52%) was higher than test (41%): expected,
+      point (the template's 1 cm tolerance, "ever within 1 cm"). Validation (52%) was higher than test (41%): expected,
       since the round was picked as the best of five on validation. Offline as before: test wheels 0.181 rad/s,
       torques 0.80 N*m; inference 0.17 ms per step.
       **Recomputed 2 Nov from the saved files** (`compare_out/split_dagger_r5_s0/test_set/`): held within 1 cm for
@@ -3131,7 +3131,25 @@ named; mark the set, the machine and the number of seeds in every row):
     uniformly over the area (median 2.3 m); "smaller radius" in step 0 is misleading. No target in any of our data is
     closer than 1 m.
 27. **Report:** IEEE template, max 6 pages + contribution statement; code README must say what was written from
-    scratch vs adapted. Due **6 Nov**. Discussion points found so far:
+    scratch vs adapted. Due **6 Nov**.
+    **What the assignment slides actually ask (re-read 5 Nov, `COMP0245-Assignment-2026-2-1.pdf`):**
+    - **Task:** a model that replicates the template controller and generalises to new targets and / or initial
+      conditions; input robot state (base pose, arm joints) + target, output wheel commands + arm torques ("extra
+      data?" allowed). Implement a regressor, generate the data, design an evaluation methodology, justify choices.
+    - **The slides give no success tolerance:** the 1 cm is the template's (`REACH_TOLERANCE = 0.01` in the starter
+      code, commit `89463be`). In the report write "the template's 1 cm tolerance", not "the brief's" (corrected
+      throughout this file, 5 Nov).
+    - **Report sections:** Introduction (problem, assumptions, constraints), Methodology (implementation + justified
+      choices), Results (experiments, comparisons, tables / plots, interpretation), Conclusion (limitations, how to
+      improve). Max 6 pages (LaTeX IEEE) + contribution statement max 1 page (may be page 7).
+    - **Evaluation questions:** accuracy; generalisation to targets / initial conditions; robustness to adversities;
+      efficiency (memory, parameters, computation time).
+    - **Code / README:** how to run and which outputs are generated; which external code was used and what was
+      modified or written from scratch. Data and checkpoints not needed in Moodle; a GitHub link is allowed.
+    - **Marking:** generic statements not tied to our data cap at 60-69; 70-79 needs reproducible, well documented
+      work and understanding; 80+ needs well-justified novel ideas in the method or the validation; a severe
+      code-report inconsistency is in the fail band.
+    Discussion points found so far:
     - **All temporal models are causal** (added 3 Nov): the GRU only reads the current and past frames (one
       direction, memory carried forward), the TCN uses causal convolutions, and the history windows only past
       frames. Say so explicitly: a controller can't use future frames at run time, which is also why no
