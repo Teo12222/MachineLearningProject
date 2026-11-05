@@ -3663,7 +3663,7 @@ lower limit (see "Found on the way" below).
       **Round picked by the rule: r1** (held 43); chain 2 (`seqpre_chain2.sh`, `R=1`) runs the CLD-style rounds on it.
       **Chain 2 (13:52-14:22), val 50, seed 0:** CLD-style rounds on r1 (`split_seqpre_dartdagger_bb_plusCLD_r1-r3`):
       reached 26 / 24 / 31, ever 1 cm 34 / 34 / 43, held 1 cm 18 / 15 / 21, held 5 cm 35 / 48 / 50, collapsed 6 / 0 /
-      0, 12.46 / 14.00 / 14.92 s: all below their start r1 (37 / 44 / 43 / 50, 12.21 s); the 25 s posture-free window
+      0, 12.46 / 14.00 / 14.92 s: all below their start r1 (37 / 44 / 43 / 50, 12.21 s); probably (not checked) the 25 s window
       spreads the same mismatched labels over more frames (1.0-3.8 M labelled frames per round). Picked by the rule:
       **plusCLD r3** (held 21), the recipe's "plain" model; the post-park rounds (`seqpre_chain3.sh`, `R=1 C=3`,
       `split_seqpre_postpark_r1-r3`) start from it. Note for the report: the plain recipe's best model is DAgger r1,
