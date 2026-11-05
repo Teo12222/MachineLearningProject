@@ -3678,6 +3678,32 @@ lower limit (see "Found on the way" below).
       (train.py with each round's options and folders), then `--val-full` and test 150, 3 seeds, of both and of
       drive-phase r1, all on the Mac (into `compare_out/mac_<model>/`; expert.csv and drive-phase r1's results files
       restored from git after each test run). `route_b_eval.py --set val_full` added for the val-150 counts.
+      **Result (chain 4, 14:55-15:48, Mac, 3 seeds; counts from `route_b_eval.py`, rechecked with a separate script:
+      reached from the stop messages, held within 1 cm from `run_stats`, both identical).**
+
+      | Mac, s0 / s1 / s2 = mean | reached | ever 1 cm | held 1 cm | held 5 cm | collapsed | time to reach | low targets held 1 cm |
+      |---|---|---|---|---|---|---|---|
+      | val 150: plain (plusCLD r3) | 97 / 77 / 85 = 86.3 | 112.7 | 68 / 38 / 42 = 49.3 | 147.0 | 0 / 11 / 3 | 14.30 s | 11.7 / 46 |
+      | val 150: + post-park labels (postpark r2) | 114 / 117 / 93 = 108.0 | 135.0 | 62 / 60 / 48 = 56.7 | 150 | 0 | 13.54 s | 10.3 / 46 |
+      | val 150: drive-phase r1 (final) | 149 / 142 / 147 = 146.0 | **150** | 146 / 145 / 148 = **146.3** | 150 | 1 / 0 / 0 | **10.49 s** | **43.7 / 46** |
+      | test 150: plain (plusCLD r3) | 92 / 73 / 79 = 81.3 | 109.7 | 51 / 41 / 43 = 45.0 | 147.0 | 0 / 4 / 2 | 14.19 s | 10.7 / 58 |
+      | test 150: + post-park labels (postpark r2) | 106 / 106 / 90 = 100.7 | 130.7 | 66 / 44 / 40 = 50.0 | 149.7 | 1 / 1 / 0 | 13.91 s | 12.7 / 58 |
+      | test 150: drive-phase r1 (final) | 146 / 144 / 149 = 146.3 | **150** | 146 / 143 / 145 = **144.7** | 150 | 0 | **10.42 s** | **54.0 / 58** |
+
+      Machine check: drive-phase r1 on the Mac matches Matteo's PC (val 150 held 146.3 both, low 43.7 both; test held
+      144.7 v 145.0). **Findings.** (1) The post-park labels help the arm-after-parking model: reached +21.7 (val) /
+      +19.3 (test), ever 1 cm +22 / +21, no collapses on val, ~0.3-0.8 s faster; held within 1 cm only +7.3 / +5.0,
+      inside the plain model's seed spread (30 / 10), and low targets unchanged (~11 of 46 / 58). Many reaches are
+      pass-throughs (chain 3), i.e. the precision problem Matteo's catch predicted (one flag for path and
+      correction). (2) Both are far below drive-phase r1 (held 1 cm 50-57 v 145-146 of 150, 3.4-3.8 s slower), and
+      far below the original sequential model CLD r2 too (test 150 held 112.3, PC; other machine, but the gap is far
+      beyond the machine difference): the joint-path-then-correction expert with this recipe is not a good model.
+      (3) The plain recipe's best model was DAgger r1 (val 50 held 43 v plusCLD r3's 21); not measured on 150, so the
+      plain row is the recipe's final model, not its best. **For the report:** the arm-after-parking (sequential
+      pre-shaping) model gains from the post-park labels in reaching but not in holding, and stays well below the
+      concurrent model; concurrency (the arm pre-shaped during the drive, short correction after parking, flag 0 /
+      1 separating the two behaviours) is what makes drive-phase r1 work. Not done: the three robustness tests on
+      this model (step 11 reminder), seeds of DAgger r1.
 
 ### Extension: camera expert, the concurrent expert finds the target with a mast camera (Kris, 4 Nov)
 29. **Camera expert** (Kris, folder `concurrent_arm/`, nothing in `robotnik_arm_task/` changed). The robot is no longer
