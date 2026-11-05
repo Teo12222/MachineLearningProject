@@ -2,7 +2,7 @@
 
 Same targets and start poses as `compare.py --val-set` (bc_data.quick_val_ids of the folder's split, targets from the
 stored expert episodes), same 30 s cap, but the policy script is camera_policy_task.py (camera estimate instead of the
-true target). Episode files go to <out-dir>/val_set/ep_XXXX.npz, so route_b_eval.py reads them like compare.py's.
+true target). Episode files go to <out-dir>/val_set/ep_XXXX.npz, so count_results.py reads them like compare.py's.
 --set test: every test episode of the split (compare.py --test-set's targets), into <out-dir>/test_set/.
 
 Usage (from robotnik_arm_task/):

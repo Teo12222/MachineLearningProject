@@ -11,7 +11,7 @@ A copy of ../robotnik_arm_task/robotnik_arm_policy_task.py (Matteo's; not edited
 - the stop rule and the saved errors stay the referee's, measured to the true target, exactly as in the true-target
   runs (compare.py), so the two are directly comparable. The 30 s time cap includes the search.
 ROBOENV_CAMERA=0 turns the camera off: the script then behaves exactly like robotnik_arm_policy_task.py (checked bit for
-bit on saved Route B val runs). ROBOENV_CAMERA_REFINE=0: first clean detection only. ROBOENV_POLICY: the checkpoint.
+bit on saved concurrent-model val runs). ROBOENV_CAMERA_REFINE=0: first clean detection only. ROBOENV_POLICY: the checkpoint.
 """
 import os
 import sys

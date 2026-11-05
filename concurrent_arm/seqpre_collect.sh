@@ -1,5 +1,5 @@
 #!/bin/bash
-# Sequential pre-shaping expert data (PLAN.md step 28, 5 Nov): Route B's targets and seeds, with
+# Sequential pre-shaping expert data (PLAN.md step 28, 5 Nov): the concurrent model's targets and seeds, with
 # ROBOENV_ARM_SEQUENTIAL=1 (arm still while the base drives, joint path to q_final after the latch, then the
 # Cartesian correction). Run from robotnik_arm_task/.
 set -euo pipefail

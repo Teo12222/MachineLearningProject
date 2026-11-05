@@ -100,7 +100,7 @@ def label_run(raw_path, out_path, window, posture_free=False, posture_kp=0.0, q_
         torque[k:stop] = labels[:stop - k]
         mask[k:stop] = True
         if drive is not None and k > 0:
-            # Route B drive-phase DAgger (--label-drive, PLAN.md C19, 4 Nov): the frames before the latch too (the
+            # Drive-phase DAgger (--label-drive, PLAN.md C19, 4 Nov): the frames before the latch too (the
             # base turning and driving, flag 0 in the saved nav_done), labelled by the concurrent expert's arm path
             # (expert_relabel.relabel_arm_drive). Kept even at the torque limit (as C19 Route A, option 1): they are
             # the expert's bounded pull back toward the path; the stop rule above still judges the reach after it
@@ -217,7 +217,7 @@ def main():
                         help="the expert's reach starts from q_final of the target's expert episode, not the arm's "
                              "start pose (label_run's q_des0; for the concurrent expert, PLAN.md step 28)")
     parser.add_argument("--label-drive", action="store_true",
-                        help="Route B: also label the frames before the latch (turning and driving) with the concurrent "
+                        help="concurrent expert: also label the frames before the latch (turning and driving) with the concurrent "
                              "expert's arm path to q_final (expert_relabel.relabel_arm_drive; needs --relabel-from-final "
                              "and a --data-dir of concurrent-expert episodes, which store q_final and base_goal)")
     parser.add_argument("--label-postpark", action="store_true",

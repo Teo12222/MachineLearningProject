@@ -1,6 +1,6 @@
 """Counts for the sensor-noise runs (PLAN.md step 12), recomputed from the saved policy episode files.
 
-An independent check of compare.py / route_b_eval.py: nothing is taken from them except the stop message (for "reached"
+An independent check of compare.py / count_results.py: nothing is taken from them except the stop message (for "reached"
 and the time to reach). One frame is 1 ms.
 - reached:   the stop message says "Target reached" (5 mm, the task scripts' REACH_TOLERANCE); also checked against
              the frames: the error is below 5 mm at some frame of every reached run
@@ -10,7 +10,7 @@ and the time to reach). One frame is 1 ms.
 - off floor: the base height moves more than 10 cm from its start
 - at cap:    the run lasted to the 30 s time cap
 - time to reach: the time in the stop message ("at t=..."), i.e. without the 1 s settle; mean over the reached runs
-  of each seed, then over the seeds (as route_b_eval.py)
+  of each seed, then over the seeds (as count_results.py)
 - held 1 cm split by outcome (reached / not reached): shows whether a change in "held" comes from runs that hover at
   the time cap instead of reaching 5 mm
 

@@ -90,7 +90,7 @@ def main():
     # Default = the final model chosen 4 Nov (CLD r2). Was split_dartdagger_r5_s{s}, the previous final model;
     # changed so a plain run regenerates the report's table for the model the report describes.
     # parser.add_argument("--models", nargs="+", default=[f"split_dartdagger_r5_s{s}" for s in range(3)],
-    # 4 Nov ~19:45: the final model is drive-phase r1 on Route B (PLAN.md FINAL MODEL); CLD r2's table is kept as
+    # 4 Nov ~19:45: the final model is drive-phase r1 on the concurrent expert (PLAN.md FINAL MODEL); CLD r2's table is kept as
     # results/analysis/cld_r2_distances.csv / cld_r2_bands.csv (--name cld_r2)
     # parser.add_argument("--models", nargs="+", default=[f"split_dartdagger_bb_plusCLD_r2_s{s}" for s in range(3)],
     parser.add_argument("--models", nargs="+", default=[f"split_conc_drive_r1_s{s}" for s in range(3)],

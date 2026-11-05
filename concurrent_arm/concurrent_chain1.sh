@@ -1,7 +1,7 @@
 #!/bin/bash
-# Route B, part 1 (PLAN.md step 28): the DART model behind the bounded base, then
+# Concurrent model, part 1 (PLAN.md step 28): the DART model behind the bounded base, then
 # 5 DAgger rounds labelled 5 s after the latch. Mirrors the final model's recipe on the concurrent expert's data
-# (data_concurrent_expert, early IK off). Run from robotnik_arm_task/; logs in compare_out/route_b/.
+# (data_concurrent_expert, early IK off). Run from robotnik_arm_task/; logs in compare_out/concurrent/.
 set -euo pipefail
 export MPLBACKEND=Agg KMP_DUPLICATE_LIB_OK=TRUE
 PY=${PY:-python}

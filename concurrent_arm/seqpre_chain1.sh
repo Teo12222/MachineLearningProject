@@ -1,7 +1,7 @@
 #!/bin/bash
-# Sequential pre-shaping model, part 1 (PLAN.md step 28, 5 Nov): Route B's recipe (route_b_chain1.sh) on the
+# Sequential pre-shaping model, part 1 (PLAN.md step 28, 5 Nov): the concurrent model's recipe (concurrent_chain1.sh) on the
 # sequential pre-shaping expert's data (seqpre_collect.sh): the DART model behind the bounded base, then 5 DAgger
-# rounds labelled 5 s after the latch, reach relabelled from q_final (the "plain" recipe, as Route B's).
+# rounds labelled 5 s after the latch, reach relabelled from q_final (the "plain" recipe, as the concurrent model's).
 # Run from robotnik_arm_task/; PY = the environment's python (default: python on the PATH).
 set -euo pipefail
 export MPLBACKEND=Agg KMP_DUPLICATE_LIB_OK=TRUE

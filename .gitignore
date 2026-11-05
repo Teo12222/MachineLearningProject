@@ -43,7 +43,7 @@ robotnik_arm_task/data_concurrent_v1
 robotnik_arm_task/data_concurrent*.log
 concurrent_arm/episode.npz
 
-# Route B (concurrent expert, early IK off; PLAN.md step 28): expert and low-target episodes (not submitted)
+# Concurrent expert (early IK off; PLAN.md step 28): expert and low-target episodes (not submitted)
 robotnik_arm_task/data_concurrent_expert
 robotnik_arm_task/data_low_b
 

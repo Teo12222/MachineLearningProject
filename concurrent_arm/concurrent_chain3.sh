@@ -1,5 +1,5 @@
 #!/bin/bash
-# Route B, part 3 (PLAN.md step 28): seeds 1 and 2 of the chosen round (plusCLD r3: most held within 1 cm on val 50),
+# Concurrent model, part 3 (PLAN.md step 28): seeds 1 and 2 of the chosen round (plusCLD r3: most held within 1 cm on val 50),
 # same data and settings as dagger.py's round 3 (base copied from the start model), then val 50 each.
 set -euo pipefail
 export MPLBACKEND=Agg KMP_DUPLICATE_LIB_OK=TRUE

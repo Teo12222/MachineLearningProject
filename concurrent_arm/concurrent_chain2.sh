@@ -1,5 +1,5 @@
 #!/bin/bash
-# Route B, part 2 (PLAN.md step 28): the final model's last step (CLD) on top of the chosen DAgger round
+# Concurrent model, part 2 (PLAN.md step 28): the final model's last step (CLD) on top of the chosen DAgger round
 # (r3: most held within 1 cm, then ever, on val 50): 3 rounds with posture-free labels over the whole run, 100 extra
 # runs per round on low training targets and the low-target expert episodes in the arm's data. Extra data as for the
 # final model: DART + the rounds up to the start model. Run from robotnik_arm_task/.

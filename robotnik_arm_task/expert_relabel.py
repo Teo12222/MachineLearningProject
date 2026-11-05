@@ -75,7 +75,7 @@ POS_TOL = 0.08         # m, BaseControllerParams.pos_tol: the concurrent expert'
 
 
 def relabel_arm_drive(d, latch, q_final, goal_xy):
-    """Route B drive-phase DAgger (PLAN.md C19 / step 28, 4 Nov): the concurrent expert's arm torques for frames
+    """Drive-phase DAgger (PLAN.md C19 / step 28, 4 Nov): the concurrent expert's arm torques for frames
     0..latch-1 of a policy run d, i.e. while the base turns and drives, as concurrent_arm/concurrent_expert.py
     commands them (early IK off, the setting of data_concurrent_expert), along the policy's own states.
 

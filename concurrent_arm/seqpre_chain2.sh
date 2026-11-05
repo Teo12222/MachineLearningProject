@@ -1,5 +1,5 @@
 #!/bin/bash
-# Sequential pre-shaping model, part 2 (PLAN.md step 28, 5 Nov): Route B's chain 2 (the final model's CLD step) on
+# Sequential pre-shaping model, part 2 (PLAN.md step 28, 5 Nov): the concurrent model's chain 2 (the final model's CLD step) on
 # round R of chain 1, chosen by the rule (held within 1 cm, then ever, then reached; seed 0, val 50):
 # 3 rounds, posture-free labels over the whole run, 100 extra low runs per round, data_low_s in the arm's data.
 # Usage, from robotnik_arm_task/: R=3 PY=python bash ../concurrent_arm/seqpre_chain2.sh

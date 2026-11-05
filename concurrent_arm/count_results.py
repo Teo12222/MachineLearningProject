@@ -1,11 +1,11 @@
-"""Val-50 numbers for Route B and its references, from saved compare.py --val-set runs (no simulation).
+"""The report's counts for any policy (val 50, val 150 or test 150), from saved compare.py --val-set runs (no simulation).
 
 Per model: reached (within 5 mm once the latch is set, compare.py's rule), ever / held within 1 cm and held within
 5 cm (analyse_distances.run_stats: below the distance in one frame / for 0.5 s without a break), collapsed (the error
 goes back above 20 cm after the closest approach, PLAN.md C18e), and the mean time to reach over the reached runs.
 
 Usage (from robotnik_arm_task/):
-    python ../concurrent_arm/route_b_eval.py compare_out/<model>_val ... [--data-dir data_concurrent_expert]
+    python ../concurrent_arm/count_results.py compare_out/<model>_val ... [--data-dir data_concurrent_expert]
 The 50 targets are quick_val_ids of the folder's split; data_concurrent_expert and data_course_expert give the same 50 (ids 0-999).
 """
 import argparse

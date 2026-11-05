@@ -2,7 +2,7 @@
 # Sensor-noise robustness runs (PLAN.md step 12): one model, 3 seeds, val 50, clean and sensor noise sigma 1 / 5 / 10
 # (mm on the base position, mrad on the joints; configs/robotnik_arm_noise<sigma>.json via ROBOENV_CONFIG).
 # Each run gets its own folder: compare_out/<model>_s<seed>_<level>_val, level = clean / noise1 / noise5 / noise10.
-# Count them with robustness/noise_recount.py (and concurrent_arm/route_b_eval.py --data-dir data_course_expert).
+# Count them with robustness/noise_recount.py (and concurrent_arm/count_results.py --data-dir data_course_expert).
 #
 # Usage, from anywhere:
 #   PY="pixi run python" bash robustness/noise_runs.sh split_conc_drive_r1             # final model, seeds 0 1 2
