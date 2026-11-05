@@ -3668,6 +3668,16 @@ lower limit (see "Found on the way" below).
       **plusCLD r3** (held 21), the recipe's "plain" model; the post-park rounds (`seqpre_chain3.sh`, `R=1 C=3`,
       `split_seqpre_postpark_r1-r3`) start from it. Note for the report: the plain recipe's best model is DAgger r1,
       not its final round.
+      **Chain 3 (14:23-14:53), post-park labels on plusCLD r3, val 50, seed 0** (`split_seqpre_postpark_r1-r3`, 4.6-4.8 M
+      labelled frames per round): reached 27 / 37 / 41, ever 1 cm 43 / 45 / 49, held 1 cm 14 / **25** / 19, held 5 cm
+      50, collapsed 0, 16.12 / 13.56 / 11.93 s (start plusCLD r3: 31 / 43 / 21 / 50, 14.92 s). Reached and time improve
+      every round, held within 1 cm doesn't: of r3's reached runs 23 aren't held, and they are pass-throughs (the
+      hand crosses within 5 mm and is 1-4 cm away 1 s later, when the run stops), v 1 such run for DAgger r1. Fits
+      Matteo's catch (one flag for the joint path and the Cartesian correction; the policy doesn't settle).
+      **Picked by the rule: postpark r2** (held 25). `seqpre_chain4.sh`: seeds 1-2 of plusCLD r3 and postpark r2
+      (train.py with each round's options and folders), then `--val-full` and test 150, 3 seeds, of both and of
+      drive-phase r1, all on the Mac (into `compare_out/mac_<model>/`; expert.csv and drive-phase r1's results files
+      restored from git after each test run). `route_b_eval.py --set val_full` added for the val-150 counts.
 
 ### Extension: camera expert, the concurrent expert finds the target with a mast camera (Kris, 4 Nov)
 29. **Camera expert** (Kris, folder `concurrent_arm/`, nothing in `robotnik_arm_task/` changed). The robot is no longer
