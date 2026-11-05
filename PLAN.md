@@ -3743,6 +3743,26 @@ lower limit (see "Found on the way" below).
       (chain 1's r1: 37 / 44 / 43 / 50, 12.21 s). **The recipe was a large part of the earlier result:** from round 2
       on, held within 1 cm is level with CLD r2 (40.3, Mac) instead of 14-25, but below Route B (48.3). **Picked by the
       rule: ppdart r2**; `seqpre_chain6.sh`: seeds 1-2 (train.py, round 2's options and data), val 150 and test 150.
+      **The three designs on one machine (chains 6-7, Mac, 5 Nov 17:18; CLD r2 rerun on val 150 / test 150 with
+      `seqpre_chain7.sh`; counts from `route_b_eval.stats`, reached also from the stop messages, identical; CLD r2's
+      Mac test held 112.3 = its PC number; val / test ids the same for data_main and data_seqpre, checked).**
+
+      | Mac, 3 seeds (s0 / s1 / s2 = mean) | reached | ever 1 cm | held 1 cm | collapsed (sum) | low held 1 cm | time to reach |
+      |---|---|---|---|---|---|---|
+      | val 150: sequential, CLD r2 | 132 / 129 / 131 = **130.7** | 146.0 | 117 / 118 / 118 = 117.7 | 0 | 23.0 / 46 | 11.71 s |
+      | val 150: sequential pre-shaping, post-park from DART r2 | 112 / 90 / 119 = 107.0 | 137.7 | 131 / 120 / 124 = 125.0 | 1 | 30.7 / 46 | 12.60 s |
+      | val 150: concurrent, drive-phase r1 | 149 / 142 / 147 = 146.0 | 150.0 | 146 / 145 / 148 = 146.3 | 1 | 43.7 / 46 | 10.49 s |
+      | test 150: sequential, CLD r2 | 125 / 129 / 124 = **126.0** | 142.7 | 113 / 115 / 109 = 112.3 | 0 | 28.7 / 58 | 11.87 s |
+      | test 150: sequential pre-shaping, post-park from DART r2 | 119 / 90 / 112 = 107.0 | 139.0 | 126 / 123 / 122 = 123.7 | 0 | 40.3 / 58 | 12.20 s |
+      | test 150: concurrent, drive-phase r1 | 146 / 144 / 149 = 146.3 | 150.0 | 146 / 143 / 145 = 144.7 | 0 | 54.0 / 58 | 10.42 s |
+
+      **Answer to Matteo's 4 Nov question (with matching labels):** pre-shaping alone improves holding: held within
+      1 cm +7.3 (val) / +11.4 (test) over CLD r2, seed ranges not overlapping on either (117-118 v 120-131; 109-115 v
+      122-126), low targets +7.7 / +11.6. It costs exact 5 mm reaches (-24 / -19, seed 1 weak at 90) and ~0.4-0.9 s.
+      Concurrency adds holding (+21 on both), low targets, reached and ~1.8-2.1 s on top. So both parts of Route B
+      help holding; the speed comes from concurrency. The plain-recipe rows above (held 45-57) were a labelling
+      effect (`--relabel-from-final` is wrong for this expert), not the design's. Best sequential model on holding:
+      `split_seqpre_ppdart_r2_s0/1/2`; CLD r2 stays better on exact reaches and time.
 
 ### Extension: camera expert, the concurrent expert finds the target with a mast camera (Kris, 4 Nov)
 29. **Camera expert** (Kris, folder `concurrent_arm/`, nothing in `robotnik_arm_task/` changed). The robot is no longer
