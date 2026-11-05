@@ -3647,6 +3647,20 @@ lower limit (see "Found on the way" below).
       `seqpre_collect_v1.log`). **Final data:** `data_seqpre` 1,000 / 1,000 reached, 12.26 s mean (sequential expert
       `data_main` 995, 12.25 s; concurrent `data_route_b` 1,000, 11.18 s; index.csv sim_time); DART `s_a60` 102 / 150,
       `s_a60b` 109 / 150 (Route B's 111 / 103, the sequential expert's 116 / 112); `data_low_s` 60 / 60.
+      **Chain 1 (Mac, 13:15-13:50), val 50, seed 0** (`route_b_eval.py --data-dir data_seqpre`):
+
+      | val 50, Mac, s0 | reached | ever 1 cm | held 1 cm | held 5 cm | collapsed | time to reach |
+      |---|---|---|---|---|---|---|
+      | DART model `split_seqpre_dart_bb_s0` | 23 | 27 | 27 | 29 | 15 | 10.76 s |
+      | DAgger r1 / r2 / r3 / r4 / r5 | 37 / 32 / 27 / 13 / 16 | 44 / 40 / 37 / 24 / 23 | **43** / 23 / 19 / 5 / 9 | 50 / 48 / 46 / 40 / 49 | 0 / 0 / 0 / 3 / 0 | 12.21 / 12.03 / 10.49 / 12.83 / 11.69 s |
+
+      **The plain recipe falls apart round after round**, as Matteo predicted: `--relabel-from-final` labels the
+      frames after the latch with a Cartesian reach from q_final, but this expert's arm is still at its start pose
+      there (it first follows the joint path). Those labels are 2-3x the expert's own size (mean |label| 10.5 N*m in
+      r1's runs, 7.6 in r3's, v 3.9 for the expert after the latch) and mostly hit the saturation stop (median 0.64 s
+      labelled per run in r1, 1.57 s in r3). The DART model alone is poor too (15 / 50 collapsed): with the arm still
+      while driving the DART noise has no drive-phase effect to teach, and its post-latch data is only 252 runs.
+      **Round picked by the rule: r1** (held 43); chain 2 (`seqpre_chain2.sh`, `R=1`) runs the CLD-style rounds on it.
 
 ### Extension: camera expert, the concurrent expert finds the target with a mast camera (Kris, 4 Nov)
 29. **Camera expert** (Kris, folder `concurrent_arm/`, nothing in `robotnik_arm_task/` changed). The robot is no longer
