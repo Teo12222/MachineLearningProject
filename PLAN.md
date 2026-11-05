@@ -755,6 +755,42 @@ report must already be complete without it; Thursday only swaps in results, nobo
       offset / rotated / both, seed 21, 1-3 m from the start) and the out-of-range test (near 0.6-1.0 m, far 3.0-5.0 m,
       seed 31, default start). Why: a fair robustness comparison between the arm-moves-while-driving final model and
       the arm-after-parking model.
+    - **Done (Kris, 5 Nov 20:00-20:51, Mac): the three tests on the sequential pre-shaping model**
+      (`split_seqpre_ppdart_cld_r3_s0`, PLAN.md step 28) **and, on the same Mac and targets, the final model**
+      (`split_conc_drive_r1_s0`). Matteo's folders are on his PC, so the targets were regenerated with
+      `concurrent_arm/robustness_runs.py` (his seeds and rules, `run_batch.run_episode` unchanged); they reproduce his
+      counts exactly (50 per pose after pruning; near 24 / 26, far 35 / 53 / 56 / 56), and the final model's Mac rows
+      match his PC rows within 1-3 runs per cell (e.g. 4.0-4.5 m 54 / 56 / 55 / 56 v 54 / 56 / 52 / 56; payload sag
+      -1.3 / -3.5 / -7.5 cm v -1.4 / -3.4 / -7.8). Folders `starts/`, `oor/`, `payload/<model>_*` (git-ignored).
+      Expert rows: Matteo's (above). Reached / ever 1 cm / held 1 cm / held 5 cm, collapses if any:
+
+      | test | sequential pre-shaping | final model (concurrent), Mac |
+      |---|---|---|
+      | start default 0, 0, 0 | 47 / 50 / 42 / 50 | 50 / 50 / 49 / 50 |
+      | start offset 2.0, 1.5, 0 | 49 / 50 / 45 / 50 | 50 / 50 / 49 / 50 |
+      | start rotated 0, 0, 3.0 | 44 / 49 / 43 / 50 | 49 / 50 / 49 / 50 |
+      | start both -1.5, 2.0, -2.0 | 49 / 50 / 45 / 50 | 50 / 50 / 47 / 50 |
+      | target 0.6-0.8 m (24) | 18 / 23 / 14 / 23 | 19 / 22 / 17 / 23 |
+      | target 0.8-1.0 m (26) | 22 / 26 / 17 / 26 | 25 / 26 / 24 / 26 |
+      | target 3.0-3.5 m (35) | 31 / 35 / 32 / 35 | 34 / 35 / 35 / 35 |
+      | target 3.5-4.0 m (53) | 49 / 52 / 42 / 53 | 50 / 52 / 51 / 53 |
+      | target 4.0-4.5 m (56) | 49 / 54 / 45 / 56 | 54 / 56 / 55 / 56 |
+      | target 4.5-5.0 m (56) | 48 / 54 / 45 / 56 | 53 / 53 / 51 / 56 |
+      | payload 0.5 kg (sag, median) | 5 / 27 / 9 / 50 (-1.6 cm) | 3 / 28 / 3 / 50 (-1.3 cm) |
+      | payload 1 kg | 0 / 2 / 1 / 42, 5 collapses (-4.0 cm) | 0 / 2 / 0 / 50 (-3.5 cm) |
+      | payload 2 kg | 0 / 1 / 0 / 3, 19 collapses (-8.7 cm) | 0 / 0 / 0 / 1, 3 collapses (-7.5 cm) |
+
+      - **Start pose: no effect on either** (sequential ever 1 cm 49-50, held 42-45 from every pose; final 50, 47-49).
+      - **Out of range: the sequential model generalises too**, near and far: every far run within 5 cm, ever 1 cm
+        52-54 per band, no long-drive failure (unlike CLD r2: its arm span on long drives; this one's is held still
+        under flag 0 with DAgger labels while driving). Held within 1 cm stays below the final model's, about the
+        in-range gap (far 164 v 192 of 200).
+      - **Payload: both sag the same way** (no integral action in either), but the sequential model is less stable
+        under load: at 1 kg 8 runs end beyond 5 cm and 5 collapse (final model: all within 5 cm, none), at 2 kg 19
+        collapses v 3. Likely because its arm makes the whole post-park move under the load (joint path + correction),
+        while the concurrent arm is already at its pose when parked (not checked).
+      - Report: the arm-after-parking model is as insensitive to start pose and distance as the concurrent one, at
+        its lower precision; it handles an unknown payload worse. One seed, 50-200 runs per test.
 12. **Robustness: sensor noise only** (Kris; **runs on Wed 4 Nov in the background while we write the report**, on the final model, with 11;
     the noise-config change is done and smoke-tested on Tuesday; decided 2 Nov:
     friction and shoves dropped, the start-pose test (11) is the other robustness result). Uses the simulator's own
