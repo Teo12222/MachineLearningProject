@@ -323,6 +323,15 @@ and thread count is usually repeatable. What carries over is the result, not the
 equivalent within seed-to-seed noise, which is why every result is a 3-seed mean. Say which machine / device each
 model was trained on (most on Matteo's PC or Kris's Mac, CPU; Kris's camera CNNs on his Mac's GPU (MPS); the hand
 camera CNN on Matteo's AMD RX 7800 XT through ROCm, `C:\Users\robot\venvs\rocm_torch`, torch 2.14.0+rocm10.1.0).
+**Training device (decided 5 Nov, Matteo): no general GPU support.** Only the camera CNN training
+(`concurrent_arm/cnn_detector.py`) uses CUDA (NVIDIA, or AMD under ROCm), then MPS, else the CPU: that is where a GPU
+pays off (~47 min v ~1.5-2 h per CNN here). The policy networks (small MLPs, ~2 s per epoch on the CPU) and the
+simulator runs stay on the CPU. Why: a general device choice in `train.py` / `bc_gru.py` / `train_tcn.py` /
+`learnability.py` was written and checked (bit for bit unchanged on the CPU) but discarded: no gain for MLPs this small,
+no environment on this PC with both a GPU PyTorch and pinocchio (so it couldn't train there anyway), and on Kris's Mac
+it would have silently moved his trainings to MPS (slightly different results two days before the deadline). Not for
+the report (hardware is not part of the method); the README's reproducibility note says which CNNs were trained on a
+GPU.
 
 **Report points from 3 Nov:** the base's share (seed spread is the arm's only; base and DAgger arm are one pair);
 C16-C18 none better, so the limit is the learned arm-base pair; offline v closed loop once more (near-weight: val loss
@@ -3897,6 +3906,17 @@ lower limit (see "Found on the way" below).
           epochs with a stricter false-detection penalty (wrong estimates).
         - **Report:** the mast camera (retrained test-free) is the camera result; the hand camera is an exploration
           (one paragraph: what it gains, its blind zone and false detections).
+        - **Framing (decided 5 Nov, Matteo):** the **mast camera is the main camera model**, the palm camera an
+          experiment. Mast = the sensible choice when the arm will grasp something and carry it elsewhere: once the hand
+          holds an object a palm camera is blocked by it and the fingers and can't see the destination; the mast keeps
+          the scene in view. Its limitation: modelled weightless and without collision (a real mast, ~1-2 kg at 1 m,
+          would raise the centre of mass; not modelled). Palm = the sleeker, more natural choice when the policy only has
+          to arrive at a point, **once its two current failures are fixed** (search-turn blind zone, false detections;
+          today test held 1 cm 137.7 v the mast's 144.0, so say so), and simpler to carry physically (a small wrist
+          mount, no mast). It is also modelled weightless; a real wrist RGB-D camera is ~0.1 kg (e.g. a RealSense D405
+          ~60 g), which unmodelled would cost roughly 3 mm of sag (by the payload test's ~linear trend: 1.4 cm at 0.5 kg),
+          and **should** be removable by collecting the expert data with that mass at the hand and retraining (the
+          expert compensates, the policy learns its torques with the mass): untested, so "should", not "does".
       - **Scripts:** `camera_policy_eval.py --set test` (every test episode of the split, into `test_set/`) and
         `route_b_eval.py --set test`; checked on the stored Route B test runs (146 / 145 / 145 reached, 141 / 141 / 144
         held, as above). `cnn_data.py --arm-data <folders> --arm-episodes 0`: arm poses from policy runs (default
