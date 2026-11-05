@@ -3736,6 +3736,13 @@ lower limit (see "Found on the way" below).
       the base's distance to its spot, which it can, and runs under flag 0). Fits the pass-throughs; a hypothesis
       for the model's failure, not tested by a model run. Also: the post-park rounds started from the damaged plain
       model (held 21 / 50), not from the DART model or DAgger r1.
+      **Chain 5 (15:55-16:48, Mac): post-park labels from the DART model** (`seqpre_chain5.sh`, chain 1 with
+      `--label-postpark` instead of `--relabel-from-final`; `split_seqpre_ppdart_r1-r5`, 2.4-2.6 M labelled frames per
+      round), val 50, seed 0: reached 4 / 38 / 43 / 39 / 44, ever 1 cm 12 / 47 / 48 / 47 / 49, held 1 cm 9 / **44** / 43
+      / 33 / 43, held 5 cm 48 / 50 / 48 / 49 / 49, collapsed 0 / 0 / 2 / 0 / 1, 11.46 / 12.50 / 11.41 / 11.61 / 11.67 s
+      (chain 1's r1: 37 / 44 / 43 / 50, 12.21 s). **The recipe was a large part of the earlier result:** from round 2
+      on, held within 1 cm is level with CLD r2 (40.3, Mac) instead of 14-25, but below Route B (48.3). **Picked by the
+      rule: ppdart r2**; `seqpre_chain6.sh`: seeds 1-2 (train.py, round 2's options and data), val 150 and test 150.
 
 ### Extension: camera expert, the concurrent expert finds the target with a mast camera (Kris, 4 Nov)
 29. **Camera expert** (Kris, folder `concurrent_arm/`, nothing in `robotnik_arm_task/` changed). The robot is no longer
