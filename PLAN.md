@@ -3763,6 +3763,11 @@ lower limit (see "Found on the way" below).
       help holding; the speed comes from concurrency. The plain-recipe rows above (held 45-57) were a labelling
       effect (`--relabel-from-final` is wrong for this expert), not the design's. Best sequential model on holding:
       `split_seqpre_ppdart_r2_s0/1/2`; CLD r2 stays better on exact reaches and time.
+      **Improving the sequential pre-shaping model (Kris, 5 Nov evening): (1) the final recipe's last step with
+      matching labels, (2) round picks on val 150.** Chain 5's rounds re-picked on all 150 val episodes (seed 0):
+      held 1 cm r1-r5 37 / **131** / 124 / 113 / 129, reached 15 / 112 / 125 / 117 / 125, ever 48 / 144 / 142 / 145 /
+      144: r2 stays the pick. `seqpre_chain8.sh`: 3 CLD-style rounds on it (`--label-postpark --window 25
+      --posture-free --low-extra 100`, `data_low_s`; `split_seqpre_ppdart_cld_r1-r3`), each round's seed 0 on val 150.
 
 ### Extension: camera expert, the concurrent expert finds the target with a mast camera (Kris, 4 Nov)
 29. **Camera expert** (Kris, folder `concurrent_arm/`, nothing in `robotnik_arm_task/` changed). The robot is no longer
