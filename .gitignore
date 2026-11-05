@@ -58,3 +58,4 @@ robotnik_arm_task/data_camera_images*
 robotnik_arm_task/data_seqpre
 robotnik_arm_task/data_low_s
 robotnik_arm_task/seqpre*.log
+robotnik_arm_task/robustness_runs.log
