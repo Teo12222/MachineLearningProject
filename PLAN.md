@@ -3850,7 +3850,9 @@ lower limit (see "Found on the way" below).
         images were re-rendered with it** (80 of 80 train; `data_camera_images_hand`, 12,000 images, 3,951 usable,
         6 GB, git-ignored). **Kris's original CNN (`cnn_detector.pt`) very likely has the same issue:** reproducing its
         pick (`data_concurrent` = ids 0-299, seed 0, 80 episodes) gives 57 train / 11 val / **12 test** (a
-        reproduction, Kris to confirm). The policy-pose CNN used val runs only (no test). **Plan (Matteo, 6 Nov): retrain
+        reproduction, Kris to confirm; **confirmed (Kris, 5 Nov, Mac):** the same pick on the local `data_concurrent`
+        (300 files, seed 0) gives 57 train / 11 val / 12 test, so `cnn_detector.pt`'s arm poses include 12 test
+        episodes' expert runs). The policy-pose CNN used val runs only (no test). **Plan (Matteo, 6 Nov): retrain
         Kris's original CNN with `--arm-split train`** and rerun its camera tests. **Order agreed (Matteo, 5 Nov): first
         the hand CNN (train on the GPU, then its closed loop), then Kris's mast CNN:** render new MAST images
         (`cnn_data.py --place mast --arm-split train`) with arm poses as close to his recipe as possible: `data_concurrent`
