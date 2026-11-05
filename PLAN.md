@@ -868,6 +868,34 @@ report must already be complete without it; Thursday only swaps in results, nobo
         the report states it without a cause.
       - "Held 1 cm" is comparable across levels here: few runs reach the cap (3 -> 17 of 150), unlike +C r3 (12 -> 86).
       - Files: `compare_out/split_conc_drive_r1_s{0,1,2}_{mac,noise1,noise5,noise10}_val` (Kris's Mac, git-ignored).
+
+      **Sequential pre-shaping model ppdart_cld r3 (`split_seqpre_ppdart_cld_r3_s0/1/2`, step 28; 5 Nov, Kris, Mac, 3
+      seeds; Matteo's request).** Same protocol as the final model's rerun above: val 50, master at cb88797,
+      `compare.py --val-set` on `data_main` (its 1,000 targets are `data_seqpre`'s, checked on every episode), the
+      same noise configs, counted the same three ways (agree on every run). Expert rows as above (the sequential
+      expert, not the sequential pre-shaping one this model learned from):
+
+      | sensor noise sigma | reached (5 mm) | ever 1 cm | held 1 cm | held 5 cm | median final error | collapses / off floor | runs at the 30 s cap | time to reach (reached, mean) | expert reached / held 1 cm |
+      |---|---|---|---|---|---|---|---|---|---|
+      | 0 (clean, Mac) | 46 / 48 / 48 (47.3) | 49 / 50 / 50 | 43 / 39 / 40 (40.7) | 50 / 50 / 50 | 0.91 / 0.72 / 0.75 cm | 0 / 0 | 8 / 150 | 11.46 s | 50 / 50 |
+      | 1 mm, mrad | 46 / 46 / 47 (46.3) | 49 / 50 / 50 | 44 / 43 / 43 (43.3) | 50 / 50 / 50 | 0.83 / 0.77 / 0.66 cm | 0 / 0 | 11 / 150 | 11.35 s | 50 / 49 |
+      | 5 | 45 / 44 / 39 (42.7) | 49 / 49 / 50 | 45 / 46 / 42 (44.3) | 50 / 50 / 50 | 0.51 / 0.57 / 0.62 cm | 0 / 0 | 23 / 150 | 11.57 s | 50 / 50 |
+      | 10 | 43 / 44 / 41 (42.7) | 50 / 50 / 50 | 45 / 45 / 47 (45.7) | 50 / 50 / 50 | 0.72 / 0.57 / 0.58 cm | 0 / 0 | 22 / 150 | 11.04 s | 50 / 50 |
+
+      - **Also robust to the noise, on the 1 cm measures:** every level keeps ever within 1 cm at 49.3-50 of 50 and
+        held within 5 cm at 50, with no collapses or off-floor runs. The 5 mm reach drops by 4.6 at sigma 5 and 10
+        (47.3 -> 42.7; seed 2 at sigma 5: 48 -> 39). Time to reach doesn't rise (11.04-11.57 s).
+      - **Held within 1 cm rises with the noise (40.7 -> 45.7), but that's the time cap, not better holding:**
+        split by outcome (3 seeds pooled), held among the reached runs is flat (120 / 142, 122 / 139, 123 / 128,
+        121 / 128 at sigma 0 / 1 / 5 / 10), and the rise comes from runs that miss 5 mm, run on to the 30 s cap and
+        hover within 1 cm (held 2 / 8 -> 16 / 22). So unlike the final model's table, "held 1 cm" here is not
+        comparable across levels. On clean runs 22 of the 142 reached runs are not held: the hand crosses 5 mm but
+        doesn't stay within 1 cm for 0.5 s in a row during the 1 s settle (the pass-throughs of step 28).
+      - **Against the final model (same targets, same Mac):** below it at every level on held within 1 cm (40.7-45.7
+        v 49.0-49.7) and on reached (42.7-47.3 v 44.3-49.0), level on ever within 1 cm, ~1 s slower (11.0-11.6 s v
+        10.1-10.3 s). The drop in 5 mm reaches from clean to sigma 10 is the same (-4.6 v -4.7 of 50).
+      - Files: `compare_out/split_seqpre_ppdart_cld_r3_s{0,1,2}_{mac,noise1,noise5,noise10}_val` (Kris's Mac,
+        git-ignored).
 13. Efficiency table (Jamie) (24).
 14. Success at 1 cm next to 5 mm: decided 2 Nov ("How we work"); computed once after 7 from the saved runs (Matteo).
 15. **Activation and output function check (added 3 Nov, Matteo; today):** never tested so far (the tuning plan
@@ -3857,6 +3885,13 @@ lower limit (see "Found on the way" below).
       held 1 cm +3.7, low +8.6. **Best sequential pre-shaping model: `split_seqpre_ppdart_cld_r3_s0/1/2`** (val
       pick; report that test favours ppdart r2 on holding). Still far below drive-phase r1 (test held 116 v 145,
       reached 138 v 146, 1.4 s slower).
+      **Caveat for the report (Matteo, 5 Nov):** the two designs differ in two ways at once: when the arm pre-shapes
+      (during the drive v after parking) and whether the policy can see how far along the pre-shaping is (concurrent:
+      the base's distance to its spot; post-park: time since the latch, for both the timed joint path and the switch
+      to the Cartesian reach); so these models can't tell whether "pre-shaping during the drive holds better" comes
+      from the timing or from the visible progress, and the report states it as that confound, not as a cause. Test
+      (not run, future work): a post-park expert that switches on the arm's state (at q_final and at rest) and times
+      its path by progress along the joint path.
 
 ### Extension: camera expert, the concurrent expert finds the target with a mast camera (Kris, 4 Nov)
 29. **Camera expert** (Kris, folder `concurrent_arm/`, nothing in `robotnik_arm_task/` changed). The robot is no longer
