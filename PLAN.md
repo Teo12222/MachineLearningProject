@@ -3773,6 +3773,27 @@ lower limit (see "Found on the way" below).
       / 131 / 149, 12.75 s). Reaching and speed up (+27 reached, -0.9 s at r3), held within 1 cm -3 at r3, inside
       ppdart r2's seed range (120-131). Best CLD-style round: r3; one seed can't decide it against its start, so
       `seqpre_chain9.sh`: seeds 1-2 of r3 (round 3's options and 8 folders), val 150 and test 150, 3 seeds.
+      **Result (chain 9, 19:45-20:02, Mac, 3 seeds; reached also from the stop messages, identical):**
+
+      | Mac, s0 / s1 / s2 = mean | reached | ever 1 cm | held 1 cm | collapsed (sum) | low held 1 cm | time to reach |
+      |---|---|---|---|---|---|---|
+      | val 150: CLD r2 | 132 / 129 / 131 = 130.7 | 146.0 | 117 / 118 / 118 = 117.7 | 0 | 23.0 / 46 | 11.71 s |
+      | val 150: ppdart r2 | 112 / 90 / 119 = 107.0 | 137.7 | 131 / 120 / 124 = 125.0 | 1 | 30.7 / 46 | 12.60 s |
+      | val 150: **ppdart_cld r3** | 139 / 136 / 140 = 138.3 | 147.7 | 128 / 123 / 123 = 124.7 | 0 | 36.0 / 46 | 12.03 s |
+      | val 150: drive-phase r1 | 149 / 142 / 147 = 146.0 | 150.0 | 146 / 145 / 148 = 146.3 | 1 | 43.7 / 46 | 10.49 s |
+      | test 150: CLD r2 | 125 / 129 / 124 = 126.0 | 142.7 | 113 / 115 / 109 = 112.3 | 0 | 28.7 / 58 | 11.87 s |
+      | test 150: ppdart r2 | 119 / 90 / 112 = 107.0 | 139.0 | 126 / 123 / 122 = 123.7 | 0 | 40.3 / 58 | 12.20 s |
+      | test 150: **ppdart_cld r3** | 141 / 132 / 141 = 138.0 | 148.3 | 116 / 118 / 114 = 116.0 | 0 | 37.3 / 58 | 11.82 s |
+      | test 150: drive-phase r1 | 146 / 144 / 149 = 146.3 | 150.0 | 146 / 143 / 145 = 144.7 | 0 | 54.0 / 58 | 10.42 s |
+
+      **Pick by the rule on val: ppdart_cld r3** (held 1 cm 124.7 v 125.0, level; ever 1 cm 147.7 v 137.7). It is
+      also the steadier model (reached 136-140 v 90-119). Test, looked at afterwards, has it below ppdart r2 on held
+      within 1 cm (116.0 v 123.7, ranges 114-118 v 122-126, not overlapping) and on low targets (37.3 v 40.3): the
+      CLD-style rounds trade some holding for reaching on test. Against the original sequential model CLD r2 it is
+      ahead on every measure on both sets except time (val +0.3 s, test level): test reached +12, ever 1 cm +5.6,
+      held 1 cm +3.7, low +8.6. **Best sequential pre-shaping model: `split_seqpre_ppdart_cld_r3_s0/1/2`** (val
+      pick; report that test favours ppdart r2 on holding). Still far below drive-phase r1 (test held 116 v 145,
+      reached 138 v 146, 1.4 s slower).
 
 ### Extension: camera expert, the concurrent expert finds the target with a mast camera (Kris, 4 Nov)
 29. **Camera expert** (Kris, folder `concurrent_arm/`, nothing in `robotnik_arm_task/` changed). The robot is no longer
