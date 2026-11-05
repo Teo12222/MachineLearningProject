@@ -13,6 +13,11 @@ with the segmentation mask. At run time the network gets only RGB + depth.
 
 Usage (from robotnik_arm_task/): python ../concurrent_arm/cnn_data.py --n 12000 --out data_camera_images32
 Policy arm poses instead of the expert's: --arm-data compare_out/<run>/val_set ... --arm-episodes 0
+Hand camera (5 Nov, Matteo; --place hand, mast_camera.MastCameraParams.place): the camera at the palm, following the
+arm. Differences, all only with --place hand (the mast images are unchanged): targets in view at 0.10-3.6 m,
+log-uniform (the hand gets close); out-of-view targets placed around the camera's own heading; and "usable" =
+not touching the image border and >= 60% of the sphere's expected projected area visible (the fingers are next to
+the target at close range, so the mast's "no robot pixels next to the blob" rule would discard almost every close view).
 """
 import argparse
 import os
@@ -45,7 +50,7 @@ def arm_pool(data_dirs, n_episodes=80, every=40, seed=0):
 
 def generate(args):
     """Worker: n samples into one shard file."""
-    worker, n, seed, arm_qs, out = args
+    worker, n, seed, arm_qs, out, place = args
     os.chdir(HERE)
     sys.path.insert(0, str(HERE))
     import pybullet as p
@@ -57,6 +62,8 @@ def generate(args):
     client = sim.pybullet_client
     rid = sim.bot[0].bot_pybullet
     params = MastCameraParams()
+    params.place = place
+    hand = place == "hand"
     W, H = params.width, params.height
     fx = (W / 2) / np.tan(params.hfov / 2)
     fy = (H / 2) / np.tan(vertical_fov(params) / 2)
@@ -83,14 +90,14 @@ def generate(args):
         q = arm_qs[rng.integers(len(arm_qs))]
         for j, a in zip(ARM_JOINTS, q):
             client.resetJointState(rid, j, float(a))
-        eye, fwd, up, right = camera_pose(base_pos, base_ori, params)
+        eye, fwd, up, right = camera_pose(base_pos, base_ori, params, client, rid)
 
         mode = rng.choice(3, p=[0.55, 0.25, 0.20])
         for _ in range(200):
             if mode == 0:     # in or just outside the view
                 x = rng.uniform(-0.1 * W, 1.1 * W)
                 y = rng.uniform(-0.1 * H, 1.1 * H)
-                r = rng.uniform(0.4, 3.6)
+                r = np.exp(rng.uniform(np.log(0.10), np.log(3.6))) if hand else rng.uniform(0.4, 3.6)
                 d = fwd + (x - W / 2) / fx * right - (y - H / 2) / fy * up
                 tgt = eye + r * d / np.linalg.norm(d)
             elif mode == 1:   # next to the gripper
@@ -98,7 +105,8 @@ def generate(args):
                 off = rng.normal(0, 1, 3)
                 tgt = ee + off / np.linalg.norm(off) * rng.uniform(0.0, 0.15)
             else:             # out of view: behind or beside the camera
-                ang = yaw + rng.uniform(np.deg2rad(60), np.deg2rad(300))
+                heading = np.arctan2(fwd[1], fwd[0]) if hand else yaw   # the hand camera points where the arm does
+                ang = heading + rng.uniform(np.deg2rad(60), np.deg2rad(300))
                 r = rng.uniform(0.6, 3.6)
                 tgt = np.array([eye[0] + r * np.cos(ang), eye[1] + r * np.sin(ang), 0.0])
                 tgt[2] = rng.uniform(0.1, 1.3)
@@ -106,7 +114,7 @@ def generate(args):
                 break
         client.resetBasePositionAndOrientation(body, tgt.tolist(), [0, 0, 0, 1])
 
-        rgb, depth, seg, _ = render(client, base_pos, base_ori, params)
+        rgb, depth, seg, _ = render(client, base_pos, base_ori, params, rid)
         rel = tgt - eye
         zc = rel @ fwd
         mask = red_mask(rgb)
@@ -117,8 +125,13 @@ def generate(args):
             m = params.margin_px
             v0, v1 = max(vv.min() - m, 0), min(vv.max() + m + 1, H)
             u0, u1 = max(uu.min() - m, 0), min(uu.max() + m + 1, W)
-            occluded = np.any(seg[v0:v1, u0:u1] == rid)
             truncated = uu.min() == 0 or vv.min() == 0 or uu.max() == W - 1 or vv.max() == H - 1
+            if hand:
+                # >= 60% of the sphere's expected projected area visible (disc of radius f r / z, small-angle)
+                expected = np.pi * (fx * params.target_radius / zc) * (fy * params.target_radius / zc)
+                occluded = npx < 0.6 * expected
+            else:
+                occluded = np.any(seg[v0:v1, u0:u1] == rid)
             ok = not (occluded or truncated)
         if zc > params.near:
             uv[k] = [W / 2 + fx * (rel @ right) / zc - PIXEL_OFFSET_U, H / 2 - fy * (rel @ up) / zc - PIXEL_OFFSET_V]
@@ -140,13 +153,16 @@ def main():
     ap.add_argument("--arm-episodes", type=int, default=80, help="episodes drawn from them (0: all)")
     ap.add_argument("--workers", type=int, default=10)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--place", choices=("mast", "hand"), default="mast",
+                    help="camera: the mast (default, unchanged) or the hand / palm camera (5 Nov)")
     a = ap.parse_args()
     out = Path(a.out).resolve()
     out.mkdir(parents=True, exist_ok=True)
     arm_qs = arm_pool(a.arm_data, n_episodes=a.arm_episodes, seed=a.seed)
     print(f"{len(arm_qs)} arm configurations from {a.arm_data}", flush=True)
     per = int(np.ceil(a.n / a.workers))
-    jobs = [(w, per, a.seed * 1000 + w + 1, arm_qs, str(out / f"shard_{w:02d}.npz")) for w in range(a.workers)]
+    jobs = [(w, per, a.seed * 1000 + w + 1, arm_qs, str(out / f"shard_{w:02d}.npz"), a.place)
+            for w in range(a.workers)]
     with ProcessPoolExecutor(max_workers=a.workers) as pool:
         for path, n_ok, n in pool.map(generate, jobs):
             print(f"  {Path(path).name}: {n} images, {n_ok} with a usable target", flush=True)

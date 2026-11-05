@@ -314,6 +314,15 @@ to PLAN.md, for the professors: how to set up the environment, get / regenerate 
 low-target data, Route B's concurrent-expert data), regenerate the models (the final model's chain: commands in step 28
 and C18e), and how the tests are run (`compare.py --val-set / --val-full / --test-set`, start pose, out-of-range,
 payload, sensor noise, `analyse_distances.py`). The course's `robotnik_arm_task/README.md` stays unchanged.
+**Reproducibility note for the README (5 Nov, Matteo):** no training in this project is bit-for-bit repeatable across
+machines or devices: the same seed gives slightly different weights on another machine (Mac v PC: different
+PyTorch / BLAS builds and thread counts; seen in practice, the same checkpoint already behaves slightly differently on
+Kris's Mac and Matteo's PC), on the CPU v a GPU, and on GPUs (CUDA, ROCm, MPS) even run to run on the same machine
+(non-deterministic kernels, `cudnn.benchmark`). CPU training on the same machine with the same seed, library versions
+and thread count is usually repeatable. What carries over is the result, not the exact weights: a retrained model is
+equivalent within seed-to-seed noise, which is why every result is a 3-seed mean. Say which machine / device each
+model was trained on (most on Matteo's PC or Kris's Mac, CPU; Kris's camera CNNs on his Mac's GPU (MPS); the hand
+camera CNN on Matteo's AMD RX 7800 XT through ROCm, `C:\Users\robot\venvs\rocm_torch`, torch 2.14.0+rocm10.1.0).
 
 **Report points from 3 Nov:** the base's share (seed spread is the arm's only; base and DAgger arm are one pair);
 C16-C18 none better, so the limit is the learned arm-base pair; offline v closed loop once more (near-weight: val loss
@@ -3797,6 +3806,38 @@ lower limit (see "Found on the way" below).
         `concurrent_arm/models` and `configs` linked to `robotnik_arm_task/`'s, made as Windows junctions here): reached
         47, ever within 1 cm 50, held within 1 cm 48, held within 5 cm 50; camera estimate at the end 0.25 mm median
         (max 0.54 mm). Same picture as Kris's Mac (48 / 49 held) and as the true target on the PC (50 / 49 held).
+      - **Hand (eye-in-hand) camera option (5 Nov, Matteo; exploration on Matteo, in progress).** Idea: the camera on
+        the palm instead of the mast, so the estimate is best where precision matters (the last centimetres).
+        **Code (mast stays the default everywhere):** `mast_camera.MastCameraParams.place = "mast" | "hand"`; for
+        "hand", `camera_pose` reads the wrist link (link 7) from the simulator each frame: eye 0.06 m along its approach
+        axis (link 7's -z, which points at the end-effector point 0.16 m ahead), looking along it, image up = link 7's
+        +x. `render` / `detect_target` / `CNNDetector.detect` pass the robot id through for it.
+        `camera_policy_task.py`: `ROBOENV_CAMERA_PLACE=hand` (default mast; saved as `camera_place`).
+        `cnn_data.py --place hand` (default mast, mast images unchanged): in-view targets 0.10-3.6 m log-uniform,
+        out-of-view targets around the camera's own heading, and "usable" = not touching the border and >= 60% of the
+        sphere's expected area visible (the mast's "no robot pixels next to the blob" rule would discard every close
+        view: the fingers are always next to the target). `cnn_detector.py` trains on CUDA first (NVIDIA, or AMD under
+        ROCm), then MPS, then CPU (was MPS / CPU).
+        **Checks before any training:** where the hand points (stored final-model runs): start pose straight forward
+        and level at 0.76 m (a forward camera, the search turn works as for the mast; the arm holds still while the base
+        turns); at parking the target is a median 11 deg off the axis (90% within 25, max 41), and the reach ends with
+        it on the axis. Minimum distance ~0.10 m (EE point 0.10 m in front of the palm camera), so the 5 cm near
+        plane is never reached; near / far unchanged. **Probe images** (`results/analysis/hand_camera_probe.png`,
+        test ep 2; same on val ep 953): start 2.6 m not in view; mid-drive 1.07 m a small dot near the centre (86 px);
+        parking 0.17 m a large sphere in the centre (3,797 px); end 0.10 m a third of the image, not cut off. The three
+        fingers show at the left / right edges and never cover the target; depth clean on the target throughout.
+        **GPU for training:** AMD RX 7800 XT through AMD's ROCm PyTorch for Windows (torch 2.14.0+rocm10.1.0, the same
+        Python 3.14 / PyTorch 2.14 as the project; separate venv `C:\Users\robot\venvs\rocm_torch`, 4.3 GB, the
+        project's pixi env untouched): one epoch of the camera CNN (9,600 images) ~59 s v ~135-151 s on the CPU.
+        **Next (Matteo, later):** from `robotnik_arm_task/`:
+        `pixi run python ../concurrent_arm/cnn_data.py --place hand --arm-data data_route_b --out data_camera_images_hand`
+        (12,000 images, ~2 min); then with the ROCm venv
+        `C:\Users\robot\venvs\rocm_torch\Scripts\python.exe ../concurrent_arm/cnn_detector.py --data data_camera_images_hand --out checkpoints/cnn_detector_hand.pt`
+        (~40 min, early stopping); then closed loop with `ROBOENV_CAMERA_PLACE=hand ROBOENV_DETECTOR=cnn
+        ROBOENV_CNN_DETECTOR=checkpoints/cnn_detector_hand.pt` via `camera_policy_eval.py --model split_conc_drive_r1_s0`
+        (val 50), against the mast: 47 reached / 48 held within 1 cm (PC). Untested: whether the search turn finds
+        every target from the hand's height and view (the estimator fuses all clean detections, weight 1/d^4, so close
+        views dominate once the hand gets near).
       - **Scripts:** `camera_policy_eval.py --set test` (every test episode of the split, into `test_set/`) and
         `route_b_eval.py --set test`; checked on the stored Route B test runs (146 / 145 / 145 reached, 141 / 141 / 144
         held, as above). `cnn_data.py --arm-data <folders> --arm-episodes 0`: arm poses from policy runs (default

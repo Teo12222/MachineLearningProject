@@ -211,6 +211,10 @@ def main():
     cam_params = MastCameraParams()
     if os.environ.get("ROBOENV_CAMERA_MOUNT"):
         cam_params.mount_xyz, cam_params.pitch = parse_mount(os.environ["ROBOENV_CAMERA_MOUNT"])
+    # Hand (eye-in-hand) camera instead of the mast (5 Nov, Matteo; mast_camera.MastCameraParams.place); default mast
+    cam_params.place = os.environ.get("ROBOENV_CAMERA_PLACE", "mast").strip().lower()
+    if cam_params.place not in ("mast", "hand"):
+        raise ValueError(f"ROBOENV_CAMERA_PLACE={cam_params.place}: use mast or hand")
     cam_every = max(1, int(round(cam_params.period / time_step)))
     estimator = TargetEstimator(refine=CAMERA_REFINE)
     DETECTOR_NAME, detector = make_detector()   # ROBOENV_DETECTOR: classical (default) or cnn
@@ -403,6 +407,7 @@ def main():
             camera_refine=CAMERA_REFINE,
             detector=DETECTOR_NAME,
             camera_mount=np.array(list(cam_params.mount_xyz) + [cam_params.pitch]),
+            camera_place=cam_params.place,
             cam_time=np.array(cam_time, dtype=np.float32),
             cam_status=np.array(cam_status, dtype=np.int8),
             cam_pos=np.array(cam_pos, dtype=np.float32).reshape(-1, 3),

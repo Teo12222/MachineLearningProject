@@ -195,7 +195,11 @@ def train(a):
     params = MastCameraParams()
     torch.manual_seed(a.seed)
     np.random.seed(a.seed)
-    device = "mps" if torch.backends.mps.is_available() else "cpu"
+    # CUDA first (NVIDIA, or AMD under ROCm, which PyTorch also exposes as cuda; added 5 Nov for the RX 7800 XT), then
+    # Apple's MPS, else the CPU. Was: "mps" if torch.backends.mps.is_available() else "cpu"
+    device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
+    if device == "cuda":
+        torch.backends.cudnn.benchmark = True   # fixed image size: let it pick the fastest convolutions (~8% here)
     tr = load_shards(a.data, range(0, 8))
     va = load_shards(a.data, [8])
     print(f"train {len(tr['rgb'])} ({tr['usable'].sum()} usable), val {len(va['rgb'])} ({va['usable'].sum()}), "
@@ -263,7 +267,8 @@ class CNNDetector:
 
     def detect(self, client, base_pos, base_ori, params, robot_id=None):
         from mast_camera import Detection, render
-        rgb, depth, _, (eye, fwd, up, right) = render(client, base_pos, base_ori, params)   # segmentation unused
+        # segmentation unused; robot_id for the hand camera (its pose comes from the wrist link)
+        rgb, depth, _, (eye, fwd, up, right) = render(client, base_pos, base_ori, params, robot_id)
         with torch.no_grad():
             score, u, v, r = decode(self.model(to_input(rgb[None], depth[None])), depth[None], params, self.mode)
         if float(score[0]) < self.thr:

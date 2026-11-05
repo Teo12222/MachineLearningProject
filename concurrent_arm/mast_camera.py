@@ -43,6 +43,13 @@ class MastCameraParams:
     period: float = 0.1                 # s, render rate (the control loop runs at 1 kHz)
     target_radius: float = 0.03         # m, radius of the red target sphere
     margin_px: int = 2                  # robot pixels this close to the blob mark it as (partly) hidden
+    # Hand camera option (5 Nov, Matteo: ROBOENV_CAMERA_PLACE=hand; "mast" stays the default): an eye-in-hand camera at
+    # the palm, on the wrist link's approach axis (link 7's -z, which points at the end-effector point 0.16 m ahead,
+    # between the fingertips), looking along it, image "up" = link 7's +x (world up in the travel pose). Its pose is
+    # read from the simulator's link state every frame, so it follows the arm. Same intrinsics as the mast camera.
+    place: str = "mast"                 # "mast" or "hand"
+    hand_link: str = "robot_j2s7s300_link_7"
+    hand_offset: float = 0.06           # m from link 7's origin along the approach axis (palm); target >= ~0.1 m away
 
 
 def parse_mount(text):
@@ -55,8 +62,29 @@ def vertical_fov(params):
     return 2 * np.arctan(np.tan(params.hfov / 2) * params.height / params.width)
 
 
-def camera_pose(base_pos, base_ori, params):
-    """World position of the camera, unit optical axis, up and right vectors. base_ori: PyBullet [x, y, z, w]."""
+_LINK_INDEX = {}
+
+
+def link_index(client, robot_id, name):
+    """PyBullet link index of a link name (cached per robot body)."""
+    key = (id(client), robot_id, name)
+    if key not in _LINK_INDEX:
+        _LINK_INDEX[key] = next(j for j in range(client.getNumJoints(robot_id))
+                                if client.getJointInfo(robot_id, j)[12].decode() == name)
+    return _LINK_INDEX[key]
+
+
+def camera_pose(base_pos, base_ori, params, client=None, robot_id=None):
+    """World position of the camera, unit optical axis, up and right vectors. base_ori: PyBullet [x, y, z, w].
+    Hand camera (params.place == "hand"): from the wrist link's current state, which needs client and robot_id."""
+    if params.place == "hand":
+        state = client.getLinkState(robot_id, link_index(client, robot_id, params.hand_link),
+                                    computeForwardKinematics=True)
+        R = np.reshape(p.getMatrixFromQuaternion(state[5]), (3, 3))   # link frame (not its inertial frame)
+        fwd = -R[:, 2]
+        eye = np.asarray(state[4], dtype=float) + params.hand_offset * fwd
+        up = R[:, 0]
+        return eye, fwd, up, np.cross(fwd, up)
     R = np.reshape(p.getMatrixFromQuaternion(list(base_ori)), (3, 3))
     eye = np.asarray(base_pos, dtype=float) + R @ np.asarray(params.mount_xyz, dtype=float)
     fwd = R @ np.array([np.cos(params.pitch), 0.0, np.sin(params.pitch)])
@@ -65,10 +93,11 @@ def camera_pose(base_pos, base_ori, params):
     return eye, fwd, up, right
 
 
-def render(client, base_pos, base_ori, params):
-    """Render the camera. Returns (rgb HxWx3 uint8, depth HxW along the optical axis (m), segmentation HxW, pose)."""
+def render(client, base_pos, base_ori, params, robot_id=None):
+    """Render the camera. Returns (rgb HxWx3 uint8, depth HxW along the optical axis (m), segmentation HxW, pose).
+    robot_id: needed for the hand camera (its pose comes from the wrist link)."""
     W, H = params.width, params.height
-    eye, fwd, up, right = camera_pose(base_pos, base_ori, params)
+    eye, fwd, up, right = camera_pose(base_pos, base_ori, params, client, robot_id)
     view = client.computeViewMatrix(eye.tolist(), (eye + fwd).tolist(), up.tolist())
     proj = client.computeProjectionMatrixFOV(np.rad2deg(vertical_fov(params)), W / H, params.near, params.far)
     _, _, rgba, depth_buf, seg = client.getCameraImage(W, H, view, proj, renderer=p.ER_TINY_RENDERER)
@@ -106,7 +135,7 @@ def detect_target(client, base_pos, base_ori, params, robot_id):
     Returns a Detection (check .clean before using it), or None when the target is not in the image (outside the
     field of view, beyond `far`, fully hidden or too small).
     """
-    rgb, depth, seg, (eye, fwd, up, right) = render(client, base_pos, base_ori, params)
+    rgb, depth, seg, (eye, fwd, up, right) = render(client, base_pos, base_ori, params, robot_id)
     mask = red_mask(rgb)
     n = int(mask.sum())
     if n < params.min_pixels:
