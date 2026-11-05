@@ -8,6 +8,10 @@ Same simulation, target, base controller, Cartesian arm IK and stop rules as ../
 - orient / parked: the arm finishes the path, then the usual Cartesian IK corrects for where the base really parked.
 - with ROBOENV_ARM_RESOLVE=1: when the drive ends, q_final is solved again for where the base really is (it stops
   ~7 cm short of the planned spot), and the arm blends to that pose before the Cartesian IK takes over.
+- with ROBOENV_ARM_SEQUENTIAL=1 (sequential pre-shaping, PLAN.md step 28, 5 Nov): the arm holds its start pose
+  until the base has parked (nav_done), then follows the minimum-jerk joint path to q_final over
+  blend_duration(start pose, q_final) (the 0.15 rad lead limit on the reference), and the Cartesian IK takes over
+  from q_final on the first step the path is complete. Early IK and re-solve are off in this mode.
 Saved episodes have the same fields plus q_final, its IK error and the path progress per frame.
 """
 import numpy as np
@@ -90,6 +94,11 @@ ARM_EARLY_IK = os.environ.get("ROBOENV_ARM_EARLY_IK", "1").strip().lower() in ("
 # Gain of the Cartesian correction (1/s; ArmControllerParams' default 1.5): the time from an EE error e to 5 mm is
 # ln(e / 5 mm) / gain (PLAN.md step 28). Only the live reach uses it, not the final-pose solves
 CARTESIAN_KP = float(os.environ.get("ROBOENV_CARTESIAN_KP", "1.5"))
+# Sequential pre-shaping (PLAN.md step 28, 5 Nov): the arm stays still while the base turns and drives; after the
+# latch it goes to q_final in joint space, then the Cartesian correction. Overrides early IK and re-solve
+ARM_SEQUENTIAL = os.environ.get("ROBOENV_ARM_SEQUENTIAL", "0").strip().lower() in ("1", "true", "yes")
+if ARM_SEQUENTIAL:
+    ARM_EARLY_IK, ARM_RESOLVE = False, False
 # ==============================================================================
 
 
@@ -219,6 +228,8 @@ def main():
     # Re-solve state (ROBOENV_ARM_RESOLVE): the pose for where the base really stops, and the blend to it
     q_final_parked, q_final_parked_error = np.full(7, np.nan), np.nan
     resolve_time, blend_time, blend_from = None, 0.0, None
+    # Sequential pre-shaping: steps since the latch (None before it) and the length of the post-park path (s)
+    steps_since_latch, seq_path_time = None, blend_duration(q_init_arm, q_final, arm_params.max_joint_vel)
     # Stop conditions (target reached, time cap, unreachable-target stall), see StopCriteria
     stop_criteria = StopCriteria(reach_tolerance=REACH_TOLERANCE, max_time=max_time, stall_window=STALL_WINDOW)
 
@@ -305,7 +316,21 @@ def main():
         blending = resolve_time is not None and current_time - resolve_time < blend_time
         # The phase stays "orient" once the base is done, so this covers the final turn and after it
         ik_active = base_navigation_done or (ARM_EARLY_IK and base_state.phase not in ("align", "drive"))
-        if ik_active and not blending:
+        if ARM_SEQUENTIAL:
+            # Path fraction u from step counts (not the summed float time), so expert_relabel.relabel_arm_postpark
+            # can replay the switch frame exactly; Cartesian IK from the first step with u >= 1
+            if base_navigation_done:
+                steps_since_latch = 0 if steps_since_latch is None else steps_since_latch + 1
+            progress = 0.0 if steps_since_latch is None else steps_since_latch * time_step / seq_path_time
+            ik_active = progress >= 1.0
+        if ARM_SEQUENTIAL and not ik_active:
+            arm_mode = 3 if steps_since_latch is not None else 0
+            q_ref = arm_path_reference(q_init_arm, q_final, min(progress, 1.0))
+            q_des_arm = np.clip(q_des_arm, q_mes[4:11] - arm_params.max_q_lead, q_mes[4:11] + arm_params.max_q_lead)
+            torque_arm, q_des_arm, qd_des_arm = arm_path_controller(
+                dyn_model, q_pin, q_mes[4:11], qd_mes[4:11], q_des_arm, q_ref, time_step, arm_params,
+            )
+        elif ik_active and not blending:
             arm_mode = 2
             torque_arm, q_des_arm, qd_des_arm = arm_controller(
                 dyn_model, q_pin, q_mes[4:11], qd_mes[4:11], q_des_arm, q_init_arm, TARGET_EE_POS, ee_pos,
@@ -428,8 +453,12 @@ def main():
         q_final_error=q_final_error,
         arm_progress=np.array(arm_progress_all, dtype=np.float32),
         arm_path_start=ARM_PATH_START,
-        # Which arm controller made each frame's torques: 0 path to q_final, 1 blend to q_final_parked, 2 Cartesian IK
+        # Which arm controller made each frame's torques: 0 path to q_final (sequential: holding the start pose),
+        # 1 blend to q_final_parked, 2 Cartesian IK, 3 sequential only: the post-park path to q_final.
+        # arm_progress is the path fraction after the latch in sequential mode (0 before it)
         arm_mode=np.array(arm_mode_all, dtype=np.int8),
+        arm_sequential=ARM_SEQUENTIAL,
+        seq_path_time=seq_path_time,
         arm_resolve=ARM_RESOLVE,
         arm_early_ik=ARM_EARLY_IK,
         cartesian_kp=CARTESIAN_KP,

@@ -3605,6 +3605,39 @@ lower limit (see "Found on the way" below).
         below r1 (145.0, low 54.3); its val-150 edge at 5 mm shows on test only in seed 1 (98). **Of the three, r1 is
         ahead on test held within 1 cm and low targets, and on val 150 level with r2 and more even.**
 
+    - **Sequential pre-shaping model (Kris, 5 Nov, Mac; Matteo's plan above, (a)-(c)). In progress.**
+      **Expert:** `concurrent_expert.py` with `ROBOENV_ARM_SEQUENTIAL=1` (off by default; concurrent runs unchanged):
+      the arm holds its start pose (`arm_path_controller` on the start pose, `arm_mode` 0) while the base turns and
+      drives; from the latch (`nav_done`) it follows `arm_path_reference(start pose, q_final, u)` with
+      u = steps since the latch * 1 ms / `blend_duration(start pose, q_final)` (minimum-jerk path at the arm's
+      1 rad/s limit, 0.38-1.67 s on the smoke runs) and the 0.15 rad lead limit (`arm_mode` 3); from the first step with
+      u >= 1 the usual Cartesian IK from q_final (`arm_mode` 2). Early IK and re-solve forced off in this mode; u
+      counted in steps, not the summed float time, so the relabel finds the same switch frame. `q_final` as before
+      (solved at t = 0 for the planned spot). Extra saved fields: `arm_sequential`, `seq_path_time`; `arm_progress` is
+      u. **Smoke test** (10 targets, seed 0): 10/10 reached, 12.94 s mean v the sequential expert's 12.88 s
+      (`data_main`) and the concurrent expert's 11.79 s (`data_route_b`): pre-shaping after parking saves no time,
+      the Cartesian correction starts 5-10 cm from the target (the parking miss). The arm's sag before the latch is
+      the sequential expert's (0.06 rad on joints 1-2).
+      **Labeller:** `expert_relabel.relabel_arm_postpark(d, latch, stop, q_final)` (as Matteo's `relabel_arm_drive`):
+      start pose held before the latch, the path with the expert's timing and lead limit after it, then the Cartesian
+      reach from the path's reference where u reaches 1. Check on 5 smoke episodes: same switch frame as the expert's
+      on all 5; torques median 0.0003-0.012 N*m, max 0.09 N*m (the base-tilt approximation). `dagger.py
+      --label-postpark` (`label_run_postpark`; excludes `--relabel-from-final` / `--label-drive`): labels every frame up
+      to `--window` s after the latch (before the latch flag 0 from the saved `nav_done`, as the drive-phase labels);
+      path labels kept even at the torque limit; `--posture-free` and the saturation stop act on the Cartesian part
+      only (grace from the switch). Checked on an expert run as a "policy run": labels = saved torques (median
+      0.0025, max 0.09 N*m); with `--posture-free` only the Cartesian part changes. **The catch (Matteo):** after the
+      latch the flag is 1 for both the path and the Cartesian part; the switch is on time since the latch (invisible
+      to the policy) but falls where the path ends (arm at q_final, at rest), which the joint angles and velocities
+      show. Watch held within 1 cm per round, stop if it drops.
+      **Data** (`concurrent_arm/seqpre_collect.sh`, Route B's targets and seeds, git-ignored): `data_seqpre` (1,000,
+      seed 0), `dart/s_a60`, `s_a60b` (`--n 150 --noise 60 --seed 2 / 3`), `data_low_s` (`--n 60 --seed 11
+      --height-range 0.2,0.5`). **Recipe:** `seqpre_chain1.sh` (Route B's chain 1 on this data: DART model
+      `split_seqpre_dart_bb_s0`, 5 DAgger rounds `split_seqpre_dartdagger_bb`, `--relabel-from-final`), then the
+      CLD-style rounds on the chosen round, seeds 1-2 = the plain model; then 1-3 `--label-postpark` rounds on it
+      (`--window 25 --posture-free --low-extra 100` + all its data), round picked on seed-0 val, seeds 1-2. Chain
+      scripts take `PY` from the environment (not Mac-only).
+
 ### Extension: camera expert, the concurrent expert finds the target with a mast camera (Kris, 4 Nov)
 29. **Camera expert** (Kris, folder `concurrent_arm/`, nothing in `robotnik_arm_task/` changed). The robot is no longer
     told `TARGET_EE_POS`: one forward-facing RGB-D camera on a mast finds the red sphere, the base searches by turning
