@@ -3637,6 +3637,16 @@ lower limit (see "Found on the way" below).
       CLD-style rounds on the chosen round, seeds 1-2 = the plain model; then 1-3 `--label-postpark` rounds on it
       (`--window 25 --posture-free --low-extra 100` + all its data), round picked on seed-0 val, seeds 1-2. Chain
       scripts take `PY` from the environment (not Mac-only).
+      **Data collected (5 Nov 13:11, Mac), then one expert fix:** first pass 993 / 1,000 reached; the 7 misses
+      (all z ~0.7 m) stopped as "not reachable" 5-8 mm from the target while still converging. Cause: on its joint
+      path to q_final the hand passes closer to the target (e.g. 2.2 cm) than q_final puts it (5-6 cm, the base parks
+      short of the planned spot), and the stall rule (no 2 mm improvement on the best error for 2 s, counted from
+      the latch) kept that best error, so the Cartesian reach got only ~1.6 s. **Fix:** in sequential mode the stall
+      clock restarts with the Cartesian reach (`seq_reach_started`). Reached runs are bit-identical (checked on 10),
+      so only the non-reached episodes were deleted and rerun (`seqpre_collect.sh` skips existing files; first log
+      `seqpre_collect_v1.log`). **Final data:** `data_seqpre` 1,000 / 1,000 reached, 12.26 s mean (sequential expert
+      `data_main` 995, 12.25 s; concurrent `data_route_b` 1,000, 11.18 s; index.csv sim_time); DART `s_a60` 102 / 150,
+      `s_a60b` 109 / 150 (Route B's 111 / 103, the sequential expert's 116 / 112); `data_low_s` 60 / 60.
 
 ### Extension: camera expert, the concurrent expert finds the target with a mast camera (Kris, 4 Nov)
 29. **Camera expert** (Kris, folder `concurrent_arm/`, nothing in `robotnik_arm_task/` changed). The robot is no longer

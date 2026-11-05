@@ -230,6 +230,7 @@ def main():
     resolve_time, blend_time, blend_from = None, 0.0, None
     # Sequential pre-shaping: steps since the latch (None before it) and the length of the post-park path (s)
     steps_since_latch, seq_path_time = None, blend_duration(q_init_arm, q_final, arm_params.max_joint_vel)
+    seq_reach_started = False
     # Stop conditions (target reached, time cap, unreachable-target stall), see StopCriteria
     stop_criteria = StopCriteria(reach_tolerance=REACH_TOLERANCE, max_time=max_time, stall_window=STALL_WINDOW)
 
@@ -382,6 +383,12 @@ def main():
         if qKey in keys and keys[qKey] and sim.GetPyBulletClient().KEY_WAS_TRIGGERED:
             break
 
+        # Sequential pre-shaping: the stall clock starts with the Cartesian reach. On its way to q_final the hand can
+        # pass closer to the target than q_final is (the base parks short of the planned spot), and that best error
+        # would otherwise end the reach as "not reachable" while it is still converging (7 of 1,000 episodes, 5 Nov)
+        if ARM_SEQUENTIAL and arm_mode == 2 and seq_reach_started is False:
+            stop_criteria.best_ee_error, stop_criteria.best_ee_error_time = np.inf, current_time
+            seq_reach_started = True
         # Stop criteria: target reached within fine tolerance, time cap, or unreachable target
         stop_message = check_stop(stop_criteria, current_time, ee_dist_error, base_navigation_done)
         if stop_message:
