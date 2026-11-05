@@ -77,7 +77,7 @@ POS_TOL = 0.08         # m, BaseControllerParams.pos_tol: the concurrent expert'
 def relabel_arm_drive(d, latch, q_final, goal_xy):
     """Route B drive-phase DAgger (PLAN.md C19 / step 28, 4 Nov): the concurrent expert's arm torques for frames
     0..latch-1 of a policy run d, i.e. while the base turns and drives, as concurrent_arm/concurrent_expert.py
-    commands them (early IK off, the setting of data_route_b), along the policy's own states.
+    commands them (early IK off, the setting of data_concurrent_expert), along the policy's own states.
 
     q_final, goal_xy: the expert's final arm pose and planned parking spot for this target (stored in its episode).
     Progress as the expert's drive_progress: 0 while the base turns in place (here: until the policy's wheel
@@ -156,7 +156,7 @@ if __name__ == "__main__":
     # Check: on expert episodes, relabelling the 3 s after arrival (starting from the expert's own reference) must
     # give back the torques it saved
     for ep in (2, 12, 68, 416, 954):
-        d = np.load(Path(__file__).resolve().parent / "data_main" / f"ep_{ep:04d}.npz")
+        d = np.load(Path(__file__).resolve().parent / "data_course_expert" / f"ep_{ep:04d}.npz")
         k = int(np.argmax(d["nav_done"]))
         n = min(3000, len(d["time"]) - k)
         err = np.abs(relabel_arm(d, k, k + n, d["q_des_arm"][k - 1]) - d["torque_arm"][k:k + n])

@@ -12,7 +12,7 @@ for s in 1 2; do
   [ -f checkpoints/$m.pt ] || $PY train.py --model $m --split --gravity-residual --hidden 256 --layers 3 --dropout 0.0 \
     --arm-hidden 256 --arm-layers 3 --arm-dropout 0.0 --base-activation relu --arm-activation relu \
     --base-output-act bounded --arm-output-act linear --seed $s --base-from split_conc_dartdagger_bb_r3_s0 \
-    --data-dir data_route_b --lr 0.003 --batch 2048 --weight-decay 0 --dagger $DATA
-  [ -d compare_out/$m/val_set ] || $PY compare.py --val-set --model $m --data-dir data_route_b --out-dir compare_out/$m
+    --data-dir data_concurrent_expert --lr 0.003 --batch 2048 --weight-decay 0 --dagger $DATA
+  [ -d compare_out/$m/val_set ] || $PY compare.py --val-set --model $m --data-dir data_concurrent_expert --out-dir compare_out/$m
 done
 echo "chain 3 done $(date)"

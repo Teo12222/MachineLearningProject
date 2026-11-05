@@ -38,8 +38,8 @@ def arm_pool(data_dirs, n_episodes=80, every=40, seed=0, split=None, id_range=No
     """Arm configurations from stored episodes: every `every`-th frame of n_episodes random episodes (0: all) found
     under the folders data_dirs (expert data folders, or policy-run folders such as compare_out/<run>/val_set).
     split="train" (5 Nov, Matteo): only episodes of each folder's training split (bc_data.split_episodes; expert data
-    folders with the data_main ids, e.g. data_route_b). Default None = every episode, as before: that drew 15 test and
-    8 val episodes of data_route_b's 80, i.e. arm poses from expert runs on test targets (the targets in the images are
+    folders with the data_course_expert ids, e.g. data_concurrent_expert). Default None = every episode, as before: that drew 15 test and
+    8 val episodes of data_concurrent_expert's 80, i.e. arm poses from expert runs on test targets (the targets in the images are
     random, but the poses are not test-free)."""
     rng = np.random.default_rng(seed)
     files = sorted(f for d in data_dirs for f in Path(d).rglob("ep_*.npz"))
@@ -49,7 +49,7 @@ def arm_pool(data_dirs, n_episodes=80, every=40, seed=0, split=None, id_range=No
         allowed = {(Path(d).resolve(), i) for d in data_dirs for i in split_episodes(d)[0]}
         files = [f for f in files if (f.parent.resolve(), int(f.stem[3:])) in allowed]
     if id_range is not None:
-        # episode ids lo..hi only (5 Nov: data_concurrent = data_route_b's ids 0-299, bit for bit, for Kris's recipe)
+        # episode ids lo..hi only (5 Nov: data_concurrent = data_concurrent_expert's ids 0-299, bit for bit, for Kris's recipe)
         lo, hi = id_range
         files = [f for f in files if lo <= int(f.stem[3:]) <= hi]
     if n_episodes <= 0:
@@ -170,7 +170,7 @@ def main():
                     help="train: arm poses only from the training split of each --arm-data folder (no val / test "
                          "episodes); all: every episode (default, as before)")
     ap.add_argument("--arm-ids", default="",
-                    help="lo-hi: arm poses only from episode ids lo..hi (e.g. 0-299: data_route_b's ids that are "
+                    help="lo-hi: arm poses only from episode ids lo..hi (e.g. 0-299: data_concurrent_expert's ids that are "
                          "bit-identical to data_concurrent); default all")
     ap.add_argument("--place", choices=("mast", "hand"), default="mast",
                     help="camera: the mast (default, unchanged) or the hand / palm camera (5 Nov)")

@@ -27,7 +27,7 @@ def make_features(base_pos, base_bearing, q_arm, qd_arm, target, ee_pos):
         target[..., 2:3],                          # target height: the floor is flat, so it means the same anywhere (1)
         to_base_frame(target[..., :2] - ee_pos[..., :2], base_bearing),     # target relative to the EE, base frame (2)
         target[..., 2:3] - ee_pos[..., 2:3],       # ... and its height above the EE (1)
-        # Arm joint angles as sin/cos: J1, J3, J5, J7 have no limits and could wrap past +-pi (in data_main they stay
+        # Arm joint angles as sin/cos: J1, J3, J5, J7 have no limits and could wrap past +-pi (in data_course_expert they stay
         # within +-0.7 rad, so this is for safety, e.g. randomised arm start poses, PLAN.md step 20); all seven for
         # simplicity                                                                        (14)
         np.sin(q_arm),
@@ -361,7 +361,7 @@ def clean_ids(data_dir, episode_ids, max_saturated=0.1):
 
 if __name__ == "__main__":
     # Quick check: split sizes and the shapes of a few training episodes
-    train_ids, val_ids, test_ids = split_episodes("data_main")
+    train_ids, val_ids, test_ids = split_episodes("data_course_expert")
     print(len(train_ids), len(val_ids), len(test_ids))
-    x, y = load_episodes("data_main", train_ids[:3])
+    x, y = load_episodes("data_course_expert", train_ids[:3])
     print(x.shape, y.shape, x.dtype)

@@ -4,7 +4,7 @@ Usage (from the robotnik_arm_task folder, inside your roboenv environment):
     python compare.py                             # default target (0, 1.1, 0.5)
     python compare.py --target 1.5,-0.8,0.6
     python compare.py --target 1.5,-0.8,0.6 --start 0.5,0.5,1.57   # both start from another base pose
-    python compare.py --episode 292               # target + stored expert run of data_main/ep_0292.npz
+    python compare.py --episode 292               # target + stored expert run of data_course_expert/ep_0292.npz
     python compare.py --test-set                  # policy on every test episode's target, results table
     python compare.py --test-set --model mlp_worldframe   # the policy loads checkpoints/mlp_worldframe.pt
     python compare.py --test-set --quick          # fixed 50 of the test episodes, for quick checks (no results written)
@@ -272,7 +272,7 @@ def main():
                         help="with --test-set: only the fixed quick subset of 50 test episodes, no results written")
     parser.add_argument("--start", help="start pose of the base x,y,yaw (m, m, rad), --target only; "
                                          "--episode / --test-set use each episode's stored start pose")
-    parser.add_argument("--data-dir", default="data_main", help="episode folder, relative to this script")
+    parser.add_argument("--data-dir", default="data_course_expert", help="episode folder, relative to this script")
     parser.add_argument("--workers", type=int, default=16, help="policy runs in parallel for --test-set")
     parser.add_argument("--out-dir", default="compare_out", help="folder for the episode files and plots")
     parser.add_argument("--model", default="split_conc_drive_r1_s0",

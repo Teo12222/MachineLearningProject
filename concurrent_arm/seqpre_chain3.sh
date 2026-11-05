@@ -12,5 +12,5 @@ EXTRA="$EXTRA data_low_s"
 for k in $(seq 1 "$C"); do EXTRA="$EXTRA dagger/split_seqpre_dartdagger_bb_plusCLD_r$k"; done
 $PY dagger.py --start split_seqpre_dartdagger_bb_plusCLD_r${C}_s0 --extra-data $EXTRA \
   --window 25 --posture-free --low-extra 100 --rounds 3 --name split_seqpre_postpark --val-set \
-  --data-dir data_seqpre --label-postpark --workers 11
+  --data-dir data_sequential_expert --label-postpark --workers 11
 echo "chain 3 done $(date)"

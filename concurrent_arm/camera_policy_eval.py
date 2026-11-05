@@ -7,7 +7,7 @@ true target). Episode files go to <out-dir>/val_set/ep_XXXX.npz, so route_b_eval
 
 Usage (from robotnik_arm_task/):
     python ../concurrent_arm/camera_policy_eval.py --model split_conc_dartdagger_bb_plusCLD_r3_s0 \
-        --data-dir data_route_b --out-dir compare_out/split_conc_dartdagger_bb_plusCLD_r3_s0_camera_val
+        --data-dir data_concurrent_expert --out-dir compare_out/split_conc_dartdagger_bb_plusCLD_r3_s0_camera_val
 Extra environment (e.g. ROBOENV_CAMERA_REFINE=0) is passed on to every run.
 """
 import argparse
@@ -44,7 +44,7 @@ def run(i, expert_file, out_file, checkpoint):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--model", required=True, help="checkpoint name in robotnik_arm_task/checkpoints")
-    ap.add_argument("--data-dir", default="data_route_b")
+    ap.add_argument("--data-dir", default="data_concurrent_expert")
     ap.add_argument("--out-dir", required=True)
     ap.add_argument("--workers", type=int, default=10)
     ap.add_argument("--set", choices=("val", "test"), default="val")

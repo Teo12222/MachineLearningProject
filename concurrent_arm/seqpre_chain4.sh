@@ -9,7 +9,7 @@ export MPLBACKEND=Agg KMP_DUPLICATE_LIB_OK=TRUE
 PY=${PY:-python}
 OPT="--split --gravity-residual --hidden 256 --layers 3 --dropout 0.0 --arm-hidden 256 --arm-layers 3 --arm-dropout 0.0
      --base-activation relu --arm-activation relu --base-output-act bounded --arm-output-act linear
-     --data-dir data_seqpre --lr 0.003 --batch 2048 --weight-decay 0"
+     --data-dir data_sequential_expert --lr 0.003 --batch 2048 --weight-decay 0"
 P=dagger/split_seqpre_dartdagger_bb
 PLAIN_DATA="dart/s_a60 dart/s_a60b ${P}_r1 data_low_s ${P}_plusCLD_r1 ${P}_plusCLD_r2 ${P}_plusCLD_r3"
 POST_DATA="$PLAIN_DATA dagger/split_seqpre_postpark_r1 dagger/split_seqpre_postpark_r2"
@@ -21,7 +21,7 @@ for s in 1 2; do
 done
 for s in 0 1 2; do
   for m in split_seqpre_dartdagger_bb_plusCLD_r3_s$s split_seqpre_postpark_r2_s$s split_conc_drive_r1_s$s; do
-    dd=data_seqpre; [[ $m == split_conc_* ]] && dd=data_route_b
+    dd=data_sequential_expert; [[ $m == split_conc_* ]] && dd=data_concurrent_expert
     [ -d compare_out/mac_${m}/val_set_full ] || $PY compare.py --val-full --model $m --data-dir $dd --out-dir compare_out/mac_$m
     if [ ! -d compare_out/mac_${m}/test_set ]; then
       $PY compare.py --test-set --model $m --data-dir $dd --out-dir compare_out/mac_$m

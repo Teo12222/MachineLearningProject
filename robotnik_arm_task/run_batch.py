@@ -114,7 +114,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--n", type=int, default=300, help="number of episodes")
     parser.add_argument("--seed", type=int, default=0, help="seed for the target sampler")
-    parser.add_argument("--out-dir", default="data_main", help="folder for the episode files and index.csv")
+    parser.add_argument("--out-dir", default="data_course_expert", help="folder for the episode files and index.csv")
     parser.add_argument("--workers", type=int, default=16, help="episodes to run in parallel")
     parser.add_argument("--timeout", type=float, default=180.0, help="seconds before one episode is killed")
     parser.add_argument("--script", default="robotnik_arm_task.py", help="episode script to run")
@@ -132,7 +132,7 @@ def main():
                         help="r0,r1 (m): arm noise off within r0 of the target, full beyond r1, linear between (PLAN.md C18c)")
     parser.add_argument("--height-range", default="",
                         help="lo,hi (m): target heights for this batch instead of HEIGHT_RANGE, e.g. 0.2,0.5 for extra "
-                             "low targets (PLAN.md C18e, 4 Nov); not for data_main, whose split depends on its episodes")
+                             "low targets (PLAN.md C18e, 4 Nov); not for data_course_expert, whose split depends on its episodes")
     args = parser.parse_args()
     height_range = tuple(float(v) for v in args.height_range.split(",")) if args.height_range else HEIGHT_RANGE
 

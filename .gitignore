@@ -17,7 +17,7 @@ robotnik_arm_task/models
 robotnik_arm_task/compare_out
 
 # main dataset (~3 GB, regenerated with run_batch.py, not submitted)
-robotnik_arm_task/data_main
+robotnik_arm_task/data_course_expert
 
 # DAgger episodes (regenerated with dagger.py, not submitted)
 robotnik_arm_task/dagger
@@ -44,7 +44,7 @@ robotnik_arm_task/data_concurrent*.log
 concurrent_arm/episode.npz
 
 # Route B (concurrent expert, early IK off; PLAN.md step 28): expert and low-target episodes (not submitted)
-robotnik_arm_task/data_route_b
+robotnik_arm_task/data_concurrent_expert
 robotnik_arm_task/data_low_b
 
 # camera expert episodes (regenerated with run_batch.py --script ../concurrent_arm/camera_expert.py, PLAN.md step 29; not submitted)
@@ -55,6 +55,6 @@ robotnik_arm_task/data_camera*.log
 
 # rendered training images for the learned target detector (concurrent_arm/cnn_data.py, PLAN.md step 29; not submitted)
 robotnik_arm_task/data_camera_images*
-robotnik_arm_task/data_seqpre
+robotnik_arm_task/data_sequential_expert
 robotnik_arm_task/data_low_s
 robotnik_arm_task/seqpre*.log

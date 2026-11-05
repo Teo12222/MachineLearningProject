@@ -5,8 +5,8 @@ Per model: reached (within 5 mm once the latch is set, compare.py's rule), ever 
 goes back above 20 cm after the closest approach, PLAN.md C18e), and the mean time to reach over the reached runs.
 
 Usage (from robotnik_arm_task/):
-    python ../concurrent_arm/route_b_eval.py compare_out/<model>_val ... [--data-dir data_route_b]
-The 50 targets are quick_val_ids of the folder's split; data_route_b and data_main give the same 50 (ids 0-999).
+    python ../concurrent_arm/route_b_eval.py compare_out/<model>_val ... [--data-dir data_concurrent_expert]
+The 50 targets are quick_val_ids of the folder's split; data_concurrent_expert and data_course_expert give the same 50 (ids 0-999).
 """
 import argparse
 import sys
@@ -36,7 +36,7 @@ def stats(path):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("runs", nargs="+", help="compare.py --out-dir folders (their val_set/ is read)")
-    p.add_argument("--data-dir", default="data_route_b")
+    p.add_argument("--data-dir", default="data_concurrent_expert")
     p.add_argument("--set", choices=("val", "val_full", "test"), default="val",
                    help="test: every test episode, from the folders' test_set/; val_full: all 150 val episodes "
                         "(compare.py --val-full, val_set_full/)")

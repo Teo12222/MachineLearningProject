@@ -30,7 +30,7 @@ from compare import run_episode  # noqa: E402
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("out_dir", help="folder for the expert's episode files (ep_XXXX.npz)")
-    ap.add_argument("--data-dir", default="data_main", help="stored expert episodes: ids, targets, start poses")
+    ap.add_argument("--data-dir", default="data_course_expert", help="stored expert episodes: ids, targets, start poses")
     ap.add_argument("--workers", type=int, default=16)
     args = ap.parse_args()
 

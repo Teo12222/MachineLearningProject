@@ -43,7 +43,7 @@ from results import SIM_COLUMNS, update_results
 
 # Paths are relative to this file, so the script works from any working directory
 SCRIPT_DIR = Path(__file__).resolve().parent
-DATA_DIR = SCRIPT_DIR / "data_main"
+DATA_DIR = SCRIPT_DIR / "data_course_expert"
 # Defaults of the training settings (all can be changed with options, see --help): cheap development defaults from
 # the first tuning run (~4 min; lr 3e-3 with the 256 x 3 network got most of the tuning gain, PLAN.md). Models that
 # go into the report are tuned with tune.py.
@@ -126,9 +126,9 @@ parser.add_argument("--history-k", type=int, default=0, help="past frames added 
 parser.add_argument("--history-spacing", type=int, default=50, help="frames between them (1 frame = 1 ms)")
 parser.add_argument("--seed", type=int, default=0, help="training seed (weights, batch order); put it in --model too")
 parser.add_argument("--threads", type=int, help="torch CPU threads (several runs at once share the cores)")
-parser.add_argument("--data-dir", default="data_main",
-                    help="expert episode folder, relative to this script (PLAN.md step 28: data_route_b); the split "
-                         "comes from its episode ids, so a folder with ids 0-999 has data_main's split")
+parser.add_argument("--data-dir", default="data_course_expert",
+                    help="expert episode folder, relative to this script (PLAN.md step 28: data_concurrent_expert); the split "
+                         "comes from its episode ids, so a folder with ids 0-999 has data_course_expert's split")
 args = parser.parse_args()
 DATA_DIR = SCRIPT_DIR / args.data_dir
 if args.no_test and args.test_only:

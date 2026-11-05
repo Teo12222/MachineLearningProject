@@ -13,7 +13,7 @@ Round k (models split_dagger_r<k>_s<seed>, round 1 starting from --start):
    target), from each episode's stored start pose, like compare.py (failing runs last the full 30 s).
 2. Each run's arm phase is labelled with the expert's arm torques (expert_relabel.py): from the latch until --window
    seconds later, or until the expert's label stays at its torque limit (see label_run), whichever comes first.
-   Saved as dagger/split_dagger_r<k>/ep_XXXX.npz in data_main's episode format (see save_episode).
+   Saved as dagger/split_dagger_r<k>/ep_XXXX.npz in data_course_expert's episode format (see save_episode).
 3. train.py --split --dagger <--extra-data folders + all rounds' folders> trains the round's arm from scratch, with the
    base copied from --start (--base-from) and the settings of --start: sizes and gravity residual from its checkpoint,
    lr, batch and weight decay from its results file (a tuned start model keeps its tuned settings).
@@ -43,7 +43,7 @@ from compare import POLICY_SCRIPT, POLICY_TIMEOUT, load_npz, run_episode, stored
 from results import read_results
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-DATA_DIR = SCRIPT_DIR / "data_main"
+DATA_DIR = SCRIPT_DIR / "data_course_expert"
 DAGGER_DIR = SCRIPT_DIR / "dagger"
 TORQUE_LIMIT = 30.0     # N*m, the expert's torque clip
 SATURATED_RUN = 50      # frames (ms): the expert's label at its limit this long ends the labelled part ...
@@ -147,7 +147,7 @@ def label_run_postpark(d, raw_path, out_path, window, posture_free, posture_kp, 
 
 
 def save_episode(path, d, torque, mask):
-    """A DAgger episode in data_main's format, without the expert-only fields (nav_phase, q_des_arm, base_goal).
+    """A DAgger episode in data_course_expert's format, without the expert-only fields (nav_phase, q_des_arm, base_goal).
 
     torque_arm holds the expert's labels where arm_label_mask is True (nan elsewhere); nav_done is the policy's
     latched flag. What the policy itself commanded is kept as policy_wheel_cmds / policy_torque_arm. No wheel labels
@@ -210,9 +210,9 @@ def main():
                         help="episode folders added to every round's training next to the rounds' own, e.g. the DART "
                              "data of the --start model (run_batch.py --noise); without them a DART start model's "
                              "rounds would train without its DART data (PLAN.md A2)")
-    parser.add_argument("--data-dir", default="data_main",
+    parser.add_argument("--data-dir", default="data_course_expert",
                         help="expert episode folder (training targets, start poses, split), relative to this script; "
-                             "passed on to train.py and compare.py (PLAN.md step 28: data_route_b)")
+                             "passed on to train.py and compare.py (PLAN.md step 28: data_concurrent_expert)")
     parser.add_argument("--relabel-from-final", action="store_true",
                         help="the expert's reach starts from q_final of the target's expert episode, not the arm's "
                              "start pose (label_run's q_des0; for the concurrent expert, PLAN.md step 28)")
@@ -245,7 +245,7 @@ def main():
     info = dict(start=args.start, extra_data=extra, **({"posture_free": True} if args.posture_free else {}),
                 **({"posture_kp": args.posture_kp} if args.posture_kp else {}),
                 **({"low_extra": args.low_extra} if args.low_extra else {}),
-                **({"data_dir": args.data_dir} if args.data_dir != "data_main" else {}),
+                **({"data_dir": args.data_dir} if args.data_dir != "data_course_expert" else {}),
                 **({"relabel_from_final": True} if args.relabel_from_final else {}),
                 **({"label_drive": True} if args.label_drive else {}),
                 **({"label_postpark": True} if args.label_postpark else {}))

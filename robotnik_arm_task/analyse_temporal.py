@@ -65,7 +65,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--out-dir", default="compare_out", help="the --out-dir given to compare.py")
     parser.add_argument("--full", action="store_true", help="read a full --test-set run instead of --quick")
-    parser.add_argument("--data-dir", default="data_main", help="episode folder, relative to this script")
+    parser.add_argument("--data-dir", default="data_course_expert", help="episode folder, relative to this script")
     parser.add_argument("--model", help="also write the summary to results/<model>.csv")
     args = parser.parse_args()
 

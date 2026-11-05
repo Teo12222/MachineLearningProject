@@ -7,5 +7,5 @@ set -euo pipefail
 export MPLBACKEND=Agg KMP_DUPLICATE_LIB_OK=TRUE
 PY=${PY:-python}
 $PY dagger.py --start split_seqpre_dart_bb_s0 --extra-data dart/s_a60 dart/s_a60b --name split_seqpre_ppdart \
-  --rounds 5 --val-set --data-dir data_seqpre --label-postpark --workers 11
+  --rounds 5 --val-set --data-dir data_sequential_expert --label-postpark --workers 11
 echo "chain 5 done $(date)"

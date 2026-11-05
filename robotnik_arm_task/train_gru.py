@@ -28,7 +28,7 @@ from bc_model import GRU, save_model, load_model
 from results import SIM_COLUMNS, update_results
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-DATA_DIR = SCRIPT_DIR / "data_main"
+DATA_DIR = SCRIPT_DIR / "data_course_expert"
 SUBSAMPLE = "adaptive"   # window ends are train.py's kept frames; validation is uniform, the test uses every frame
 KEEP_FRAC = 0.1
 

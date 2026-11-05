@@ -10,5 +10,5 @@ $PY dagger.py --start split_conc_dartdagger_bb_r3_s0 \
   --extra-data dart/b_a60 dart/b_a60b dagger/split_conc_dartdagger_bb_r1 dagger/split_conc_dartdagger_bb_r2 \
                dagger/split_conc_dartdagger_bb_r3 data_low_b \
   --window 25 --posture-free --low-extra 100 --rounds 3 --name split_conc_dartdagger_bb_plusCLD --val-set \
-  --data-dir data_route_b --relabel-from-final --workers 11
+  --data-dir data_concurrent_expert --relabel-from-final --workers 11
 echo "chain 2 done $(date)"

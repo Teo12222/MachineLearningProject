@@ -4,7 +4,7 @@
 For each run, the end-effector error to the target over time:
 - ever within d: the error is below d in at least one frame (any time, or only after the latch);
 - held within d: below d for 0.5 s without a break (the "held" rule of PLAN.md step 15);
-at d = 5 mm, 1, 2, 5, 10 cm, per seed, the 3-seed mean and the expert on the same targets (data_main's stored runs).
+at d = 5 mm, 1, 2, 5, 10 cm, per seed, the 3-seed mean and the expert on the same targets (data_course_expert's stored runs).
 Runs never within 1 cm are split into "still closing in" (the error over the last 0.5 s is at least 2 mm below the
 error 5 s earlier, medians of 0.5 s windows; rule fixed before looking, 3 Nov) and "hovering" (everything else).
 Ever / held within 1 cm per band of target distance (horizontal, from the start pose) and target height.
@@ -23,7 +23,7 @@ import numpy as np
 from bc_data import split_episodes
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-DATA_DIR = SCRIPT_DIR / "data_main"
+DATA_DIR = SCRIPT_DIR / "data_course_expert"
 THRESHOLDS = [0.005, 0.01, 0.02, 0.05, 0.10]   # m
 HOLD = 0.5                                      # s without a break, as PLAN.md step 15
 CLOSING = 0.002                                 # m, "still closing in": this much lower than 5 s earlier

@@ -8,9 +8,9 @@ PY=${PY:-python}
 $PY dagger.py --start split_seqpre_ppdart_r2_s0 \
   --extra-data dart/s_a60 dart/s_a60b dagger/split_seqpre_ppdart_r1 dagger/split_seqpre_ppdart_r2 data_low_s \
   --window 25 --posture-free --low-extra 100 --rounds 3 --name split_seqpre_ppdart_cld \
-  --data-dir data_seqpre --label-postpark --workers 11
+  --data-dir data_sequential_expert --label-postpark --workers 11
 for r in 1 2 3; do
   m=split_seqpre_ppdart_cld_r${r}_s0
-  [ -d compare_out/mac_${m}/val_set_full ] || $PY compare.py --val-full --model $m --data-dir data_seqpre --out-dir compare_out/mac_$m
+  [ -d compare_out/mac_${m}/val_set_full ] || $PY compare.py --val-full --model $m --data-dir data_sequential_expert --out-dir compare_out/mac_$m
 done
 echo "chain 8 done $(date)"

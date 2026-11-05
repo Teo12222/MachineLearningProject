@@ -48,7 +48,7 @@ from compare import POLICY_SCRIPT, POLICY_TIMEOUT, load_npz, outcome, run_episod
 from results import RESULTS_DIR, read_results, update_results
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-DATA_DIR = SCRIPT_DIR / "data_main"
+DATA_DIR = SCRIPT_DIR / "data_course_expert"
 CHECKPOINTS = SCRIPT_DIR / "checkpoints"
 
 # Search space, by stage (PLAN.md). DEFAULTS are train.py's defaults, the starting point.

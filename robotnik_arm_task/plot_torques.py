@@ -1,6 +1,6 @@
 """Torque graph (PLAN.md step 25): the 7 arm torques of the policy vs the expert's on the same target, over time.
 
-From the saved policy episode and the expert's episode in data_main: no simulation. The latch (policy) and the
+From the saved policy episode and the expert's episode in data_course_expert: no simulation. The latch (policy) and the
 expert's arrival are marked; the EE error of both runs is the bottom panel, on the same time axis (a panel of its own
 instead of a second y-axis, so each panel has one scale). Both runs start at t = 0, so they are aligned at the start,
 not at the latch.
@@ -8,7 +8,7 @@ not at the latch.
 Usage (from the robotnik_arm_task folder):
     pixi run python plot_torques.py compare_out/split_arrived_s0/val_set 363 922   # -> compare_out/torque_plots/
     pixi run python plot_torques.py <run_dir> <episode> [...] --out <folder>
-<run_dir> is a compare.py output folder (val_set / test_set); the episode numbers are data_main's.
+<run_dir> is a compare.py output folder (val_set / test_set); the episode numbers are data_course_expert's.
 """
 import argparse
 from pathlib import Path
@@ -30,7 +30,7 @@ def first_true(mask, t):
 
 def plot_episode(run_dir, i, out_dir, before=1.0, after=6.0):
     pol = np.load(Path(run_dir) / f"ep_{i:04d}.npz")
-    exp = np.load(ROOT / "data_main" / f"ep_{i:04d}.npz")
+    exp = np.load(ROOT / "data_course_expert" / f"ep_{i:04d}.npz")
     t_latch = first_true(pol["nav_done"].astype(bool), pol["time"])
     t_arrive = first_true(exp["nav_done"].astype(bool), exp["time"])
     t0 = np.nanmin([t_latch, t_arrive]) - before

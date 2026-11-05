@@ -9,8 +9,8 @@ PY=${PY:-python}
 DART="dart/s_a60 dart/s_a60b"
 m=split_seqpre_dart_bb_s0
 [ -f checkpoints/$m.pt ] || $PY train.py --model $m --split --gravity-residual --base-from split_dart_base_bound_s2 \
-  --base-output-act bounded --dagger $DART --data-dir data_seqpre --seed 0
-[ -d compare_out/${m}_val/val_set ] || $PY compare.py --val-set --model $m --data-dir data_seqpre --out-dir compare_out/${m}_val
+  --base-output-act bounded --dagger $DART --data-dir data_sequential_expert --seed 0
+[ -d compare_out/${m}_val/val_set ] || $PY compare.py --val-set --model $m --data-dir data_sequential_expert --out-dir compare_out/${m}_val
 $PY dagger.py --start $m --extra-data $DART --name split_seqpre_dartdagger_bb --rounds 5 --val-set \
-  --data-dir data_seqpre --relabel-from-final --workers 11
+  --data-dir data_sequential_expert --relabel-from-final --workers 11
 echo "chain 1 done $(date)"

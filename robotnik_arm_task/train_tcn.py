@@ -26,7 +26,7 @@ from bc_model import TCN, save_model, load_model
 from results import SIM_COLUMNS, update_results
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-DATA_DIR = SCRIPT_DIR / "data_main"
+DATA_DIR = SCRIPT_DIR / "data_course_expert"
 SUBSAMPLE = "adaptive"   # train.py's defaults: validation is subsampled uniformly, the test uses every frame
 KEEP_FRAC = 0.1
 EVAL_BATCH = 8192
