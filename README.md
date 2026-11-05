@@ -50,7 +50,7 @@ The policy checkpoints are seed 0 of three training seeds, chosen on the validat
 - Also: `tune.py` (hyperparameter search on validation), `train_gru.py` / `train_tcn.py` / `bc_gru.py` (temporal
   models we compared), `relabel_posture.py`, `analyse_temporal.py`, `plot_torques.py`, `results.py`.
 
-**Extensions** (`concurrent_arm/`)
+**Concurrent expert and camera** (`concurrent_arm/`)
 - **Concurrent expert:** `concurrent_expert.py`, `concurrent_control.py` — the base turns, then drives while the
   arm moves along a joint path to its pre-grasp pose (`ROBOENV_ARM_SEQUENTIAL=1`: only after parking).
   `concurrent_chain*.sh` and `seqpre_*.sh` train the models on it; `count_results.py` counts the results.
