@@ -749,8 +749,12 @@ report must already be complete without it; Thursday only swaps in results, nobo
     - Report: a clear limitation of behaviour cloning here (it copies the expert's commands for the conditions in the
       data, not its feedback structure); remedies as future work: payload / mass randomisation in the data (DART-like),
       or giving the policy the error history (integral input). One line on the unmodelled 1 kg in the method.
-    - **REMINDER (Matteo, 4 Nov):** once Kris has done his two tests on the sequential pre-shaping model (5 Nov), run
-      this payload test on that model too (same command, same targets), for the comparison.
+    - **REMINDER (Matteo, 4-5 Nov):** once Kris has done his two tests on the sequential pre-shaping model (5 Nov), run
+      on that model (seed 0 of the chosen version) the same three robustness tests as on the final model, same
+      commands and targets, expert rows reused: this payload test (0.5 / 1 / 2 kg), the start-pose test (default /
+      offset / rotated / both, seed 21, 1-3 m from the start) and the out-of-range test (near 0.6-1.0 m, far 3.0-5.0 m,
+      seed 31, default start). Why: a fair robustness comparison between the arm-moves-while-driving final model and
+      the arm-after-parking model.
 12. **Robustness: sensor noise only** (Kris; **runs on Wed 4 Nov in the background while we write the report**, on the final model, with 11;
     the noise-config change is done and smoke-tested on Tuesday; decided 2 Nov:
     friction and shoves dropped, the start-pose test (11) is the other robustness result). Uses the simulator's own
