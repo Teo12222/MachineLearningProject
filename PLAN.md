@@ -3727,6 +3727,15 @@ lower limit (see "Found on the way" below).
       50 on seed 0 (between CLD r2's 40.3 and Route B's 48.3; one seed, not measured further). Report line: the
       concurrent design, with the arm pre-shaped while driving and only the short correction after the latch, is
       what made the model precise; pre-shaping after parking, learned the same way, was not.
+      **Why (check on `data_seqpre`, all 1,000 expert episodes, 5 Nov):** the correction starts from the same distance
+      as Route B's (median 7.4 cm v 7.2 cm at the latch), so correction length is not the difference. But in 78% of
+      episodes the hand passes >1 cm closer to the target during the 1.15 s (median) joint path than where the path
+      ends (median 4.0 cm closer), then moves away before the correction brings it back. So after the latch, under
+      the same flag, the labels near the target say "keep moving" (mid-path) and "settle" (correction), and the path
+      is timed by time since the latch, which the policy can't see (Route B's path is timed by drive progress, i.e.
+      the base's distance to its spot, which it can, and runs under flag 0). Fits the pass-throughs; a hypothesis
+      for the model's failure, not tested by a model run. Also: the post-park rounds started from the damaged plain
+      model (held 21 / 50), not from the DART model or DAgger r1.
 
 ### Extension: camera expert, the concurrent expert finds the target with a mast camera (Kris, 4 Nov)
 29. **Camera expert** (Kris, folder `concurrent_arm/`, nothing in `robotnik_arm_task/` changed). The robot is no longer
