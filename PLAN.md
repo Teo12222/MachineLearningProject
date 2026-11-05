@@ -3704,6 +3704,29 @@ lower limit (see "Found on the way" below).
       concurrent model; concurrency (the arm pre-shaped during the drive, short correction after parking, flag 0 /
       1 separating the two behaviours) is what makes drive-phase r1 work. Not done: the three robustness tests on
       this model (step 11 reminder), seeds of DAgger r1.
+      **Matteo's 4 Nov question (does pre-shaping without concurrency hold like Route B?), val 50, Mac, 3 seeds.**
+      The seqpre rows are the val-50 ids inside the val-150 runs (runs are deterministic: plusCLD r3 s0's val 50 run
+      and its 50 inside val 150 give identical counts); CLD r2 / Route B from `compare_out/route_b/` and Route B's
+      val runs (4 Nov).
+
+      | val 50, Mac, 3-seed mean | reached | ever 1 cm | held 1 cm (s0 / s1 / s2) | collapsed (sum) | time to reach |
+      |---|---|---|---|---|---|
+      | CLD r2 (sequential expert) | 44.0 | 48.3 | 40.3 (40 / 40 / 41) | 0 | 11.25 s |
+      | seq. pre-shaping, plain (plusCLD r3) | 29.3 | 38.7 | 14.3 (21 / 10 / 12) | 3 | 15.10 s |
+      | seq. pre-shaping + post-park labels (r2) | 36.3 | 45.3 | 19.0 (25 / 18 / 14) | 0 | 12.65 s |
+      | Route B (concurrent) | 48.7 | 50.0 | 48.3 (50 / 46 / 49) | 0 | 10.22 s |
+      | drive-phase r1 (concurrent, final) | 49.0 | 50.0 | 49.7 (50 / 49 / 50) | 0 | 10.14 s |
+
+      **Answer: neither of the two predicted outcomes; it holds worse than CLD r2 and is slower.** So pre-shaping
+      alone doesn't give Route B's precision here. But it's not a clean test of the correction-length explanation:
+      at the expert level the correction does start from a Route B-like distance (5-10 cm, the parking miss), yet
+      the learned model gains a difficulty neither CLD nor Route B has, two behaviours after the latch (joint path,
+      then correction) under the same flag; the post-park labels remove the label mismatch, and the model still
+      passes through instead of settling. The CLD recipe's `--relabel-from-final` also mislabels this expert, so the
+      plain row is partly a recipe effect. Its least-damaged model, DAgger r1 (one round of those labels), held 43 /
+      50 on seed 0 (between CLD r2's 40.3 and Route B's 48.3; one seed, not measured further). Report line: the
+      concurrent design, with the arm pre-shaped while driving and only the short correction after the latch, is
+      what made the model precise; pre-shaping after parking, learned the same way, was not.
 
 ### Extension: camera expert, the concurrent expert finds the target with a mast camera (Kris, 4 Nov)
 29. **Camera expert** (Kris, folder `concurrent_arm/`, nothing in `robotnik_arm_task/` changed). The robot is no longer
