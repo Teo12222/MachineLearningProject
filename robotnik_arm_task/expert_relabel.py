@@ -112,6 +112,46 @@ def relabel_arm_drive(d, latch, q_final, goal_xy):
     return torques
 
 
+def relabel_arm_postpark(d, latch, stop, q_final):
+    """Sequential pre-shaping DAgger (PLAN.md step 28, 5 Nov): the arm torques of concurrent_expert.py with
+    ROBOENV_ARM_SEQUENTIAL=1 for frames 0..stop-1 of a policy run d whose latch (first nav_done frame) is latch.
+
+    Before the latch: the start pose held by arm_path_controller (path fraction 0), as the expert does while the base
+    turns and drives. From the latch: arm_path_reference(start pose, q_final, u), u = steps since the latch * dt /
+    blend_duration(start pose, q_final), with the 0.15 rad lead limit, both as in the expert; from the first frame with
+    u >= 1 the Cartesian reach (arm_controller) carries on from the path's joint reference, i.e. q_final, as the expert
+    switches. The switch is on time since the latch, which the policy can't see; but it is where the path ends (arm
+    at q_final and at rest), which it can. Returns (torques (stop, 7), switch frame; stop if the path doesn't end).
+    """
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "concurrent_arm"))
+    from concurrent_control import arm_path_controller, arm_path_reference, blend_duration
+    q_start = d["q_mes"][0, 4:11].astype(float)
+    q_final = np.asarray(q_final, dtype=float)
+    path_time = blend_duration(q_start, q_final, _PARAMS.max_joint_vel)
+    target = np.asarray(d["target"], dtype=float)
+    q_des = q_start.copy()
+    torques = np.empty((stop, 7))
+    switch = stop
+    for i in range(stop):
+        q_arm = d["q_mes"][i, 4:11].astype(float)
+        qd_arm = d["qd_mes"][i, 4:11].astype(float)
+        q_pin = _q_pin(d["base_pos"][i], d["base_bearing"][i], d["q_mes"][i])
+        u = 0.0 if i < latch else (i - latch) * _DT / path_time
+        if u < 1.0:
+            q_ref = arm_path_reference(q_start, q_final, u)
+            q_des = np.clip(q_des, q_arm - _PARAMS.max_q_lead, q_arm + _PARAMS.max_q_lead)
+            torques[i], q_des, _ = arm_path_controller(_Dyn, q_pin, q_arm, qd_arm, q_des, q_ref, _DT, _PARAMS)
+        else:
+            switch = min(switch, i)
+            pin.forwardKinematics(_MODEL, _DATA, q_pin)
+            pin.updateFramePlacements(_MODEL, _DATA)
+            torques[i], q_des, _ = arm_controller(
+                _Dyn, q_pin, q_arm, qd_arm, q_des, None, target, d["ee_pos"][i].astype(float), _EE_FRAME,
+                _SHOULDER_FRAME, _ARM_LOWER, _ARM_UPPER, _DT, _PARAMS, reach_active=True)
+    return torques, switch
+
+
 if __name__ == "__main__":
     # Check: on expert episodes, relabelling the 3 s after arrival (starting from the expert's own reference) must
     # give back the torques it saved

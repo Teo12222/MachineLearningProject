@@ -55,3 +55,6 @@ robotnik_arm_task/data_camera*.log
 
 # rendered training images for the learned target detector (concurrent_arm/cnn_data.py, PLAN.md step 29; not submitted)
 robotnik_arm_task/data_camera_images*
+robotnik_arm_task/data_seqpre
+robotnik_arm_task/data_low_s
+robotnik_arm_task/seqpre*.log

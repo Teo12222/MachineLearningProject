@@ -3646,6 +3646,196 @@ lower limit (see "Found on the way" below).
         below r1 (145.0, low 54.3); its val-150 edge at 5 mm shows on test only in seed 1 (98). **Of the three, r1 is
         ahead on test held within 1 cm and low targets, and on val 150 level with r2 and more even.**
 
+    - **Sequential pre-shaping model (Kris, 5 Nov, Mac; Matteo's plan above, (a)-(c)). In progress.**
+      **Expert:** `concurrent_expert.py` with `ROBOENV_ARM_SEQUENTIAL=1` (off by default; concurrent runs unchanged):
+      the arm holds its start pose (`arm_path_controller` on the start pose, `arm_mode` 0) while the base turns and
+      drives; from the latch (`nav_done`) it follows `arm_path_reference(start pose, q_final, u)` with
+      u = steps since the latch * 1 ms / `blend_duration(start pose, q_final)` (minimum-jerk path at the arm's
+      1 rad/s limit, 0.38-1.67 s on the smoke runs) and the 0.15 rad lead limit (`arm_mode` 3); from the first step with
+      u >= 1 the usual Cartesian IK from q_final (`arm_mode` 2). Early IK and re-solve forced off in this mode; u
+      counted in steps, not the summed float time, so the relabel finds the same switch frame. `q_final` as before
+      (solved at t = 0 for the planned spot). Extra saved fields: `arm_sequential`, `seq_path_time`; `arm_progress` is
+      u. **Smoke test** (10 targets, seed 0): 10/10 reached, 12.94 s mean v the sequential expert's 12.88 s
+      (`data_main`) and the concurrent expert's 11.79 s (`data_route_b`): pre-shaping after parking saves no time,
+      the Cartesian correction starts 5-10 cm from the target (the parking miss). The arm's sag before the latch is
+      the sequential expert's (0.06 rad on joints 1-2).
+      **Labeller:** `expert_relabel.relabel_arm_postpark(d, latch, stop, q_final)` (as Matteo's `relabel_arm_drive`):
+      start pose held before the latch, the path with the expert's timing and lead limit after it, then the Cartesian
+      reach from the path's reference where u reaches 1. Check on 5 smoke episodes: same switch frame as the expert's
+      on all 5; torques median 0.0003-0.012 N*m, max 0.09 N*m (the base-tilt approximation). `dagger.py
+      --label-postpark` (`label_run_postpark`; excludes `--relabel-from-final` / `--label-drive`): labels every frame up
+      to `--window` s after the latch (before the latch flag 0 from the saved `nav_done`, as the drive-phase labels);
+      path labels kept even at the torque limit; `--posture-free` and the saturation stop act on the Cartesian part
+      only (grace from the switch). Checked on an expert run as a "policy run": labels = saved torques (median
+      0.0025, max 0.09 N*m); with `--posture-free` only the Cartesian part changes. **The catch (Matteo):** after the
+      latch the flag is 1 for both the path and the Cartesian part; the switch is on time since the latch (invisible
+      to the policy) but falls where the path ends (arm at q_final, at rest), which the joint angles and velocities
+      show. Watch held within 1 cm per round, stop if it drops.
+      **Data** (`concurrent_arm/seqpre_collect.sh`, Route B's targets and seeds, git-ignored): `data_seqpre` (1,000,
+      seed 0), `dart/s_a60`, `s_a60b` (`--n 150 --noise 60 --seed 2 / 3`), `data_low_s` (`--n 60 --seed 11
+      --height-range 0.2,0.5`). **Recipe:** `seqpre_chain1.sh` (Route B's chain 1 on this data: DART model
+      `split_seqpre_dart_bb_s0`, 5 DAgger rounds `split_seqpre_dartdagger_bb`, `--relabel-from-final`), then the
+      CLD-style rounds on the chosen round, seeds 1-2 = the plain model; then 1-3 `--label-postpark` rounds on it
+      (`--window 25 --posture-free --low-extra 100` + all its data), round picked on seed-0 val, seeds 1-2. Chain
+      scripts take `PY` from the environment (not Mac-only).
+      **Data collected (5 Nov 13:11, Mac), then one expert fix:** first pass 993 / 1,000 reached; the 7 misses
+      (all z ~0.7 m) stopped as "not reachable" 5-8 mm from the target while still converging. Cause: on its joint
+      path to q_final the hand passes closer to the target (e.g. 2.2 cm) than q_final puts it (5-6 cm, the base parks
+      short of the planned spot), and the stall rule (no 2 mm improvement on the best error for 2 s, counted from
+      the latch) kept that best error, so the Cartesian reach got only ~1.6 s. **Fix:** in sequential mode the stall
+      clock restarts with the Cartesian reach (`seq_reach_started`). Reached runs are bit-identical (checked on 10),
+      so only the non-reached episodes were deleted and rerun (`seqpre_collect.sh` skips existing files; first log
+      `seqpre_collect_v1.log`). **Final data:** `data_seqpre` 1,000 / 1,000 reached, 12.26 s mean (sequential expert
+      `data_main` 995, 12.25 s; concurrent `data_route_b` 1,000, 11.18 s; index.csv sim_time); DART `s_a60` 102 / 150,
+      `s_a60b` 109 / 150 (Route B's 111 / 103, the sequential expert's 116 / 112); `data_low_s` 60 / 60.
+      **Chain 1 (Mac, 13:15-13:50), val 50, seed 0** (`route_b_eval.py --data-dir data_seqpre`):
+
+      | val 50, Mac, s0 | reached | ever 1 cm | held 1 cm | held 5 cm | collapsed | time to reach |
+      |---|---|---|---|---|---|---|
+      | DART model `split_seqpre_dart_bb_s0` | 23 | 27 | 27 | 29 | 15 | 10.76 s |
+      | DAgger r1 / r2 / r3 / r4 / r5 | 37 / 32 / 27 / 13 / 16 | 44 / 40 / 37 / 24 / 23 | **43** / 23 / 19 / 5 / 9 | 50 / 48 / 46 / 40 / 49 | 0 / 0 / 0 / 3 / 0 | 12.21 / 12.03 / 10.49 / 12.83 / 11.69 s |
+
+      **The plain recipe falls apart round after round**, as Matteo predicted: `--relabel-from-final` labels the
+      frames after the latch with a Cartesian reach from q_final, but this expert's arm is still at its start pose
+      there (it first follows the joint path). Those labels are 2-3x the expert's own size (mean |label| 10.5 N*m in
+      r1's runs, 7.6 in r3's, v 3.9 for the expert after the latch) and mostly hit the saturation stop (median 0.64 s
+      labelled per run in r1, 1.57 s in r3). The DART model alone is poor too (15 / 50 collapsed, Route B's DART model 0;
+      not investigated, DAgger r1 removes the collapses).
+      **Round picked by the rule: r1** (held 43); chain 2 (`seqpre_chain2.sh`, `R=1`) runs the CLD-style rounds on it.
+      **Chain 2 (13:52-14:22), val 50, seed 0:** CLD-style rounds on r1 (`split_seqpre_dartdagger_bb_plusCLD_r1-r3`):
+      reached 26 / 24 / 31, ever 1 cm 34 / 34 / 43, held 1 cm 18 / 15 / 21, held 5 cm 35 / 48 / 50, collapsed 6 / 0 /
+      0, 12.46 / 14.00 / 14.92 s: all below their start r1 (37 / 44 / 43 / 50, 12.21 s); probably (not checked) the 25 s window
+      spreads the same mismatched labels over more frames (1.0-3.8 M labelled frames per round). Picked by the rule:
+      **plusCLD r3** (held 21), the recipe's "plain" model; the post-park rounds (`seqpre_chain3.sh`, `R=1 C=3`,
+      `split_seqpre_postpark_r1-r3`) start from it. Note for the report: the plain recipe's best model is DAgger r1,
+      not its final round.
+      **Chain 3 (14:23-14:53), post-park labels on plusCLD r3, val 50, seed 0** (`split_seqpre_postpark_r1-r3`, 4.6-4.8 M
+      labelled frames per round): reached 27 / 37 / 41, ever 1 cm 43 / 45 / 49, held 1 cm 14 / **25** / 19, held 5 cm
+      50, collapsed 0, 16.12 / 13.56 / 11.93 s (start plusCLD r3: 31 / 43 / 21 / 50, 14.92 s). Reached and time improve
+      every round, held within 1 cm doesn't: of r3's reached runs 23 aren't held, and they are pass-throughs (the
+      hand crosses within 5 mm and is 1-4 cm away 1 s later, when the run stops), v 1 such run for DAgger r1. Fits
+      Matteo's catch (one flag for the joint path and the Cartesian correction; the policy doesn't settle).
+      **Picked by the rule: postpark r2** (held 25). `seqpre_chain4.sh`: seeds 1-2 of plusCLD r3 and postpark r2
+      (train.py with each round's options and folders), then `--val-full` and test 150, 3 seeds, of both and of
+      drive-phase r1, all on the Mac (into `compare_out/mac_<model>/`; expert.csv and drive-phase r1's results files
+      restored from git after each test run). `route_b_eval.py --set val_full` added for the val-150 counts.
+      **Result (chain 4, 14:55-15:48, Mac, 3 seeds; counts from `route_b_eval.py`, rechecked with a separate script:
+      reached from the stop messages, held within 1 cm from `run_stats`, both identical).**
+
+      | Mac, s0 / s1 / s2 = mean | reached | ever 1 cm | held 1 cm | held 5 cm | collapsed | time to reach | low targets held 1 cm |
+      |---|---|---|---|---|---|---|---|
+      | val 150: plain (plusCLD r3) | 97 / 77 / 85 = 86.3 | 112.7 | 68 / 38 / 42 = 49.3 | 147.0 | 0 / 11 / 3 | 14.30 s | 11.7 / 46 |
+      | val 150: + post-park labels (postpark r2) | 114 / 117 / 93 = 108.0 | 135.0 | 62 / 60 / 48 = 56.7 | 150 | 0 | 13.54 s | 10.3 / 46 |
+      | val 150: drive-phase r1 (final) | 149 / 142 / 147 = 146.0 | **150** | 146 / 145 / 148 = **146.3** | 150 | 1 / 0 / 0 | **10.49 s** | **43.7 / 46** |
+      | test 150: plain (plusCLD r3) | 92 / 73 / 79 = 81.3 | 109.7 | 51 / 41 / 43 = 45.0 | 147.0 | 0 / 4 / 2 | 14.19 s | 10.7 / 58 |
+      | test 150: + post-park labels (postpark r2) | 106 / 106 / 90 = 100.7 | 130.7 | 66 / 44 / 40 = 50.0 | 149.7 | 1 / 1 / 0 | 13.91 s | 12.7 / 58 |
+      | test 150: drive-phase r1 (final) | 146 / 144 / 149 = 146.3 | **150** | 146 / 143 / 145 = **144.7** | 150 | 0 | **10.42 s** | **54.0 / 58** |
+
+      Machine check: drive-phase r1 on the Mac matches Matteo's PC (val 150 held 146.3 both, low 43.7 both; test held
+      144.7 v 145.0). **Findings.** (1) The post-park labels help the arm-after-parking model: reached +21.7 (val) /
+      +19.3 (test), ever 1 cm +22 / +21, no collapses on val, ~0.3-0.8 s faster; held within 1 cm only +7.3 / +5.0,
+      inside the plain model's seed spread (30 / 10), and low targets unchanged (~11 of 46 / 58). Many reaches are
+      pass-throughs (chain 3), i.e. the precision problem Matteo's catch predicted (one flag for path and
+      correction). (2) Both are far below drive-phase r1 (held 1 cm 50-57 v 145-146 of 150, 3.4-3.8 s slower), and
+      far below the original sequential model CLD r2 too (test 150 held 112.3, PC; other machine, but the gap is far
+      beyond the machine difference): the joint-path-then-correction expert with this recipe is not a good model.
+      (3) The plain recipe's best model was DAgger r1 (val 50 held 43 v plusCLD r3's 21); not measured on 150, so the
+      plain row is the recipe's final model, not its best. **For the report:** the arm-after-parking (sequential
+      pre-shaping) model gains from the post-park labels in reaching but not in holding, and stays well below the
+      concurrent model; concurrency (the arm pre-shaped during the drive, short correction after parking, flag 0 /
+      1 separating the two behaviours) is what makes drive-phase r1 work. Not done: the three robustness tests on
+      this model (step 11 reminder), seeds of DAgger r1.
+      **Matteo's 4 Nov question (does pre-shaping without concurrency hold like Route B?), val 50, Mac, 3 seeds.**
+      The seqpre rows are the val-50 ids inside the val-150 runs (runs are deterministic: plusCLD r3 s0's val 50 run
+      and its 50 inside val 150 give identical counts); CLD r2 / Route B from `compare_out/route_b/` and Route B's
+      val runs (4 Nov).
+
+      | val 50, Mac, 3-seed mean | reached | ever 1 cm | held 1 cm (s0 / s1 / s2) | collapsed (sum) | time to reach |
+      |---|---|---|---|---|---|
+      | CLD r2 (sequential expert) | 44.0 | 48.3 | 40.3 (40 / 40 / 41) | 0 | 11.25 s |
+      | seq. pre-shaping, plain (plusCLD r3) | 29.3 | 38.7 | 14.3 (21 / 10 / 12) | 3 | 15.10 s |
+      | seq. pre-shaping + post-park labels (r2) | 36.3 | 45.3 | 19.0 (25 / 18 / 14) | 0 | 12.65 s |
+      | Route B (concurrent) | 48.7 | 50.0 | 48.3 (50 / 46 / 49) | 0 | 10.22 s |
+      | drive-phase r1 (concurrent, final) | 49.0 | 50.0 | 49.7 (50 / 49 / 50) | 0 | 10.14 s |
+
+      **Answer: neither of the two predicted outcomes; it holds worse than CLD r2 and is slower.** So pre-shaping
+      alone doesn't give Route B's precision here. But it's not a clean test of the correction-length explanation:
+      at the expert level the correction does start from a Route B-like distance (5-10 cm, the parking miss), yet
+      the learned model gains a difficulty neither CLD nor Route B has, two behaviours after the latch (joint path,
+      then correction) under the same flag; the post-park labels remove the label mismatch, and the model still
+      passes through instead of settling. The CLD recipe's `--relabel-from-final` also mislabels this expert, so the
+      plain row is partly a recipe effect. Its least-damaged model, DAgger r1 (one round of those labels), held 43 /
+      50 on seed 0 (between CLD r2's 40.3 and Route B's 48.3; one seed, not measured further). Report line: the
+      concurrent design, with the arm pre-shaped while driving and only the short correction after the latch, is
+      what made the model precise; pre-shaping after parking, learned the same way, was not.
+      **Why (check on `data_seqpre`, all 1,000 expert episodes, 5 Nov):** the correction starts from the same distance
+      as Route B's (median 7.4 cm v 7.2 cm at the latch), so correction length is not the difference. But in 78% of
+      episodes the hand passes >1 cm closer to the target during the 1.15 s (median) joint path than where the path
+      ends (median 4.0 cm closer), then moves away before the correction brings it back. So after the latch, under
+      the same flag, the labels near the target say "keep moving" (mid-path) and "settle" (correction), and the path
+      is timed by time since the latch, which the policy can't see (Route B's path is timed by drive progress, i.e.
+      the base's distance to its spot, which it can, and runs under flag 0). Fits the pass-throughs; a hypothesis
+      for the model's failure, not tested by a model run. Also: the post-park rounds started from the damaged plain
+      model (held 21 / 50), not from the DART model or DAgger r1.
+      **Chain 5 (15:55-16:48, Mac): post-park labels from the DART model** (`seqpre_chain5.sh`, chain 1 with
+      `--label-postpark` instead of `--relabel-from-final`; `split_seqpre_ppdart_r1-r5`, 2.4-2.6 M labelled frames per
+      round), val 50, seed 0: reached 4 / 38 / 43 / 39 / 44, ever 1 cm 12 / 47 / 48 / 47 / 49, held 1 cm 9 / **44** / 43
+      / 33 / 43, held 5 cm 48 / 50 / 48 / 49 / 49, collapsed 0 / 0 / 2 / 0 / 1, 11.46 / 12.50 / 11.41 / 11.61 / 11.67 s
+      (chain 1's r1: 37 / 44 / 43 / 50, 12.21 s). **The recipe was a large part of the earlier result:** from round 2
+      on, held within 1 cm is level with CLD r2 (40.3, Mac) instead of 14-25, but below Route B (48.3). **Picked by the
+      rule: ppdart r2**; `seqpre_chain6.sh`: seeds 1-2 (train.py, round 2's options and data), val 150 and test 150.
+      **The three designs on one machine (chains 6-7, Mac, 5 Nov 17:18; CLD r2 rerun on val 150 / test 150 with
+      `seqpre_chain7.sh`; counts from `route_b_eval.stats`, reached also from the stop messages, identical; CLD r2's
+      Mac test held 112.3 = its PC number; val / test ids the same for data_main and data_seqpre, checked).**
+
+      | Mac, 3 seeds (s0 / s1 / s2 = mean) | reached | ever 1 cm | held 1 cm | collapsed (sum) | low held 1 cm | time to reach |
+      |---|---|---|---|---|---|---|
+      | val 150: sequential, CLD r2 | 132 / 129 / 131 = **130.7** | 146.0 | 117 / 118 / 118 = 117.7 | 0 | 23.0 / 46 | 11.71 s |
+      | val 150: sequential pre-shaping, post-park from DART r2 | 112 / 90 / 119 = 107.0 | 137.7 | 131 / 120 / 124 = 125.0 | 1 | 30.7 / 46 | 12.60 s |
+      | val 150: concurrent, drive-phase r1 | 149 / 142 / 147 = 146.0 | 150.0 | 146 / 145 / 148 = 146.3 | 1 | 43.7 / 46 | 10.49 s |
+      | test 150: sequential, CLD r2 | 125 / 129 / 124 = **126.0** | 142.7 | 113 / 115 / 109 = 112.3 | 0 | 28.7 / 58 | 11.87 s |
+      | test 150: sequential pre-shaping, post-park from DART r2 | 119 / 90 / 112 = 107.0 | 139.0 | 126 / 123 / 122 = 123.7 | 0 | 40.3 / 58 | 12.20 s |
+      | test 150: concurrent, drive-phase r1 | 146 / 144 / 149 = 146.3 | 150.0 | 146 / 143 / 145 = 144.7 | 0 | 54.0 / 58 | 10.42 s |
+
+      **Answer to Matteo's 4 Nov question (with matching labels):** pre-shaping alone improves holding: held within
+      1 cm +7.3 (val) / +11.4 (test) over CLD r2, seed ranges not overlapping on either (117-118 v 120-131; 109-115 v
+      122-126), low targets +7.7 / +11.6. It costs exact 5 mm reaches (-24 / -19, seed 1 weak at 90) and ~0.4-0.9 s.
+      Concurrency adds holding (+21 on both), low targets, reached and ~1.8-2.1 s on top. So both parts of Route B
+      help holding; the speed comes from concurrency. The plain-recipe rows above (held 45-57) were a labelling
+      effect (`--relabel-from-final` is wrong for this expert), not the design's. Best sequential model on holding:
+      `split_seqpre_ppdart_r2_s0/1/2`; CLD r2 stays better on exact reaches and time.
+      **Improving the sequential pre-shaping model (Kris, 5 Nov evening): (1) the final recipe's last step with
+      matching labels, (2) round picks on val 150.** Chain 5's rounds re-picked on all 150 val episodes (seed 0):
+      held 1 cm r1-r5 37 / **131** / 124 / 113 / 129, reached 15 / 112 / 125 / 117 / 125, ever 48 / 144 / 142 / 145 /
+      144: r2 stays the pick. `seqpre_chain8.sh`: 3 CLD-style rounds on it (`--label-postpark --window 25
+      --posture-free --low-extra 100`, `data_low_s`; `split_seqpre_ppdart_cld_r1-r3`), each round's seed 0 on val 150.
+      **Chain 8 (18:45-19:43), val 150, seed 0:** reached 126 / 138 / 139, ever 1 cm 143 / 148 / 147, held 1 cm 118 /
+      124 / 128, held 5 cm 149 / 150 / 150, collapsed 1 / 1 / 0, 12.81 / 12.53 / 11.83 s (start ppdart r2 s0: 112 / 144
+      / 131 / 149, 12.75 s). Reaching and speed up (+27 reached, -0.9 s at r3), held within 1 cm -3 at r3, inside
+      ppdart r2's seed range (120-131). Best CLD-style round: r3; one seed can't decide it against its start, so
+      `seqpre_chain9.sh`: seeds 1-2 of r3 (round 3's options and 8 folders), val 150 and test 150, 3 seeds.
+      **Result (chain 9, 19:45-20:02, Mac, 3 seeds; reached also from the stop messages, identical):**
+
+      | Mac, s0 / s1 / s2 = mean | reached | ever 1 cm | held 1 cm | collapsed (sum) | low held 1 cm | time to reach |
+      |---|---|---|---|---|---|---|
+      | val 150: CLD r2 | 132 / 129 / 131 = 130.7 | 146.0 | 117 / 118 / 118 = 117.7 | 0 | 23.0 / 46 | 11.71 s |
+      | val 150: ppdart r2 | 112 / 90 / 119 = 107.0 | 137.7 | 131 / 120 / 124 = 125.0 | 1 | 30.7 / 46 | 12.60 s |
+      | val 150: **ppdart_cld r3** | 139 / 136 / 140 = 138.3 | 147.7 | 128 / 123 / 123 = 124.7 | 0 | 36.0 / 46 | 12.03 s |
+      | val 150: drive-phase r1 | 149 / 142 / 147 = 146.0 | 150.0 | 146 / 145 / 148 = 146.3 | 1 | 43.7 / 46 | 10.49 s |
+      | test 150: CLD r2 | 125 / 129 / 124 = 126.0 | 142.7 | 113 / 115 / 109 = 112.3 | 0 | 28.7 / 58 | 11.87 s |
+      | test 150: ppdart r2 | 119 / 90 / 112 = 107.0 | 139.0 | 126 / 123 / 122 = 123.7 | 0 | 40.3 / 58 | 12.20 s |
+      | test 150: **ppdart_cld r3** | 141 / 132 / 141 = 138.0 | 148.3 | 116 / 118 / 114 = 116.0 | 0 | 37.3 / 58 | 11.82 s |
+      | test 150: drive-phase r1 | 146 / 144 / 149 = 146.3 | 150.0 | 146 / 143 / 145 = 144.7 | 0 | 54.0 / 58 | 10.42 s |
+
+      **Pick by the rule on val: ppdart_cld r3** (held 1 cm 124.7 v 125.0, level; ever 1 cm 147.7 v 137.7). It is
+      also the steadier model (reached 136-140 v 90-119). Test, looked at afterwards, has it below ppdart r2 on held
+      within 1 cm (116.0 v 123.7, ranges 114-118 v 122-126, not overlapping) and on low targets (37.3 v 40.3): the
+      CLD-style rounds trade some holding for reaching on test. Against the original sequential model CLD r2 it is
+      ahead on every measure on both sets except time (val +0.3 s, test level): test reached +12, ever 1 cm +5.6,
+      held 1 cm +3.7, low +8.6. **Best sequential pre-shaping model: `split_seqpre_ppdart_cld_r3_s0/1/2`** (val
+      pick; report that test favours ppdart r2 on holding). Still far below drive-phase r1 (test held 116 v 145,
+      reached 138 v 146, 1.4 s slower).
+
 ### Extension: camera expert, the concurrent expert finds the target with a mast camera (Kris, 4 Nov)
 29. **Camera expert** (Kris, folder `concurrent_arm/`, nothing in `robotnik_arm_task/` changed). The robot is no longer
     told `TARGET_EE_POS`: one forward-facing RGB-D camera on a mast finds the red sphere, the base searches by turning
@@ -3891,7 +4081,9 @@ lower limit (see "Found on the way" below).
         images were re-rendered with it** (80 of 80 train; `data_camera_images_hand`, 12,000 images, 3,951 usable,
         6 GB, git-ignored). **Kris's original CNN (`cnn_detector.pt`) very likely has the same issue:** reproducing its
         pick (`data_concurrent` = ids 0-299, seed 0, 80 episodes) gives 57 train / 11 val / **12 test** (a
-        reproduction, Kris to confirm). The policy-pose CNN used val runs only (no test). **Plan (Matteo, 6 Nov): retrain
+        reproduction, Kris to confirm; **confirmed (Kris, 5 Nov, Mac):** the same pick on the local `data_concurrent`
+        (300 files, seed 0) gives 57 train / 11 val / 12 test, so `cnn_detector.pt`'s arm poses include 12 test
+        episodes' expert runs). The policy-pose CNN used val runs only (no test). **Plan (Matteo, 6 Nov): retrain
         Kris's original CNN with `--arm-split train`** and rerun its camera tests. **Order agreed (Matteo, 5 Nov): first
         the hand CNN (train on the GPU, then its closed loop), then Kris's mast CNN:** render new MAST images
         (`cnn_data.py --place mast --arm-split train`) with arm poses as close to his recipe as possible: `data_concurrent`
