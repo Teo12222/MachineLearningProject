@@ -3829,9 +3829,21 @@ lower limit (see "Found on the way" below).
         **GPU for training:** AMD RX 7800 XT through AMD's ROCm PyTorch for Windows (torch 2.14.0+rocm10.1.0, the same
         Python 3.14 / PyTorch 2.14 as the project; separate venv `C:\Users\robot\venvs\rocm_torch`, 4.3 GB, the
         project's pixi env untouched): one epoch of the camera CNN (9,600 images) ~59 s v ~135-151 s on the CPU.
+        **Test-split leak in the arm poses (found 5 Nov, fixed for the hand images):** `cnn_data.arm_pool` draws its 80
+        episodes from ALL of the given folder, val and test splits included. For `data_route_b` (seed 0) that was 57
+        train, 8 val, **15 test** episodes: no test target position is in the images (targets are placed at random),
+        but some arm poses come from expert runs on test targets, so the detector's data was not test-free. Fix:
+        `cnn_data.py --arm-split train` (arm poses from the training split only; default `all`, as before). **The hand
+        images were re-rendered with it** (80 of 80 train; `data_camera_images_hand`, 12,000 images, 3,951 usable,
+        6 GB, git-ignored). **Kris's original CNN (`cnn_detector.pt`) very likely has the same issue:** reproducing its
+        pick (`data_concurrent` = ids 0-299, seed 0, 80 episodes) gives 57 train / 11 val / **12 test** (a
+        reproduction, Kris to confirm). The policy-pose CNN used val runs only (no test). **Plan (Matteo, 6 Nov): retrain
+        Kris's original CNN with `--arm-split train`** and rerun its camera tests; until then the report must not say
+        the camera's training data contains no test episodes ("the detector never saw a test target position" stays
+        true).
         **Next (Matteo, later):** from `robotnik_arm_task/`:
-        `pixi run python ../concurrent_arm/cnn_data.py --place hand --arm-data data_route_b --out data_camera_images_hand`
-        (12,000 images, ~2 min); then with the ROCm venv
+        `pixi run python ../concurrent_arm/cnn_data.py --place hand --arm-data data_route_b --arm-split train --out data_camera_images_hand`
+        (12,000 images, ~2 min; **done 5 Nov**); then with the ROCm venv
         `C:\Users\robot\venvs\rocm_torch\Scripts\python.exe ../concurrent_arm/cnn_detector.py --data data_camera_images_hand --out checkpoints/cnn_detector_hand.pt`
         (~40 min, early stopping); then closed loop with `ROBOENV_CAMERA_PLACE=hand ROBOENV_DETECTOR=cnn
         ROBOENV_CNN_DETECTOR=checkpoints/cnn_detector_hand.pt` via `camera_policy_eval.py --model split_conc_drive_r1_s0`

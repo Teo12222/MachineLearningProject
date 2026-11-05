@@ -34,11 +34,20 @@ EE_LINK = 16                          # robot_j2s7s300_end_effector
 FINGER_ANGLE = 0.1
 
 
-def arm_pool(data_dirs, n_episodes=80, every=40, seed=0):
+def arm_pool(data_dirs, n_episodes=80, every=40, seed=0, split=None):
     """Arm configurations from stored episodes: every `every`-th frame of n_episodes random episodes (0: all) found
-    under the folders data_dirs (expert data folders, or policy-run folders such as compare_out/<run>/val_set)."""
+    under the folders data_dirs (expert data folders, or policy-run folders such as compare_out/<run>/val_set).
+    split="train" (5 Nov, Matteo): only episodes of each folder's training split (bc_data.split_episodes; expert data
+    folders with the data_main ids, e.g. data_route_b). Default None = every episode, as before: that drew 15 test and
+    8 val episodes of data_route_b's 80, i.e. arm poses from expert runs on test targets (the targets in the images are
+    random, but the poses are not test-free)."""
     rng = np.random.default_rng(seed)
     files = sorted(f for d in data_dirs for f in Path(d).rglob("ep_*.npz"))
+    if split == "train":
+        sys.path.insert(0, str(HERE.parent / "robotnik_arm_task"))
+        from bc_data import split_episodes
+        allowed = {(Path(d).resolve(), i) for d in data_dirs for i in split_episodes(d)[0]}
+        files = [f for f in files if (f.parent.resolve(), int(f.stem[3:])) in allowed]
     if n_episodes <= 0:
         n_episodes = len(files)
     qs = []
@@ -153,12 +162,16 @@ def main():
     ap.add_argument("--arm-episodes", type=int, default=80, help="episodes drawn from them (0: all)")
     ap.add_argument("--workers", type=int, default=10)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--arm-split", choices=("all", "train"), default="all",
+                    help="train: arm poses only from the training split of each --arm-data folder (no val / test "
+                         "episodes); all: every episode (default, as before)")
     ap.add_argument("--place", choices=("mast", "hand"), default="mast",
                     help="camera: the mast (default, unchanged) or the hand / palm camera (5 Nov)")
     a = ap.parse_args()
     out = Path(a.out).resolve()
     out.mkdir(parents=True, exist_ok=True)
-    arm_qs = arm_pool(a.arm_data, n_episodes=a.arm_episodes, seed=a.seed)
+    arm_qs = arm_pool(a.arm_data, n_episodes=a.arm_episodes, seed=a.seed,
+                      split="train" if a.arm_split == "train" else None)
     print(f"{len(arm_qs)} arm configurations from {a.arm_data}", flush=True)
     per = int(np.ceil(a.n / a.workers))
     jobs = [(w, per, a.seed * 1000 + w + 1, arm_qs, str(out / f"shard_{w:02d}.npz"), a.place)
