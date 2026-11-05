@@ -175,7 +175,7 @@ def main():
     # Default checkpoint is found relative to this file, so the script works from any working directory
     # A single MLP or split networks (PLAN.md step 15), whichever the checkpoint holds
     model = load_policy(os.environ.get("ROBOENV_POLICY", os.path.join(cur_dir, "..", "robotnik_arm_task", "checkpoints",
-                                                                      "mlp_baseline.pt")))
+                                                                      "split_conc_drive_r1_s0.pt")))
     split = isinstance(model, SplitPolicy)
     # Split networks: switches control from the base to the arm, same rule as in train.py's offline test
     latch = ArrivedLatch()

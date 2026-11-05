@@ -3,7 +3,7 @@
 # same data and settings as dagger.py's round 3 (base copied from the start model), then val 50 each.
 set -euo pipefail
 export MPLBACKEND=Agg KMP_DUPLICATE_LIB_OK=TRUE
-PY=/Users/krzysztofkaluzny/ML_Rob/RoboEnv/.pixi/envs/ml/bin/python
+PY=${PY:-python}
 DATA="dart/b_a60 dart/b_a60b dagger/split_conc_dartdagger_bb_r1 dagger/split_conc_dartdagger_bb_r2
       dagger/split_conc_dartdagger_bb_r3 data_low_b dagger/split_conc_dartdagger_bb_plusCLD_r1
       dagger/split_conc_dartdagger_bb_plusCLD_r2 dagger/split_conc_dartdagger_bb_plusCLD_r3"

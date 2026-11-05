@@ -5,7 +5,7 @@ CNN's detection counts (found / missed usable targets, false detections on image
 The classical detector here is mast_camera.detect_target's maths on the stored RGB-D image (no self-filter: only
 images whose target is usable are scored, so nothing is hidden).
 
-Usage (from robotnik_arm_task/): python ../concurrent_arm/cnn_eval.py --model checkpoints/cnn_detector.pt
+Usage (from robotnik_arm_task/): python ../concurrent_arm/cnn_eval.py --model checkpoints/cnn_detector_mast_train.pt
 """
 import argparse
 import sys
@@ -39,7 +39,7 @@ def classical_cam(rgb, depth, params):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--model", default="checkpoints/cnn_detector.pt")
+    ap.add_argument("--model", default="checkpoints/cnn_detector_mast_train.pt")
     ap.add_argument("--data", default="data_camera_images32")
     ap.add_argument("--shard", type=int, default=9)
     a = ap.parse_args()

@@ -275,7 +275,7 @@ def main():
     parser.add_argument("--data-dir", default="data_main", help="episode folder, relative to this script")
     parser.add_argument("--workers", type=int, default=16, help="policy runs in parallel for --test-set")
     parser.add_argument("--out-dir", default="compare_out", help="folder for the episode files and plots")
-    parser.add_argument("--model", default="mlp_baseline",
+    parser.add_argument("--model", default="split_conc_drive_r1_s0",
                         help="model name: the policy loads checkpoints/<model>.pt, --test-set writes results/<model>.csv")
     args = parser.parse_args()
     if args.start and (args.test_set or args.val_set or args.val_full or args.episode is not None):

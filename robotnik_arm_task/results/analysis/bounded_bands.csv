@@ -1,8 +1,0 @@
-band,targets,split_dartdagger_bb_r5_s0 ever_1cm,split_dartdagger_bb_r5_s0 held_1cm,split_dartdagger_bb_r5_s0 ever_5mm,split_dartdagger_bb_r5_s1 ever_1cm,split_dartdagger_bb_r5_s1 held_1cm,split_dartdagger_bb_r5_s1 ever_5mm,split_dartdagger_bb_r5_s2 ever_1cm,split_dartdagger_bb_r5_s2 held_1cm,split_dartdagger_bb_r5_s2 ever_5mm,expert ever_1cm,expert held_1cm,expert ever_5mm,mean ever_1cm,mean ever_1cm %,mean held_1cm,mean held_1cm %,mean ever_5mm,mean ever_5mm %
-distance 1.0-1.5 m,25,24,16,19,24,17,21,21,16,18,25,25,25,23.0,92.0,16.3,65.3,19.3,77.3
-distance 1.5-2.0 m,36,34,29,26,35,26,29,34,24,26,36,35,36,34.3,95.4,26.3,73.1,27.0,75.0
-distance 2.0-2.5 m,38,38,32,32,35,27,26,35,28,29,38,38,38,36.0,94.7,29.0,76.3,29.0,76.3
-distance 2.5-3.0 m,51,48,43,45,50,41,44,50,38,38,51,51,50,49.3,96.7,40.7,79.7,42.3,83.0
-height 0.2-0.5 m,58,52,34,35,52,29,44,49,22,26,58,58,57,51.0,87.9,28.3,48.9,35.0,60.3
-height 0.5-0.8 m,40,40,38,40,40,38,37,40,36,38,40,39,40,40.0,100.0,37.3,93.3,38.3,95.8
-height 0.8-1.1 m,52,52,48,47,52,44,39,51,48,47,52,52,52,51.7,99.4,46.7,89.7,44.3,85.3

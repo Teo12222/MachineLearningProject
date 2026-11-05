@@ -1,2 +1,0 @@
-model,train_episodes,epochs,batch,lr,hidden,layers,best_val_loss,best_epoch,train_time_s,parameters,inference_ms,test_wheel_rmse,test_torque_rmse,sim_success_rate,sim_final_err_mean,sim_final_err_median,sim_time_to_reach,frame_step,weight_decay,dropout,max_epochs,patience
-mlp_robotframe_tuned,700,100,2048,0.0003,512,3,0.00216922,98,1399.92,545291,0.108,0.0580991,0.0979491,0,2.08809,1.90447,,10,0,0,100,10
