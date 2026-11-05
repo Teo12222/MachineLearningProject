@@ -58,3 +58,10 @@ robotnik_arm_task/data_camera_images*
 robotnik_arm_task/data_sequential_expert
 robotnik_arm_task/data_low_s
 robotnik_arm_task/seqpre*.log
+
+# outputs of single runs (README section 4) and the quick data try (section 5)
+robotnik_arm_task/episode.npz
+robotnik_arm_task/policy_episode.npz
+concurrent_arm/episode.npz
+concurrent_arm/policy_episode.npz
+robotnik_arm_task/data_try
