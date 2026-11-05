@@ -3658,8 +3658,8 @@ lower limit (see "Found on the way" below).
       frames after the latch with a Cartesian reach from q_final, but this expert's arm is still at its start pose
       there (it first follows the joint path). Those labels are 2-3x the expert's own size (mean |label| 10.5 N*m in
       r1's runs, 7.6 in r3's, v 3.9 for the expert after the latch) and mostly hit the saturation stop (median 0.64 s
-      labelled per run in r1, 1.57 s in r3). The DART model alone is poor too (15 / 50 collapsed): with the arm still
-      while driving the DART noise has no drive-phase effect to teach, and its post-latch data is only 252 runs.
+      labelled per run in r1, 1.57 s in r3). The DART model alone is poor too (15 / 50 collapsed, Route B's DART model 0;
+      not investigated, DAgger r1 removes the collapses).
       **Round picked by the rule: r1** (held 43); chain 2 (`seqpre_chain2.sh`, `R=1`) runs the CLD-style rounds on it.
 
 ### Extension: camera expert, the concurrent expert finds the target with a mast camera (Kris, 4 Nov)
