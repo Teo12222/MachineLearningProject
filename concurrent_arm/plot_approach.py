@@ -25,11 +25,11 @@ from bc_data import split_episodes  # noqa: E402
 
 SEEDS = (0, 1, 2)
 T = np.arange(-3.0, 5.0 + 1e-9, 0.01)   # s, relative to parking
-# name, expert data folder (old, new name), policy runs prefix, colour (reference palette slots 1-2)
+# name, expert data folder, policy test runs prefix (+ s<seed>: README section 6.1's compare.py --test-set folders),
+# colour (reference palette slots 1-2)
 VARIANTS = [
-    ("Sequential", ("data_seqpre", "data_sequential_expert"), "compare_out/mac_split_seqpre_ppdart_cld_r3_",
-     "#2a78d6"),
-    ("Concurrent", ("data_route_b", "data_concurrent_expert"), "compare_out/mac_split_conc_drive_r1_", "#eb6834"),
+    ("Sequential", ("data_sequential_expert",), "compare_out/split_seqpre_ppdart_cld_r3_", "#2a78d6"),
+    ("Concurrent", ("data_concurrent_expert",), "compare_out/split_conc_drive_r1_", "#eb6834"),
 ]
 INK, MUTED, GRID = "#0b0b0b", "#52514e", "#e4e3df"
 

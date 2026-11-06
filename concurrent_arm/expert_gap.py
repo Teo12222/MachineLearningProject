@@ -5,9 +5,9 @@ The measures, in the report's order (the team's metric rule, 5 Nov):
   held within 1 cm   below 1 cm for 0.5 s without a break;
   within 5 mm        below 5 mm once the base has parked / the latch is set (the stop rule; scripts call it "reached");
   time to reach      time of that 5 mm frame (no 1 s settle), mean over the runs that get within 5 mm;
-plus held within 1 cm on low targets (height < 0.5 m). Every count comes from route_b_eval.stats (count_results.stats
-on master), the function behind the policy tables, applied unchanged to the expert's stored test episodes, so expert
-and policy are scored by the same code.
+plus held within 1 cm on low targets (height < 0.5 m). Every count comes from count_results.stats, the function
+behind the policy tables, applied unchanged to the expert's stored test episodes, so expert and policy are scored by
+the same code.
 
 Cloning gap = policy (3-seed mean) - its expert. Time is also given paired: policy minus expert on the targets both get
 within 5 mm (per seed, then the mean over seeds), since the two means above are over different sets of runs.
@@ -19,7 +19,7 @@ height band).
 Checks: the test ids come from the expert folder's split and must match the policy folders' files; each policy run's
 target must equal the expert episode's target (same ids, same targets).
 
-Usage (from robotnik_arm_task/; defaults = the report's two variants on Kris's Mac):
+Usage (from robotnik_arm_task/; defaults = the report's two variants, test runs as in README section 6.1):
     python ../concurrent_arm/expert_gap.py [--csv results/analysis/expert_gap.csv]
     python ../concurrent_arm/expert_gap.py --pair NAME DATA_DIR RUN_PREFIX ...   # RUN_PREFIX + s0/s1/s2 + /test_set
 """
@@ -37,17 +37,14 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(HERE))
 from bc_data import split_episodes  # noqa: E402
 
-try:
-    from count_results import stats  # noqa: E402  (master's name)
-except ImportError:
-    from route_b_eval import stats  # noqa: E402  (Kris branch's name)
+from count_results import stats  # noqa: E402
 
 LOW = 0.5   # m, "low targets": height below this
 SEEDS = (0, 1, 2)
-# name, expert data folder (old name, new name on master), policy runs prefix (+ s<seed>)
+# name, expert data folder, policy test runs prefix (+ s<seed>: README section 6.1's compare.py --test-set folders)
 DEFAULT_PAIRS = [
-    ("sequential", ("data_seqpre", "data_sequential_expert"), "compare_out/mac_split_seqpre_ppdart_cld_r3_"),
-    ("concurrent", ("data_route_b", "data_concurrent_expert"), "compare_out/mac_split_conc_drive_r1_"),
+    ("sequential", ("data_sequential_expert",), "compare_out/split_seqpre_ppdart_cld_r3_"),
+    ("concurrent", ("data_concurrent_expert",), "compare_out/split_conc_drive_r1_"),
 ]
 COLS = ("ever_1cm", "held_1cm", "within_5mm", "t_reach", "low_held_1cm")
 

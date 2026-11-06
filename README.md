@@ -54,7 +54,8 @@ The policy checkpoints are seed 0 of three training seeds, chosen on the validat
 **Concurrent expert and camera** (`concurrent_arm/`)
 - **Concurrent expert:** `concurrent_expert.py`, `concurrent_control.py` — the base turns, then drives while the
   arm moves along a joint path to its pre-grasp pose (`ROBOENV_ARM_SEQUENTIAL=1`: only after parking).
-  `concurrent_chain*.sh` and `seqpre_*.sh` train the models on it; `count_results.py` counts the results.
+  `concurrent_chain*.sh` and `seqpre_*.sh` train the models on it; `count_results.py` counts the results;
+  `expert_gap.py` puts each policy next to its own expert, and `plot_approach.py` draws the approach figure.
 - **Camera:** `mast_camera.py` (RGB-D camera on a mast or in the palm, colour detector, target estimator),
   `camera_expert.py`, `camera_policy_task.py` / `camera_policy_eval.py` (the policy driven by the camera),
   `cnn_data.py` / `cnn_detector.py` / `cnn_eval.py` (the learned detector), `analyse_camera.py`,
@@ -157,6 +158,8 @@ expert headless and the policy in the GUI, then plots both (error, base path, en
 
 ## 4. Gather data quickly
 
+*Report: Section II-A (expert and data); the DART and low-target data, Section II-D.*
+
 Expert data is collected **in parallel and headless** with `run_batch.py`: each episode is one subprocess, so 10
 workers collect 1,000 episodes in about **10-20 minutes** on a laptop (one episode is 4-10 s of wall time). Targets
 are drawn from a seed (1-3 m from the start, 0.2-1.1 m high), so the same command always gives the same targets.
@@ -198,6 +201,8 @@ python run_batch.py --n 60 --seed 11 --height-range 0.2,0.5 --workers 10 --scrip
 
 ## 5. Evaluation: what counts as success, and the evaluation scripts
 
+*Report: the success measures, Section I; the evaluation protocol, Section II-E.*
+
 ### 5.1 The metrics
 
 Every number is counted from the saved episode files (`ep_*.npz`, 1 ms per frame) by the scripts named below, from
@@ -230,19 +235,36 @@ course's expert (`robotnik_arm_task.py`).
 | `python compare.py --val-full ...` (same options) | all 150 validation targets (the final pick of both shipped models) | `compare_out/X/val_set_full/` |
 | `python compare.py --test-set ...` (same options) | all 150 test targets, for the reported numbers | `compare_out/X/test_set/`, `test_set_final_error.png`, and `results/M.csv` + `results/expert.csv` |
 | `python ../concurrent_arm/count_results.py compare_out/X ... --data-dir D --set val\|val_full\|test` | the report's counts from saved runs (no simulation) | table on screen |
-| `python ../concurrent_arm/expert_gap.py --pair ...` | each policy against its own expert on test 150 (Table I), then the two policies target by target (section 6.2) | table on screen; with `--csv F` also `F` |
+| `python ../concurrent_arm/expert_gap.py` | each policy against its own expert on test 150 (Table I), ever / held within 5 mm-10 cm (Table II), then the two policies target by target (section 6.2) | tables on screen; with `--csv F` / `--distances-csv F` also `F` |
+| `python ../concurrent_arm/plot_approach.py` | hand-target distance around parking, both policies and their experts, test 150 (Fig. 3, section 6.2) | `results/analysis/approach.pdf`, `approach.png` |
 | `python analyse_distances.py` | ever / held within 5 mm-10 cm, by target distance and height, final model on test 150 | `results/analysis/final_distances.csv`, `final_bands.csv` |
 | `python train.py ...` / `python dagger.py ...` | training (section 7) | `checkpoints/<model>.pt`, its loss curve and offline test plots (`*_loss.png`, `*_test_per_episode.png`, `*_test_per_output.png`), `results/<model>.csv`; DAgger also `dagger/<name>_rK/` (labelled runs) |
 
 `compare.py --test-set` rewrites `results/expert.csv` with the expert of the folder it ran on; restore it with
-`git checkout -- results/expert.csv`. The other files these commands write (`results/<model>.csv`, `results/analysis/`)
-and the checkpoints copied back from `checkpoints/seeds/` and `checkpoints/chain_starts/` (sections 6 and 7) show up
-as new files in `git status`: they are outputs, don't commit them.
+`git checkout -- results/expert.csv`; the same for the report's figures (`results/analysis/approach.*`,
+`checkpoints/*_loss.png`) if a rerun rewrites them. The other files these commands write (`results/<model>.csv`,
+the rest of `results/analysis/`) and the checkpoints copied back from `checkpoints/seeds/` and
+`checkpoints/chain_starts/` (sections 6 and 7) show up as new files in `git status`: they are outputs, don't commit
+them.
 
 
 ---
 
 ## 6. Replicate the report's numbers
+
+**Figures and tables in the report**, and what makes each:
+
+| in the report (section) | made by | file / README section |
+|---|---|---|
+| Fig. 1 (II-C), the policy diagram | drawn in the report itself | — |
+| Fig. 2 (II-D), training and validation loss of the final model's arm network (seed 0) | `train.py` (every training writes `checkpoints/<model>_loss.png`; for the final model `dagger.py` calls it, section 7) | `checkpoints/split_conc_drive_r1_s0_loss.png` |
+| Fig. 3 (III-A), hand-target distance around parking: both policies and their experts, test 150 | `concurrent_arm/plot_approach.py` | `results/analysis/approach.pdf` / `.png`; 6.2 |
+| Table I (III-A), each policy against its own expert, test 150 (the cloning gap; the target-by-target comparison in the text) | `concurrent_arm/expert_gap.py` | 6.2 |
+| Table II (III-B), ever / held within 5 mm-10 cm, both policies (and, in the caption, their experts), test 150 | `concurrent_arm/expert_gap.py --distances-csv` | 6.2 |
+| Table III (III-C), main design decisions on the course expert's data: rejected v chosen option | earlier models (on `old-master` only), run with `compare.py` and counted with `count_results.py` / `analyse_distances.py`; their results files are on `old-master` (`results/`) | metrics: 5.1 |
+| Table IV (III-D, III-E), generalisation and robustness: start pose, target distance, sensor noise, payload; both policies and the course expert | `robustness/robustness_runs.sh` + `robustness_summary.py`; `noise_runs.sh`, `expert_noise_runs.py`, `noise_recount.py` | 6.3 |
+| Table V (IV), the final model driven by the mast or palm camera against the true target, test 150 | `concurrent_arm/camera_policy_eval.py` + `count_results.py` | 6.4 |
+| Efficiency (III-F): parameters, inference time per step, training time | `train.py` writes `parameters`, `inference_ms` and `train_time_s` to `results/<model>.csv` | the shipped models' files are on `old-master` (`results/split_conc_drive_r1_s*.csv`); 5.2 |
 
 **Before running anything for 3 seeds**, copy seeds 1 and 2 back next to seed 0:
 
@@ -256,6 +278,8 @@ and counts move by about the seed-to-seed spread; the conclusions don't change. 
 differ slightly on every rerun.
 
 ### 6.1 Final model and sequential comparison: validation and test
+
+*Report: Section III-A (Table I, policy rows).*
 
 ```bash
 for s in 0 1 2; do
@@ -272,25 +296,36 @@ git checkout -- results/expert.csv
 For the sequential model use `m=split_seqpre_ppdart_cld_r3_s$s` and `--data-dir data_sequential_expert`. Each `compare.py`
 run of 150 episodes takes 10-20 minutes with the default workers.
 
-What you should get (test 150, 3-seed mean; the report has the full tables):
+What you should get (test 150, 3-seed mean; the policy rows of the report's Table I):
 
 | of 150 | ever within 1 cm | held within 1 cm | within 5 mm | time to reach |
 |---|---|---|---|---|
-| final model | 149.7 | 145.0 | 144.3 | 10.6 s |
-| sequential comparison | 148.3 | 116.0 | 138.0 | 11.8 s |
+| final model | 150.0 | 144.7 | 146.3 | 10.42 s |
+| sequential comparison | 148.3 | 116.0 | 138.0 | 11.82 s |
 
-### 6.2 Each policy against its own expert (Table I)
+The "true position" row of the camera table (Table V) is a second set of test runs of the final model, on another
+machine: 149.7 / 145.0 / 144.3, 10.6 s. The difference is the cross-machine variation described above.
 
-`expert_gap.py` scores the experts' stored test episodes with the same function as the policies and prints each
-policy (3 seeds) next to its own expert, then the two policies target by target. It needs both models' test runs
-from 6.1:
+### 6.2 Each policy against its own expert (Table I, Table II, Fig. 3)
+
+*Report: Sections III-A and III-B.*
+
+- `concurrent_arm/expert_gap.py`: Table I (each policy against its own expert on test 150, the cloning gap, the
+  target-by-target comparison) and, with `--distances-csv`, Table II. It scores the experts' stored test episodes
+  with the same function as the policies.
+- `concurrent_arm/plot_approach.py`: the approach figure (`results/analysis/approach.pdf`).
+
+Both run from `robotnik_arm_task/` and need both models' test runs from 6.1 (`compare_out/<model>_s0-s2`) and their
+expert folders; each takes a few seconds:
 
 ```bash
-python ../concurrent_arm/expert_gap.py --pair sequential data_sequential_expert compare_out/split_seqpre_ppdart_cld_r3_ \
-  --pair concurrent data_concurrent_expert compare_out/split_conc_drive_r1_ --csv results/analysis/expert_gap.csv
+python ../concurrent_arm/expert_gap.py --csv results/analysis/expert_gap.csv --distances-csv results/analysis/expert_gap_distances.csv
+python ../concurrent_arm/plot_approach.py
 ```
 
 ### 6.3 Robustness: start pose, target distance, payload, sensor noise
+
+*Report: Sections III-D and III-E (Table IV).*
 
 **Start pose, target distance, payload.** One script runs all three tests for one model (seed 0) or the expert; one
 summary counts them, model next to expert:
@@ -301,6 +336,8 @@ PY=python bash ../robustness/robustness_runs.sh expert                       # t
 python ../robustness/robustness_summary.py split_conc_drive_r1_s0
 ```
 
+For the sequential column run the same with `split_seqpre_ppdart_cld_r3_s0` (the expert runs are shared).
+
 - **Start pose:** the base starts at (0, 0, 0), offset (2.0, 1.5, 0), rotated (0, 0, 3.0) or both (-1.5, 2.0, -2.0)
   (x m, y m, yaw rad); 50 targets per pose, all 1-3 m from the start pose. Folders `starts/<model>_<pose>`.
 - **Target distance:** default start, targets 0.6-1.0 m (50) and 3.0-5.0 m (200) away, outside the training range of
@@ -309,7 +346,7 @@ python ../robustness/robustness_summary.py split_conc_drive_r1_s0
   the policy's model knows about it. Folders `payload/<model>_<kg>kg`.
 
 **Sensor noise.** Gaussian noise on every sensor reading (joint angles and velocities, base position and orientation), σ = 1, 5 and
-10 (mm, mrad, mrad/s), via noisy copies of the simulator config (`ROBOENV_CONFIG`); the stop rule and the saved errors still
+10 (mm, mrad, mm/s, mrad/s), via noisy copies of the simulator config (`ROBOENV_CONFIG`); the stop rule and the saved errors still
 use the true state. Validation 50, 3 seeds, targets from `data_course_expert`:
 
 ```bash
@@ -318,10 +355,13 @@ python ../robustness/expert_noise_runs.py compare_out/expert_clean_val    # the 
 for n in 1 5 10; do ROBOENV_CONFIG=robotnik_arm_noise$n.json python ../robustness/expert_noise_runs.py compare_out/expert_noise${n}_val; done
 python ../robustness/noise_recount.py split_conc_drive_r1
 python ../robustness/noise_recount.py expert
+# sequential column: noise_runs.sh and noise_recount.py with split_seqpre_ppdart_cld_r3
 python ../concurrent_arm/count_results.py compare_out/split_conc_drive_r1_s0_noise5_val --data-dir data_course_expert   # a second count
 ```
 
 ### 6.4 Camera
+
+*Report: Section IV (Table V).*
 
 The final model driven by each camera option instead of the true target, validation 50 and test 150, 3 seeds:
 
@@ -348,6 +388,8 @@ concurrent expert on the same 300 targets, early IK on: as `data_concurrent_expe
 ---
 
 ## 7. Retrain the models (optional)
+
+*Report: Section II-D (Fig. 2); the camera detectors, Section IV.*
 
 The shipped checkpoints are all that is needed to replicate the evaluation. Retraining runs a chain of steps, each
 starting from the previous checkpoint. **Before retraining, copy the starting checkpoints back next to the others**
