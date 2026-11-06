@@ -16,6 +16,9 @@ robotnik_arm_task/models
 # robotnik_arm_task/checkpoints
 robotnik_arm_task/compare_out
 
+# every dataset folder (data_*, any name, including folders from before the 5 Nov renaming; none is submitted)
+robotnik_arm_task/data_*
+
 # main dataset (~3 GB, regenerated with run_batch.py, not submitted)
 robotnik_arm_task/data_course_expert
 
