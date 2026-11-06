@@ -223,9 +223,9 @@ python run_batch.py --n 60 --seed 11 --height-range 0.2,0.5 --workers 10 --scrip
 
 | command | does | writes |
 |---|---|---|
-| `python compare.py --val-set --model M --data-dir D --out-dir compare_out/X` | policy M headless on the 50 fixed validation targets (all model choices were made on these) | `compare_out/X/val_set/ep_*.npz`, a per-episode table and plots; no results file |
-| `python compare.py --val-full ...` (same options) | all 150 validation targets | `compare_out/X/val_set_full/` |
-| `python compare.py --test-set ...` (same options) | all 150 test targets, used only for the reported numbers | `compare_out/X/test_set/`, `test_set_final_error.png`, and `results/M.csv` + `results/expert.csv` |
+| `python compare.py --val-set --model M --data-dir D --out-dir compare_out/X` | policy M headless on the 50 fixed validation targets (the DAgger rounds and design choices were picked on these) | `compare_out/X/val_set/ep_*.npz`, a per-episode table and plots; no results file |
+| `python compare.py --val-full ...` (same options) | all 150 validation targets (the final pick of both shipped models) | `compare_out/X/val_set_full/` |
+| `python compare.py --test-set ...` (same options) | all 150 test targets, for the reported numbers | `compare_out/X/test_set/`, `test_set_final_error.png`, and `results/M.csv` + `results/expert.csv` |
 | `python ../concurrent_arm/count_results.py compare_out/X ... --data-dir D --set val\|val_full\|test` | the report's counts from saved runs (no simulation) | table on screen |
 | `python analyse_distances.py` | ever / held within 5 mm-10 cm, by target distance and height, final model on test 150 | `results/analysis/final_distances.csv`, `final_bands.csv` |
 | `python train.py ...` / `python dagger.py ...` | training (section 7) | `checkpoints/<model>.pt`, its loss curve and offline test plots (`*_loss.png`, `*_test_per_episode.png`, `*_test_per_output.png`), `results/<model>.csv`; DAgger also `dagger/<name>_rK/` (labelled runs) |
@@ -318,8 +318,10 @@ the order the report uses them:
 Runs are capped at 30 s of simulated time. A run that never gets within 5 mm runs to the cap, and can still count as
 within / held within 1 cm. Results are **3-seed means** (seeds
 0, 1, 2 of the same recipe) unless a table says otherwise. Validation 50 = a fixed 50 of the 150 validation targets
-(`bc_data.quick_val_ids`), used for every choice; **test 150 = all test targets, run only for the reported
-numbers**. The "expert" rows in the robustness tables are the course's expert (`robotnik_arm_task.py`).
+(`bc_data.quick_val_ids`), used for the DAgger rounds and design choices; validation 150 = all 150, used for the
+final pick of both shipped models; **test 150 = all test targets, for the reported numbers** (the final model's
+test runs were looked at before its pick and agree with it). The "expert" rows in the robustness tables are the
+course's expert (`robotnik_arm_task.py`).
 
 **Before running anything for 3 seeds**, copy seeds 1 and 2 back next to seed 0:
 
