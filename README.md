@@ -231,7 +231,9 @@ python run_batch.py --n 60 --seed 11 --height-range 0.2,0.5 --workers 10 --scrip
 | `python train.py ...` / `python dagger.py ...` | training (section 7) | `checkpoints/<model>.pt`, its loss curve and offline test plots (`*_loss.png`, `*_test_per_episode.png`, `*_test_per_output.png`), `results/<model>.csv`; DAgger also `dagger/<name>_rK/` (labelled runs) |
 
 `compare.py --test-set` rewrites `results/expert.csv` with the expert of the folder it ran on; restore it with
-`git checkout -- results/expert.csv`.
+`git checkout -- results/expert.csv`. The other files these commands write (`results/<model>.csv`, `results/analysis/`)
+and the checkpoints copied back from `checkpoints/seeds/` and `checkpoints/chain_starts/` (sections 7 and 8.1) show up
+as new files in `git status`: they are outputs, don't commit them.
 
 
 ---
@@ -300,7 +302,7 @@ python ../concurrent_arm/cnn_eval.py --model checkpoints/cnn_detector_mast_train
 ### 8.1 The metrics
 
 Every number is counted from the saved episode files (`ep_*.npz`, 1 ms per frame) by the scripts named below, from
-the distance between the end effector and the target in each frame:
+the distance between the end effector and the target in each frame.
 
 The main measure of success is getting the hand **within 1 cm** of the target and keeping it there. The metrics, in
 the order the report uses them:
@@ -398,6 +400,7 @@ for place in mast hand; do
       python ../concurrent_arm/camera_policy_eval.py --model split_conc_drive_r1_s$s --set $set \
       --data-dir data_concurrent_expert --out-dir compare_out/split_conc_drive_r1_s${s}_$place
   done; done
+  python ../concurrent_arm/count_results.py compare_out/split_conc_drive_r1_s{0,1,2}_$place --data-dir data_concurrent_expert --set val
   python ../concurrent_arm/count_results.py compare_out/split_conc_drive_r1_s{0,1,2}_$place --data-dir data_concurrent_expert --set test
 done
 ```
