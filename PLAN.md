@@ -546,6 +546,24 @@ rejected models lost by more than the seed spread (see "Evidence per feature" un
    height moved > 10 cm); seed 0's spins recounted on the Mac: 38, the same as on the PC, so all three are counted alike.
    "Collapsed 25" is a different measure from "off floor" (1 on the Mac): dropped from the report row. The report
    row uses all-Mac numbers (one machine for all 3 seeds).
+   **Recount for the report's recovery-data row (Kris, 6 Nov, Mac; Matteo's check of the draft).** The stored test
+   runs recounted with `analyse_distances.run_stats`, the rule behind every other report number (Table I, the
+   distances table), via `route_b_eval.py --set test` and `analyse_distances.py` (both agree on every count):
+
+   | test 150, Mac, s0 / s1 / s2 | ever 1 cm | held 1 cm | within 5 mm |
+   |---|---|---|---|
+   | DART alone (`split_dart_a60x2_s*_test`) | 112 / 98 / 116 = **108.7** (new: the cell above was blank) | 102 / 90 / 94 = 95.3 | 76 / 56 / 61 = 64.3 |
+   | DAgger alone r5 (`split_dagger_r5_s*_test`, Mac) | 86 / 110 / 106 = 100.7 | 34 / 48 / 38 = **40.0** | 55 / 69 / 53 = 59.0 |
+
+   - **DAgger alone held within 1 cm is 40.0, not 40.3:** seed 0 is 34, not 35. One run (episode 194) stays within
+     1 cm for exactly 500 frames, from first to last frame 0.499 s: the 3 Nov count took frames x 1 ms (0.500 s,
+     held), `run_stats` takes the time between the first and last frame (0.499 s, not held). The report uses
+     `run_stats` everywhere, so 40.0.
+   - **No recovery data, `split_arrived_s0` (split + gravity residual, no DART / DAgger), Val 50 only** (no test runs
+     exist): ever within 1 cm 3, held within 1 cm 0, within 5 mm 0 of 50 (held within 10 / 5 cm 38 / 16 as in step 19's
+     DART table). Files `compare_out/split_arrived_s0/val_set` (Kris's Mac).
+   - **The DART + DAgger r5 row stays the PC test run (2 Nov):** no Mac test run of it exists, so the report's
+     recovery row mixes machines (DART alone, DAgger alone: Mac) and the caption says so.
    Expert 149/150. Picked on validation only (val 75%, test 69%: the usual small drop of a best-of-several pick). On
    the brief's 1 cm: held 70%, ever within 1 cm 88%. (Internal context only, **never in the report**: another model is known to reach 149/150 at 1 cm, success
    counted as the end effector reaching the target point in simulation, i.e. the first time within 1 cm. Its authors
