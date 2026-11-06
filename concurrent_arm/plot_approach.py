@@ -71,7 +71,7 @@ def main():
         ax.axhline(y, color=MUTED, lw=0.6, ls=":", zorder=1)
         ax.text(T[0] + 0.08, y * 1.08, lab, color=MUTED, ha="left", va="bottom", fontsize=7)
     ax.axvline(0, color=MUTED, lw=0.6, zorder=1)
-    ax.text(0.08, 0.0013, "base parks", color=MUTED, fontsize=7, va="bottom")
+    ax.text(0.08, 0.0004, "base parks", color=MUTED, fontsize=7, va="bottom")
 
     summary = []
     for name, data_names, prefix, colour in VARIANTS:
@@ -86,11 +86,13 @@ def main():
         i0 = np.searchsorted(T, 0.0)
         summary.append((name, n, ne, med[i0], emed[i0]))
 
-    ax.set_yscale("log")
-    ax.set_ylim(0.001, 0.7)
+    # Log above 5 mm, linear below it and compressed (linscale), so the experts' last millimetres don't take as much
+    # height as a decade above: the step from 5 mm down to ~1 mm would otherwise look as large as 1 cm -> 5 mm.
+    ax.set_yscale("symlog", linthresh=0.005, linscale=0.35)
+    ax.set_ylim(0.0, 0.7)
     ax.set_xlim(T[0], T[-1])
-    ax.set_yticks([0.001, 0.005, 0.01, 0.03, 0.1, 0.3])
-    ax.set_yticklabels(["0.1", "0.5", "1", "3", "10", "30"])
+    ax.set_yticks([0.0, 0.005, 0.01, 0.03, 0.1, 0.3])
+    ax.set_yticklabels(["0", "0.5", "1", "3", "10", "30"])
     ax.yaxis.set_minor_locator(plt.NullLocator())
     ax.set_xlabel("Time from parking (s)")
     ax.set_ylabel("Hand–target distance (cm)")
