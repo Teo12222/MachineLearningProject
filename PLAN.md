@@ -3879,6 +3879,26 @@ lower limit (see "Found on the way" below).
       - Within 5 mm and ever within 1 cm: no clear difference (both near the ceiling).
       - **Checked twice:** recounted from the raw episode files with a separate script (own held-run code); every
         count, the held means (116.0 / 144.7) and the time numbers agree.
+      **Done (Kris, 6 Nov, not pushed): distances table for the two policies and their own experts, 277a242**
+      (`expert_gap.py --distances-csv`, `results/analysis/expert_gap_distances.csv`; replaces the course-expert
+      reference of `analyse_distances.py` for the report's distances table). Ever / held (0.5 s) within each distance,
+      test 150, Mac, policy = 3-seed mean [held seed range]:
+
+      | | 5 mm | 1 cm | 2 cm | 5 cm | 10 cm |
+      |---|---|---|---|---|---|
+      | sequential expert | 150 / 149 | 150 / 149 | 150 / 149 | 150 / 150 | 150 / 150 |
+      | sequential policy | 138.0 / 20.0 [17-26] | 148.3 / 116.0 [114-118] | 150.0 / 147.3 [144-149] | 150.0 / 149.7 | 150 / 150 |
+      | concurrent expert | 150 / 150 | 150 / 150 | 150 / 150 | 150 / 150 | 150 / 150 |
+      | concurrent policy | 146.3 / 70.3 [59-81] | 150.0 / 144.7 [143-146] | **150.0 / 150.0** | 150 / 150 | 150 / 150 |
+
+      - Every policy run of both gets within 5 cm and nearly all stay there (sequential: 149.7 held); the concurrent
+        policy also holds every target within 2 cm on every seed, the sequential one 147.3. The difference is in the
+        last centimetre: held within 1 cm 144.7 v 116.0, held within 5 mm 70.3 v 20.0.
+      - "Ever within 5 mm" (any time) equals the metric rule's "within 5 mm" (once parked) on every run of both
+        policies and experts: nothing gets within 5 mm before parking (checked in the script).
+      - Held within 5 mm is low for both policies because the run stops 1 s after the first 5 mm frame: the hand has
+        to settle within 5 mm inside that second.
+      - **Checked twice:** recounted from the raw files with a separate script (own held-run code), every cell equal.
 
 ### Extension: camera expert, the concurrent expert finds the target with a mast camera (Kris, 4 Nov)
 29. **Camera expert** (Kris, folder `concurrent_arm/`, nothing in `robotnik_arm_task/` changed). The robot is no longer
