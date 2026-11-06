@@ -11,8 +11,8 @@ results themselves are in the report.
 
 | model | checkpoint (`robotnik_arm_task/checkpoints/`) | what it is |
 |---|---|---|
-| **Final model** | `split_conc_drive_r1_s0.pt` | split policy (base network + arm network), learned from our *concurrent* expert (the arm moves to its pre-grasp pose while the base drives), DART + DAgger, plus one DAgger round that also labels the driving phase |
-| Sequential comparison | `split_seqpre_ppdart_cld_r3_s0.pt` | the same recipe on the *sequential pre-shaping* expert (the arm only moves after the base has parked) |
+| **Final model** | `split_conc_drive_r1_s0.pt` | split policy (base network + arm network), learned from the *concurrent variant* of our expert (the arm moves to its pre-grasp pose while the base drives), DART + DAgger, plus one DAgger round that also labels the driving phase |
+| Sequential comparison | `split_seqpre_ppdart_cld_r3_s0.pt` | the same recipe on the expert's *sequential variant* (the arm only moves after the base has parked) |
 | Camera detector: mast | `cnn_detector_mast_train.pt` | small CNN that finds the target in an RGB-D camera on a mast on the base, so the policy runs without being told the target position |
 | Camera detector: palm | `cnn_detector_hand.pt` | the same detector for the other camera option we compare: a camera in the palm of the hand |
 
@@ -36,9 +36,10 @@ The policy checkpoints are seed 0 of three training seeds, chosen on the validat
 ## 1. Most important files
 
 **Task and expert** (`robotnik_arm_task/`)
-- `robotnik_arm_task.py` — the course's expert task script (with our fixes, section 8).
+- `robotnik_arm_task.py` — the task script with the **course controller** (the course's template, with our fixes,
+  section 8).
 - `robotnik_arm_control.py` — the course's base and arm controllers and stop rule (with our fixes).
-- `robotnik_arm_policy_task.py` — the same task driven by a trained policy instead of the expert.
+- `robotnik_arm_policy_task.py` — the same task driven by a trained policy instead of a controller.
 - `run_batch.py` — parallel, headless data collection.
 
 **Learning** (`robotnik_arm_task/`)
@@ -51,9 +52,10 @@ The policy checkpoints are seed 0 of three training seeds, chosen on the validat
 - Also: `tune.py` (hyperparameter search on validation), `train_gru.py` / `train_tcn.py` / `bc_gru.py` (temporal
   models we compared), `relabel_posture.py`, `analyse_temporal.py`, `plot_torques.py`, `results.py`.
 
-**Concurrent expert and camera** (`concurrent_arm/`)
-- **Concurrent expert:** `concurrent_expert.py`, `concurrent_control.py` — the base turns, then drives while the
-  arm moves along a joint path to its pre-grasp pose (`ROBOENV_ARM_SEQUENTIAL=1`: only after parking).
+**The expert and camera** (`concurrent_arm/`)
+- **The expert (our redesign):** `concurrent_expert.py`, `concurrent_control.py` — solves the arm's final pose at
+  the start, then moves the arm there along a joint path: concurrent variant by default (while the base drives),
+  sequential variant with `ROBOENV_ARM_SEQUENTIAL=1` (only after parking).
   `concurrent_chain*.sh` and `seqpre_*.sh` train the models on it; `count_results.py` counts the results;
   `expert_gap.py` puts each policy next to its own expert, and `plot_approach.py` draws the approach figure.
 - **Camera:** `mast_camera.py` (RGB-D camera on a mast or in the palm, colour detector, target estimator),
@@ -115,15 +117,15 @@ On Windows PowerShell set a variable first, e.g. `$env:ROBOENV_TARGET = "1.5,-0.
 
 - **Prints** the target, the error every step, when the base's "arrived" flag latches, and the final error.
 - **Writes** `policy_episode.npz`: the whole run frame by frame (1 ms per frame: time, base pose, joint angles and
-  velocities, wheel commands, arm torques, end-effector position, target, stop message). The expert writes the same
-  format (`episode.npz`), and every evaluation below reads these files.
+  velocities, wheel commands, arm torques, end-effector position, target, stop message). The controllers below write
+  the same format (`episode.npz`), and every evaluation below reads these files.
 - The run stops when the hand is within 5 mm of the target (then 1 s more to check it stays) or after 30 s.
 
 **Other models:** `ROBOENV_POLICY=checkpoints/split_seqpre_ppdart_cld_r3_s0.pt python robotnik_arm_policy_task.py`.
 
-**The expert (the course's controller, with our fixes):** `python robotnik_arm_task.py` (same variables; writes
-`episode.npz`). **Our concurrent expert:** `cd concurrent_arm && python concurrent_expert.py`
-(`ROBOENV_ARM_SEQUENTIAL=1` for the sequential pre-shaping variant).
+**The course controller (the course's template, with our fixes):** `python robotnik_arm_task.py` (same variables;
+writes `episode.npz`). **The expert (our redesign):** `cd concurrent_arm && python concurrent_expert.py`, concurrent
+variant by default, sequential variant with `ROBOENV_ARM_SEQUENTIAL=1`.
 
 **Policy finding the target with a camera** (from `concurrent_arm/`): the base first turns on the spot until the
 camera sees the red target, then the final model drives from the camera's estimate. Two camera options, mast or palm
@@ -143,8 +145,9 @@ ROBOENV_CAMERA_PLACE=hand ROBOENV_CNN_DETECTOR=../robotnik_arm_task/checkpoints/
 
 `ROBOENV_DETECTOR=classical` (the default) uses the colour-threshold detector instead of the CNN.
 
-**Expert and policy side by side:** `python compare.py --target 1.5,-0.8,0.6 --model split_conc_drive_r1_s0` runs the
-expert headless and the policy in the GUI, then plots both (error, base path, end-effector path) into `compare_out/`.
+**Course controller and policy side by side:** `python compare.py --target 1.5,-0.8,0.6 --model split_conc_drive_r1_s0`
+runs the course controller headless and the policy in the GUI, then plots both (error, base path, end-effector path)
+into `compare_out/`.
 
 **Settings by environment variable** (all off or at the course's behaviour by default): `ROBOENV_TARGET`,
 `ROBOENV_START`, `ROBOENV_POLICY`, `ROBOENV_HEADLESS`, `ROBOENV_MAX_TIME`, `ROBOENV_OUT`, `ROBOENV_CONFIG`,
@@ -165,7 +168,7 @@ workers collect 1,000 episodes in about **10-20 minutes** on a laptop (one episo
 are drawn from a seed (1-3 m from the start, 0.2-1.1 m high), so the same command always gives the same targets.
 
 ```bash
-# a quick look: 20 episodes of the course's expert into data_try/ (about a minute)
+# a quick look: 20 episodes of the course controller into data_try/ (about a minute)
 python run_batch.py --n 20 --workers 10 --out-dir data_try
 ```
 
@@ -177,9 +180,9 @@ same in every folder: 700 / 150 / 150 episodes, `bc_data.split_episodes`):
 
 | folder | what it holds | command | used for |
 |---|---|---|---|
-| `data_concurrent_expert` | 1,000 runs of **our concurrent expert**: the base turns to the target, then drives while the arm moves to its pre-grasp pose; after parking, the arm closes in with Cartesian control | `ROBOENV_ARM_EARLY_IK=0 python run_batch.py --n 1000 --seed 0 --workers 10 --script ../concurrent_arm/concurrent_expert.py --out-dir data_concurrent_expert` | the final model: training data, and the targets of its validation and test runs; camera runs |
-| `data_sequential_expert` | 1,000 runs of the **sequential pre-shaping expert**: the same, but the arm stays still while the base drives and only moves to its pre-grasp pose after parking | `PY=python bash ../concurrent_arm/seqpre_collect.sh` (also writes its DART and low-target folders) | the sequential comparison model |
-| `data_course_expert` | 1,000 runs of the **course's expert** (`robotnik_arm_task.py`, with our fixes): base drives and parks, then the arm reaches | `python run_batch.py --n 1000 --seed 0 --workers 10 --out-dir data_course_expert` | the expert column of the distances table and the sensor-noise runs (section 6) |
+| `data_concurrent_expert` | 1,000 runs of **the expert, concurrent variant**: the base turns to the target, then drives while the arm moves to its pre-grasp pose; after parking, the arm closes in with Cartesian control | `ROBOENV_ARM_EARLY_IK=0 python run_batch.py --n 1000 --seed 0 --workers 10 --script ../concurrent_arm/concurrent_expert.py --out-dir data_concurrent_expert` | the final model: training data, and the targets of its validation and test runs; camera runs |
+| `data_sequential_expert` | 1,000 runs of **the expert, sequential variant**: the same, but the arm stays still while the base drives and only moves to its pre-grasp pose after parking | `PY=python bash ../concurrent_arm/seqpre_collect.sh` (also writes its DART and low-target folders) | the sequential comparison model |
+| `data_course_expert` | 1,000 runs of the **course controller** (the course's template, `robotnik_arm_task.py`, with our fixes): base drives and parks, then the arm reaches | `python run_batch.py --n 1000 --seed 0 --workers 10 --out-dir data_course_expert` | the base network of both policies; the pipeline's design decisions (Table III); the course controller's column of the distances table and the sensor-noise runs (section 6) |
 
 All three folders use the same 1,000 targets.
 
@@ -224,8 +227,8 @@ within / held within 1 cm. Results are **3-seed means** (seeds
 0, 1, 2 of the same recipe) unless a table says otherwise. Validation 50 = a fixed 50 of the 150 validation targets
 (`bc_data.quick_val_ids`), used for the DAgger rounds and design choices; validation 150 = all 150, used for the
 final pick of both shipped models; **test 150 = all test targets, for the reported numbers** (the final model's
-test runs were looked at before its pick and agree with it). The "expert" rows in the robustness tables are the
-course's expert (`robotnik_arm_task.py`).
+test runs were looked at before its pick and agree with it). The reference column of the robustness tables ("Course
+controller", called `expert` by the scripts) is the course controller (`robotnik_arm_task.py`, with our fixes).
 
 ### 5.2 The evaluation scripts and what they write
 
@@ -261,8 +264,8 @@ them.
 | Fig. 3 (III-A), hand-target distance around parking: both policies and their experts, test 150 | `concurrent_arm/plot_approach.py` | `results/analysis/approach.pdf` / `.png`; 6.2 |
 | Table I (III-A), each policy against its own expert, test 150 (the cloning gap; the target-by-target comparison in the text) | `concurrent_arm/expert_gap.py` | 6.2 |
 | Table II (III-B), ever / held within 5 mm-10 cm, both policies (and, in the caption, their experts), test 150 | `concurrent_arm/expert_gap.py --distances-csv` | 6.2 |
-| Table III (III-C), main design decisions on the course expert's data: rejected v chosen option | earlier models (on `old-master` only), run with `compare.py` and counted with `count_results.py` / `analyse_distances.py`; their results files are on `old-master` (`results/`) | metrics: 5.1 |
-| Table IV (III-D, III-E), generalisation and robustness: start pose, target distance, sensor noise, payload; both policies and the course expert | `robustness/robustness_runs.sh` + `robustness_summary.py`; `noise_runs.sh`, `expert_noise_runs.py`, `noise_recount.py` | 6.3 |
+| Table III (III-C), main design decisions on the course controller's data: rejected v chosen option | earlier models (on `old-master` only), run with `compare.py` and counted with `count_results.py` / `analyse_distances.py`; their results files are on `old-master` (`results/`) | metrics: 5.1 |
+| Table IV (III-D, III-E), generalisation and robustness: start pose, target distance, sensor noise, payload; both policies and the course controller (reference column) | `robustness/robustness_runs.sh` + `robustness_summary.py`; `noise_runs.sh`, `expert_noise_runs.py`, `noise_recount.py` | 6.3 |
 | Table V (IV), the final model driven by the mast or palm camera against the true target, test 150 | `concurrent_arm/camera_policy_eval.py` + `count_results.py` | 6.4 |
 | Efficiency (III-F): parameters, inference time per step, training time | `train.py` writes `parameters`, `inference_ms` and `train_time_s` to `results/<model>.csv` | the shipped models' files are on `old-master` (`results/split_conc_drive_r1_s*.csv`); 5.2 |
 
@@ -289,7 +292,7 @@ for s in 0 1 2; do
 done
 python ../concurrent_arm/count_results.py compare_out/split_conc_drive_r1_s{0,1,2}_val150 --data-dir data_concurrent_expert --set val_full
 python ../concurrent_arm/count_results.py compare_out/split_conc_drive_r1_s{0,1,2} --data-dir data_concurrent_expert --set test
-python analyse_distances.py                  # distances table (test 150; the expert column needs data_course_expert)
+python analyse_distances.py                  # distances table (test 150; the course controller's column needs data_course_expert)
 git checkout -- results/expert.csv
 ```
 
@@ -327,23 +330,23 @@ python ../concurrent_arm/plot_approach.py
 
 *Report: Sections III-D and III-E (Table IV).*
 
-**Start pose, target distance, payload.** One script runs all three tests for one model (seed 0) or the expert; one
-summary counts them, model next to expert:
+**Start pose, target distance, payload.** One script runs all three tests for one model (seed 0) or the course
+controller (`expert`); one summary counts them, model next to the course controller:
 
 ```bash
 PY=python bash ../robustness/robustness_runs.sh split_conc_drive_r1_s0       # ~45 min
-PY=python bash ../robustness/robustness_runs.sh expert                       # the reference
+PY=python bash ../robustness/robustness_runs.sh expert                       # the course controller, the reference
 python ../robustness/robustness_summary.py split_conc_drive_r1_s0
 ```
 
-For the sequential column run the same with `split_seqpre_ppdart_cld_r3_s0` (the expert runs are shared).
+For the sequential column run the same with `split_seqpre_ppdart_cld_r3_s0` (the course controller's runs are shared).
 
 - **Start pose:** the base starts at (0, 0, 0), offset (2.0, 1.5, 0), rotated (0, 0, 3.0) or both (-1.5, 2.0, -2.0)
   (x m, y m, yaw rad); 50 targets per pose, all 1-3 m from the start pose. Folders `starts/<model>_<pose>`.
 - **Target distance:** default start, targets 0.6-1.0 m (50) and 3.0-5.0 m (200) away, outside the training range of
   1-3 m (`robustness/out_of_range.py`). Folders `oor/<model>_<near|far>`.
-- **Payload:** 0.5, 1 or 2 kg added to the hand in the simulator only (`ROBOENV_PAYLOAD`); neither the expert's nor
-  the policy's model knows about it. Folders `payload/<model>_<kg>kg`.
+- **Payload:** 0.5, 1 or 2 kg added to the hand in the simulator only (`ROBOENV_PAYLOAD`); neither the course
+  controller's nor the policy's model knows about it. Folders `payload/<model>_<kg>kg`.
 
 **Sensor noise.** Gaussian noise on every sensor reading (joint angles and velocities, base position and orientation), σ = 1, 5 and
 10 (mm, mrad, mm/s, mrad/s), via noisy copies of the simulator config (`ROBOENV_CONFIG`); the stop rule and the saved errors still
@@ -351,7 +354,7 @@ use the true state. Validation 50, 3 seeds, targets from `data_course_expert`:
 
 ```bash
 PY=python bash ../robustness/noise_runs.sh split_conc_drive_r1           # model prefix: seeds 0-2, clean + 3 levels
-python ../robustness/expert_noise_runs.py compare_out/expert_clean_val    # the expert under the same noise
+python ../robustness/expert_noise_runs.py compare_out/expert_clean_val    # the course controller under the same noise
 for n in 1 5 10; do ROBOENV_CONFIG=robotnik_arm_noise$n.json python ../robustness/expert_noise_runs.py compare_out/expert_noise${n}_val; done
 python ../robustness/noise_recount.py split_conc_drive_r1
 python ../robustness/noise_recount.py expert
@@ -382,7 +385,7 @@ The episodes run inside `concurrent_arm/`, so give the detector as an absolute p
 doesn't resolve there makes every run fail quietly ("no result"). The camera expert and its analysis:
 `python run_batch.py --n 300 --seed 0 --workers 10 --script ../concurrent_arm/camera_expert.py --out-dir data_camera`,
 then `python ../concurrent_arm/analyse_camera.py data_camera --ref data_concurrent` (with `data_concurrent` the
-concurrent expert on the same 300 targets, early IK on: as `data_concurrent_expert`'s command without `ROBOENV_ARM_EARLY_IK=0`).
+expert's concurrent variant on the same 300 targets, early IK on: as `data_concurrent_expert`'s command without `ROBOENV_ARM_EARLY_IK=0`).
 
 
 ---
@@ -452,20 +455,20 @@ python ../concurrent_arm/cnn_eval.py --model checkpoints/cnn_detector_mast_train
 
 **From the course (given):**
 - `robotnik_arm_task/robotnik_arm_task.py`, `robotnik_arm_task/robotnik_arm_control.py` and
-  `robotnik_arm_task/README.md` — the task, the expert's controllers and the setup note.
+  `robotnik_arm_task/README.md` — the task, the course controller and the setup note.
 - RoboEnv: `simulation_and_control` (simulator interface, Pinocchio wrapper), `models/` (robot URDF) and `configs/`.
 
 **Libraries:** PyBullet, Pinocchio, PyTorch, NumPy, Matplotlib.
 
-**Modified course files** (`robotnik_arm_task.py`, `robotnik_arm_control.py`): the expert's stop rule (check
-"reached" before "stalled", stop on reaching instead of a fixed minimum time, a shorter stall window, a 5 mm reach
+**Modified course files** (`robotnik_arm_task.py`, `robotnik_arm_control.py`, the course controller): its stop rule
+(check "reached" before "stalled", stop on reaching instead of a fixed minimum time, a shorter stall window, a 5 mm reach
 tolerance), a joint-chatter fix, any start pose (`ROBOENV_START`), headless runs that save every frame to `.npz`,
 DART noise on the applied torques, sensor-noise configs (`ROBOENV_CONFIG`) and an optional payload
 (`ROBOENV_PAYLOAD`). Every addition is off by default.
 
-**Adapted copies of the course's task script:** `robotnik_arm_policy_task.py` (the policy in place of the expert),
-`concurrent_arm/concurrent_expert.py` (the concurrent expert), `concurrent_arm/camera_expert.py` and
-`concurrent_arm/camera_policy_task.py` (with the camera).
+**Adapted copies of the course's task script:** `robotnik_arm_policy_task.py` (the policy in place of the
+course controller), `concurrent_arm/concurrent_expert.py` (the expert, both variants), `concurrent_arm/camera_expert.py`
+and `concurrent_arm/camera_policy_task.py` (with the camera).
 
 **Written from scratch by us:** everything else — data collection, the networks and training, DART / DAgger and the
 offline relabelling, evaluation and analysis, the concurrent arm path, the camera (detector, estimator, CNN) and the
