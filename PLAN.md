@@ -3858,6 +3858,27 @@ lower limit (see "Found on the way" below).
         separate script from the raw episodes (own held-run code) and against `index.csv` (sim_time - 1 s settle =
         the first 5 mm frame on all 300 episodes; means 11.08 / 10.00 s). Expert reference here = each policy's own
         variant (the robustness tables use the course expert instead).
+      **Done (Kris, 6 Nov, not pushed): the two policies target by target, 817bc78** (`expert_gap.py`, printed after
+      the table; rules fixed before looking). Per target and measure a policy's score = how many of its 3 seeds pass
+      (0-3); majority = passes in >= 2 of 3, with an exact sign (McNemar) test on the targets where only one policy
+      passes. Same Mac test runs as above.
+
+      | test 150 | concurrent higher | sequential higher | same | majority: concurrent only / sequential only / both / neither | sign test |
+      |---|---|---|---|---|---|
+      | ever 1 cm | 5 | 0 | 145 | 0 / 0 / 150 / 0 | - |
+      | held 1 cm | **62** | **5** | 83 | **26 / 0** / 121 / 3 | p = 3e-8 |
+      | within 5 mm | 29 | 5 | 116 | 3 / 1 / 146 / 0 | p = 0.62 |
+
+      - **Held within 1 cm: the concurrent policy is better target by target, not only on average.** By majority it
+        holds 26 targets the sequential one doesn't and loses none; by seed count it is higher on 62, lower on 5.
+      - By height (held 1 cm, concurrent higher / sequential higher / same): 0.2-0.5 m 37 / 3 / 18 of 58; 0.5-0.8 m
+        12 / 0 / 28 of 40; 0.8-1.1 m 13 / 2 / 37 of 52. Most of the difference is on low targets.
+      - **Time to reach** (per target, mean over the seeds within 5 mm; all 150 reached by both in >= 1 seed): concurrent
+        faster on 137 of 150, slower on 13 (p = 3e-27); mean -1.45 s, median -1.09 s. The 13 slower targets are spread
+        over heights 0.30-0.98 m (no band).
+      - Within 5 mm and ever within 1 cm: no clear difference (both near the ceiling).
+      - **Checked twice:** recounted from the raw episode files with a separate script (own held-run code); every
+        count, the held means (116.0 / 144.7) and the time numbers agree.
 
 ### Extension: camera expert, the concurrent expert finds the target with a mast camera (Kris, 4 Nov)
 29. **Camera expert** (Kris, folder `concurrent_arm/`, nothing in `robotnik_arm_task/` changed). The robot is no longer
