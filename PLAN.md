@@ -3830,6 +3830,34 @@ lower limit (see "Found on the way" below).
       held 1 cm +3.7, low +8.6. **Best sequential pre-shaping model: `split_seqpre_ppdart_cld_r3_s0/1/2`** (val
       pick; report that test favours ppdart r2 on holding). Still far below drive-phase r1 (test held 116 v 145,
       reached 138 v 146, 1.4 s slower).
+      **Done (Kris, 6 Nov, not pushed): each policy against its own expert on test 150, same measures (report
+      Table I, cloning gap), dcd8442.** `concurrent_arm/expert_gap.py` scores the expert's stored test episodes
+      (`data_seqpre` / `data_route_b`, = `data_sequential_expert` / `data_concurrent_expert` on master) with
+      `route_b_eval.stats`, the function behind the policy tables, so both sides use one definition (metric rule, 5 Nov:
+      ever 1 cm, held 1 cm for 0.5 s, within 5 mm once parked, time of that frame without the settle, mean over the
+      runs within 5 mm). Policy runs: the Mac test runs of chain 9 / 7. Checks in the script: same 150 test ids, every
+      policy run's target equal to the expert episode's. Output `results/analysis/expert_gap.csv`.
+
+      | test 150 (Mac) | ever 1 cm | held 1 cm | within 5 mm | time to reach | low held 1 cm (/58) |
+      |---|---|---|---|---|---|
+      | sequential expert | 150 | 149 | 150 | 11.08 s | 58 |
+      | sequential policy (ppdart_cld r3, 3 seeds) | 148.3 | 116.0 | 138.0 | 11.82 s | 37.3 |
+      | gap | -1.7 | **-33.0** | -12.0 | +0.73 s (paired +0.76 s) | **-20.7** |
+      | concurrent expert | 150 | 150 | 150 | 10.00 s | 58 |
+      | concurrent policy (drive-phase r1, 3 seeds) | 150.0 | 144.7 | 146.3 | 10.42 s | 54.0 |
+      | gap | 0.0 | **-5.3** | -3.7 | +0.42 s (paired +0.42 s) | **-4.0** |
+
+      - **The concurrent behaviour is the easier one to clone:** its policy loses 5.3 held within 1 cm against its
+        expert, the sequential one 33.0 (and 20.7 of 58 low targets v 4.0). Both experts are near perfect, so the
+        policy gap is almost all cloning loss. Time: each policy is slower than its expert, the concurrent less so.
+      - Paired time = policy minus expert on the targets both get within 5 mm (141 / 132 / 141 and 146 / 144 / 149 per
+        seed), the same picture as the difference of means.
+      - The sequential expert's one run not held within 1 cm (ep 579, z 0.69 m) is a swing-through: 4.6 mm closest,
+        3.0 cm at the end (the pass-throughs near ~0.7 m above).
+      - **Checked twice:** policy rows equal the chain-9 table above on every column; expert rows recounted with a
+        separate script from the raw episodes (own held-run code) and against `index.csv` (sim_time - 1 s settle =
+        the first 5 mm frame on all 300 episodes; means 11.08 / 10.00 s). Expert reference here = each policy's own
+        variant (the robustness tables use the course expert instead).
 
 ### Extension: camera expert, the concurrent expert finds the target with a mast camera (Kris, 4 Nov)
 29. **Camera expert** (Kris, folder `concurrent_arm/`, nothing in `robotnik_arm_task/` changed). The robot is no longer
