@@ -85,8 +85,8 @@ DART noise on the applied torques, sensor-noise configs (`ROBOENV_CONFIG`) and a
 
 **Written from scratch by us:** everything else — data collection, the networks and training, DART / DAgger and the
 offline relabelling, evaluation and analysis, the concurrent arm path, the camera (detector, estimator, CNN) and the
-robustness tests. Methods we implemented from the literature (no code taken): DAgger (Ross et al., 2011), DART
-(Laskey et al., 2017), and a CenterNet-style detector head (Zhou et al., 2019).
+robustness tests. Methods we implemented from the literature (no code taken): DAgger, DART and a CenterNet-style
+detector head.
 
 ---
 
