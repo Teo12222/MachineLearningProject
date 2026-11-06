@@ -3899,6 +3899,20 @@ lower limit (see "Found on the way" below).
       - Held within 5 mm is low for both policies because the run stops 1 s after the first 5 mm frame: the hand has
         to settle within 5 mm inside that second.
       - **Checked twice:** recounted from the raw files with a separate script (own held-run code), every cell equal.
+      **Done (Kris, 6 Nov, not pushed): report figure, hand-target distance around parking, 15c210c**
+      (`concurrent_arm/plot_approach.py` -> `results/analysis/approach.pdf` / `.png`). Same Mac test runs as Table I;
+      t = 0 at each run's first `nav_done` frame (policy latch / expert arrival); after a run stops its last error is
+      kept, so all runs count at every time; policies 3 seeds x 150 pooled (median + interquartile band), experts the
+      median of their 150 test episodes. Colours: reference palette slots 1-2 (blue / orange; node not installed, so
+      the palette validator wasn't run; those two slots are documented as passing).
+      - Median distance at parking: sequential policy 26.0 cm (IQR 14.5-34.4), its expert 26.2; concurrent policy
+        7.8 cm (6.5-8.7), its expert 7.1. +2 s: 2.1 v 0.55 cm. +4 s: sequential policy 0.89 cm (0.60-1.27), concurrent
+        0.49 cm (0.31-0.74); both experts ~0.1 cm.
+      - Each policy follows its expert's median closely until near the target, then levels off: sequential at ~0.9 cm
+        from ~2.5 s after parking, concurrent at ~0.5 cm from ~2 s, while the experts keep closing to ~1 mm. The
+        sequential policy starts its reach at parking from ~26 cm; the concurrent one arrives at ~8 cm.
+      - **Checked twice:** medians and quartiles at t = 0, +2 and +4 s recomputed from the raw files with separate code
+        (nearest frame, no interpolation): all equal to the plotted curves.
 
 ### Extension: camera expert, the concurrent expert finds the target with a mast camera (Kris, 4 Nov)
 29. **Camera expert** (Kris, folder `concurrent_arm/`, nothing in `robotnik_arm_task/` changed). The robot is no longer
