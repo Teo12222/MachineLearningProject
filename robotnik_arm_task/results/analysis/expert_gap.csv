@@ -1,0 +1,13 @@
+variant,row,ever_1cm,held_1cm,within_5mm,t_reach,low_held_1cm,n_low,paired_time_gap_s
+sequential,expert,150,149,150,11.08459994951884,58,58,
+sequential,policy_s0,147,116,141,11.927844003582678,36,58,
+sequential,policy_s1,149,118,132,12.058401505152384,42,58,
+sequential,policy_s2,149,114,141,11.472226951139193,34,58,
+sequential,policy_mean,148.33,116.0,138.0,11.82,37.33,58,
+sequential,gap,-1.67,-33.0,-12.0,0.73,-20.67,,0.756
+concurrent,expert,150,150,150,10.000793317159017,58,58,
+concurrent,policy_s0,150,146,146,10.438041117093334,55,58,
+concurrent,policy_s1,150,143,144,10.552027816573778,54,58,
+concurrent,policy_s2,150,145,149,10.262067119547185,53,58,
+concurrent,policy_mean,150.0,144.67,146.33,10.42,54.0,58,
+concurrent,gap,0.0,-5.33,-3.67,0.42,-4.0,,0.423
