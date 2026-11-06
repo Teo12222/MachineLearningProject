@@ -136,11 +136,48 @@ def paired_targets(first, second):
           f" (sign test p = {sign_test(int((d < 0).sum()), int((d > 0).sum())):.2g})")
 
 
+def distances(per_target, csv_path=None):
+    """Ever / held (0.5 s) within 5 mm, 1, 2, 5 and 10 cm per policy (3-seed mean, seed range) and its own expert.
+
+    Uses run_stats' ever_* / held_* (any time in the run). Also checks that "ever within 5 mm" here equals the
+    metric rule's "within 5 mm" (below 5 mm once parked / latched) on every run, so the table's 5 mm column is that
+    rule; any run that gets within 5 mm before parking is reported.
+    """
+    labels = ("5mm", "1cm", "2cm", "5cm", "10cm")
+    rows = []
+    print("\nDistances, test 150: ever / held (0.5 s) within each distance; policy = 3-seed mean [seed range]")
+    print(f"{'':22s}" + "".join(f"{l:>20s}" for l in labels))
+    for name, P in per_target.items():
+        ids = P["ids"]
+        for who, runs_list in (("expert", [P["expert"]]), ("policy", P["seeds"])):
+            early = sum(r[i]["ever_5mm"] != r[i]["reached"] for r in runs_list for i in ids)
+            if early:
+                print(f"  note: {name} {who}: {early} runs within 5 mm before parking (ever_5mm != within 5 mm)")
+            cells, row = "", {"variant": name, "row": who}
+            for l in labels:
+                ev = [sum(r[i][f"ever_{l}"] for i in ids) for r in runs_list]
+                he = [sum(r[i][f"held_{l}"] for i in ids) for r in runs_list]
+                row[f"ever_{l}"], row[f"held_{l}"] = round(float(np.mean(ev)), 2), round(float(np.mean(he)), 2)
+                rng = f"[{min(he)}-{max(he)}]" if len(he) > 1 else ""
+                cells += f"{np.mean(ev):>8.1f}/{np.mean(he):<5.1f}{rng:7s}"
+            rows.append(row)
+            print(f"{name + ' ' + who:22s}{cells}")
+    if csv_path:
+        out = ROOT / csv_path
+        out.parent.mkdir(parents=True, exist_ok=True)
+        with open(out, "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=list(rows[0]))
+            w.writeheader()
+            w.writerows(rows)
+        print(f"wrote {out}")
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--pair", nargs=3, action="append", metavar=("NAME", "DATA_DIR", "RUN_PREFIX"),
                    help="replace the defaults: expert folder and policy runs prefix (seeds appended)")
     p.add_argument("--csv", help="also write the table to this CSV (relative to robotnik_arm_task/)")
+    p.add_argument("--distances-csv", help="also write the distances table to this CSV (relative to robotnik_arm_task/)")
     a = p.parse_args()
     pairs = [(n, (d,), r) for n, d, r in a.pair] if a.pair else DEFAULT_PAIRS
 
@@ -164,7 +201,7 @@ def main():
             paired.append(np.mean([pol_ids[i]["t_reach"] - exp_ids[i]["t_reach"] for i in both]))
             res["paired_n"] = len(both)
             seeds.append(res)
-            per_target.setdefault(name, {"ids": test_ids, "seeds": []})["seeds"].append(pol_ids)
+            per_target.setdefault(name, {"ids": test_ids, "seeds": [], "expert": exp_ids})["seeds"].append(pol_ids)
         mean = {c: float(np.mean([r[c] for r in seeds])) for c in COLS}
         gap = {c: mean[c] - exp[c] for c in COLS}
         table.append((name, data_dir.name, prefix, exp, seeds, mean, gap, float(np.mean(paired)),
@@ -183,6 +220,7 @@ def main():
         print(f"paired time, policy - expert on targets both get within 5 mm: {paired:+.2f} s "
               f"(n = {' / '.join(map(str, pn))} per seed)")
 
+    distances(per_target, a.distances_csv)
     if len(per_target) == 2:
         paired_targets(*per_target.items())
 
