@@ -1,0 +1,5 @@
+variant,row,ever_5mm,held_5mm,ever_1cm,held_1cm,ever_2cm,held_2cm,ever_5cm,held_5cm,ever_10cm,held_10cm
+sequential,expert,150.0,149.0,150.0,149.0,150.0,149.0,150.0,150.0,150.0,150.0
+sequential,policy,138.0,20.0,148.33,116.0,150.0,147.33,150.0,149.67,150.0,150.0
+concurrent,expert,150.0,150.0,150.0,150.0,150.0,150.0,150.0,150.0,150.0,150.0
+concurrent,policy,146.33,70.33,150.0,144.67,150.0,150.0,150.0,150.0,150.0,150.0
